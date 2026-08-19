@@ -1,0 +1,777 @@
+[
+  {
+    "systemId": "itg-1",
+    "systemName": "朝会報告管理システム",
+    "screens": [
+      {
+        "id": "scr-1787119190590",
+        "name": "日報入力・編集画面",
+        "purpose": "ユーザーが日報を新規作成・編集し、課題項目を入力して報告内容を保存・提出する画面",
+        "items": [
+          "日報作成日時表示",
+          "報告者名表示",
+          "チーム名表示",
+          "本日の実績入力欄",
+          "本日の課題入力欄",
+          "明日の予定入力欄",
+          "課題キーワード選択ドロップダウン",
+          "課題詳細説明入力欄",
+          "課題優先度選択ラジオボタン",
+          "課題抽出結果表示エリア",
+          "添付ファイルアップロード",
+          "下書き保存ボタン"
+        ]
+      },
+      {
+        "id": "scr-1787119200549",
+        "name": "部長向けダッシュボード",
+        "purpose": "チームの朝会報告状況をリアルタイム監視し、優先度の高い課題を一目で把握して迅速な対応判断を支援するダッシュボード",
+        "items": [
+          "本日の報告提出状況サマリー（提出済み/未提出件数）",
+          "未提出メンバー一覧",
+          "優先度別課題一覧（色分け表示）",
+          "課題キーワード発生頻度ランキング",
+          "優先度スコア順序付け課題リスト",
+          "高優先度課題ハイライト表示エリア",
+          "課題の影響度（チーム波及度）表示",
+          "課題詳細確認ボタン",
+          "未提出メンバーへのリマインド送信ボタン",
+          "ダッシュボード設定カスタマイズボタン",
+          "報告提出状況の時系列推移グラフ",
+          "課題キーワード別フィルタリング機能"
+        ]
+      },
+      {
+        "id": "scr-1787119221707",
+        "name": "日報確認・検索画面",
+        "purpose": "提出済み日報の一覧表示、内容確認、課題キーワードによる検索・フィルタリング、詳細情報表示を統合した日報管理画面",
+        "items": [
+          "日報一覧テーブル",
+          "提出日時カラム",
+          "提出者名カラム",
+          "チーム名カラム",
+          "日報ステータスカラム",
+          "課題キーワード検索フィールド",
+          "提出者フィルタドロップダウン",
+          "チームフィルタドロップダウン",
+          "提出日範囲ピッカー",
+          "検索実行ボタン",
+          "フィルタリセットボタン",
+          "日報詳細表示パネル"
+        ]
+      }
+    ],
+    "tableDefinitions": [
+      {
+        "tableName": "ユーザー",
+        "purpose": "朝会報告管理システムのユーザー情報を管理し、ユーザー認証、権限管理、報告者情報の基盤となるマスタテーブル",
+        "columns": [
+          {
+            "name": "ユーザーID",
+            "type": "uuid",
+            "required": true,
+            "description": "ユーザーの一意識別子"
+          },
+          {
+            "name": "ユーザー名",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ユーザーのログインID"
+          },
+          {
+            "name": "表示名",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "朝会報告に表示されるユーザーの名前"
+          },
+          {
+            "name": "メールアドレス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ユーザーのメールアドレス"
+          },
+          {
+            "name": "パスワードハッシュ",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ユーザーのパスワードハッシュ値"
+          },
+          {
+            "name": "役割",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ユーザーの権限レベル（管理者、報告者等）"
+          },
+          {
+            "name": "部門",
+            "type": "varchar(100)",
+            "required": false,
+            "description": "ユーザーが属する部門"
+          },
+          {
+            "name": "有効フラグ",
+            "type": "boolean",
+            "required": true,
+            "description": "ユーザーが有効かどうか"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "ユーザーレコードの作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "ユーザーレコードの最終更新日時"
+          }
+        ]
+      },
+      {
+        "tableName": "チーム",
+        "purpose": "朝会報告管理システムにおけるチーム情報を管理し、ユーザーの所属先を定義する",
+        "columns": [
+          {
+            "name": "チームID",
+            "type": "uuid",
+            "required": true,
+            "description": "チームを一意に識別するプライマリキー"
+          },
+          {
+            "name": "チーム名",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "チームの名称"
+          },
+          {
+            "name": "説明",
+            "type": "text",
+            "required": false,
+            "description": "チームの説明や役割"
+          },
+          {
+            "name": "リーダーユーザーID",
+            "type": "uuid",
+            "required": false,
+            "description": "チームリーダーのユーザーID、ユーザーテーブルへの外部キー"
+          },
+          {
+            "name": "ステータス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "チームのステータス（有効/無効など）"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "チーム作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "チーム情報最終更新日時"
+          },
+          {
+            "name": "作成者ユーザーID",
+            "type": "uuid",
+            "required": true,
+            "description": "チームを作成したユーザーのID"
+          }
+        ]
+      },
+      {
+        "tableName": "ユーザーチーム関連",
+        "purpose": "ユーザーとチームの関連付けを管理し、ユーザーが属するチームと役割を記録するテーブル",
+        "columns": [
+          {
+            "name": "ユーザーチーム関連ID",
+            "type": "uuid",
+            "required": true,
+            "description": "ユーザーチーム関連の一意識別子"
+          },
+          {
+            "name": "ユーザーID",
+            "type": "uuid",
+            "required": true,
+            "description": "関連するユーザーの外部キー"
+          },
+          {
+            "name": "チームID",
+            "type": "uuid",
+            "required": true,
+            "description": "関連するチームの外部キー"
+          },
+          {
+            "name": "役割",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "チーム内でのユーザーの役割（例：リーダー、メンバー、管理者）"
+          },
+          {
+            "name": "参加日",
+            "type": "timestamp",
+            "required": true,
+            "description": "ユーザーがチームに参加した日時"
+          },
+          {
+            "name": "退出日",
+            "type": "timestamp",
+            "required": false,
+            "description": "ユーザーがチームから退出した日時（退出していない場合はNULL）"
+          },
+          {
+            "name": "ステータス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "関連付けのステータス（例：有効、無効、保留中）"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード最終更新日時"
+          },
+          {
+            "name": "作成者",
+            "type": "uuid",
+            "required": true,
+            "description": "レコード作成者のユーザーID"
+          }
+        ]
+      },
+      {
+        "tableName": "朝会報告",
+        "purpose": "朝会での報告内容を記録・管理し、チームの進捗状況や課題を一元管理するシステム",
+        "columns": [
+          {
+            "name": "報告ID",
+            "type": "uuid",
+            "required": true,
+            "description": "朝会報告の一意識別子"
+          },
+          {
+            "name": "チームID",
+            "type": "uuid",
+            "required": true,
+            "description": "報告を行ったチームへの外部キー"
+          },
+          {
+            "name": "報告者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "報告を行ったユーザーへの外部キー"
+          },
+          {
+            "name": "報告日",
+            "type": "timestamp",
+            "required": true,
+            "description": "朝会報告が行われた日時"
+          },
+          {
+            "name": "昨日の実績",
+            "type": "text",
+            "required": true,
+            "description": "前日に完了した業務内容"
+          },
+          {
+            "name": "本日の予定",
+            "type": "text",
+            "required": true,
+            "description": "本日予定している業務内容"
+          },
+          {
+            "name": "課題・懸念事項",
+            "type": "text",
+            "required": false,
+            "description": "進行中の課題や懸念事項がある場合の記述"
+          },
+          {
+            "name": "優先度",
+            "type": "varchar(100)",
+            "required": false,
+            "description": "報告内容の優先度レベル(高/中/低など)"
+          },
+          {
+            "name": "ステータス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "報告のステータス(未確認/確認済み/対応中など)"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード最終更新日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "レコードを作成したユーザーへの外部キー"
+          }
+        ]
+      },
+      {
+        "tableName": "課題キーワード",
+        "purpose": "朝会報告に含まれる課題を分類・検索するためのキーワードマスタテーブル。課題の種類や内容を示すキーワードを管理し、朝会報告との関連付けに使用される。",
+        "columns": [
+          {
+            "name": "課題キーワードID",
+            "type": "uuid",
+            "required": true,
+            "description": "課題キーワードの一意識別子"
+          },
+          {
+            "name": "キーワード名",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "課題キーワードの名称（例：バグ、機能要望、パフォーマンス）"
+          },
+          {
+            "name": "説明",
+            "type": "text",
+            "required": false,
+            "description": "キーワードの詳細説明"
+          },
+          {
+            "name": "チームID",
+            "type": "uuid",
+            "required": false,
+            "description": "このキーワードが属するチームID。NULLの場合は全社共通キーワード"
+          },
+          {
+            "name": "表示順序",
+            "type": "integer",
+            "required": false,
+            "description": "UI表示時のソート順序"
+          },
+          {
+            "name": "有効フラグ",
+            "type": "boolean",
+            "required": true,
+            "description": "キーワードが使用可能かどうか"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード最終更新日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "レコード作成者のユーザーID"
+          }
+        ]
+      },
+      {
+        "tableName": "課題抽出結果",
+        "purpose": "朝会報告から自動抽出された課題を管理し、課題の内容、ステータス、関連情報を記録するテーブル",
+        "columns": [
+          {
+            "name": "課題抽出結果ID",
+            "type": "uuid",
+            "required": true,
+            "description": "課題抽出結果の一意識別子"
+          },
+          {
+            "name": "朝会報告ID",
+            "type": "uuid",
+            "required": true,
+            "description": "この課題が抽出された朝会報告への外部キー"
+          },
+          {
+            "name": "課題内容",
+            "type": "text",
+            "required": true,
+            "description": "抽出された課題の詳細な内容説明"
+          },
+          {
+            "name": "課題タイプ",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "課題の分類（例：バグ、改善、リスク、ブロッカー）"
+          },
+          {
+            "name": "優先度",
+            "type": "varchar(100)",
+            "required": false,
+            "description": "課題の優先度レベル（例：高、中、低）"
+          },
+          {
+            "name": "ステータス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "課題の現在のステータス（例：新規、対応中、完了、保留）"
+          },
+          {
+            "name": "担当チームID",
+            "type": "uuid",
+            "required": false,
+            "description": "課題を担当するチームへの外部キー"
+          },
+          {
+            "name": "担当者ID",
+            "type": "uuid",
+            "required": false,
+            "description": "課題を担当するユーザーへの外部キー"
+          },
+          {
+            "name": "抽出キーワード",
+            "type": "varchar(100)",
+            "required": false,
+            "description": "課題抽出に使用されたキーワード"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "課題抽出結果が作成された日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "課題抽出結果が最後に更新された日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "課題抽出結果を作成したユーザーへの外部キー"
+          }
+        ]
+      },
+      {
+        "tableName": "課題優先度スコア",
+        "purpose": "朝会報告から抽出された課題に対して優先度スコアを管理し、課題の重要度を数値化して優先順位付けを支援するマスタテーブル",
+        "columns": [
+          {
+            "name": "課題優先度スコアID",
+            "type": "uuid",
+            "required": true,
+            "description": "課題優先度スコアの一意識別子"
+          },
+          {
+            "name": "課題抽出結果ID",
+            "type": "uuid",
+            "required": true,
+            "description": "課題抽出結果テーブルへの外部キー参照"
+          },
+          {
+            "name": "優先度スコア",
+            "type": "integer",
+            "required": true,
+            "description": "課題の優先度を示す数値スコア(1-100など)"
+          },
+          {
+            "name": "緊急度",
+            "type": "integer",
+            "required": false,
+            "description": "課題の緊急度を示す数値(1-5など)"
+          },
+          {
+            "name": "影響度",
+            "type": "integer",
+            "required": false,
+            "description": "課題の影響度を示す数値(1-5など)"
+          },
+          {
+            "name": "スコア計算方法",
+            "type": "varchar(100)",
+            "required": false,
+            "description": "優先度スコアの計算方法を示す識別子"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード最終更新日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "ユーザーテーブルへの外部キー参照"
+          }
+        ]
+      },
+      {
+        "tableName": "報告提出状況",
+        "purpose": "朝会報告の提出状況を日次で追跡管理し、未提出者の把握と提出期限管理を行うテーブル",
+        "columns": [
+          {
+            "name": "報告提出状況ID",
+            "type": "uuid",
+            "required": true,
+            "description": "報告提出状況の一意識別子"
+          },
+          {
+            "name": "ユーザーID",
+            "type": "uuid",
+            "required": true,
+            "description": "ユーザーテーブルへの外部キー"
+          },
+          {
+            "name": "報告日",
+            "type": "timestamp",
+            "required": true,
+            "description": "対象となる朝会報告の日付"
+          },
+          {
+            "name": "提出状況",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "提出状況を示す値(未提出/提出済み/遅延提出)"
+          },
+          {
+            "name": "提出日時",
+            "type": "timestamp",
+            "required": false,
+            "description": "実際の報告提出日時"
+          },
+          {
+            "name": "朝会報告ID",
+            "type": "uuid",
+            "required": false,
+            "description": "朝会報告テーブルへの外部キー(提出済みの場合)"
+          },
+          {
+            "name": "期限日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "報告提出の期限日時"
+          },
+          {
+            "name": "遅延フラグ",
+            "type": "boolean",
+            "required": true,
+            "description": "期限を超過して提出されたかどうかを示すフラグ"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "レコード最終更新日時"
+          }
+        ]
+      },
+      {
+        "tableName": "リマインド通知履歴",
+        "purpose": "朝会報告の提出期限前のリマインド通知の送信履歴を記録し、通知の実績管理と再送判定に使用する",
+        "columns": [
+          {
+            "name": "リマインド通知履歴ID",
+            "type": "uuid",
+            "required": true,
+            "description": "リマインド通知履歴の一意識別子"
+          },
+          {
+            "name": "ユーザーID",
+            "type": "uuid",
+            "required": true,
+            "description": "通知対象のユーザーID、ユーザーテーブルへの外部キー"
+          },
+          {
+            "name": "朝会報告ID",
+            "type": "uuid",
+            "required": true,
+            "description": "対象の朝会報告ID、朝会報告テーブルへの外部キー"
+          },
+          {
+            "name": "通知タイプ",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "通知の種類、例：初回リマインド、再リマインド、最終リマインド"
+          },
+          {
+            "name": "通知方法",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "通知の配信方法、例：メール、Slack、アプリ内通知"
+          },
+          {
+            "name": "送信日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "リマインド通知の実際の送信日時"
+          },
+          {
+            "name": "送信ステータス",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "送信結果のステータス、例：成功、失敗、保留中"
+          },
+          {
+            "name": "エラーメッセージ",
+            "type": "text",
+            "required": false,
+            "description": "送信失敗時のエラー詳細メッセージ"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "リマインド通知履歴レコードの作成日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "リマインド通知を作成したシステムまたはユーザーの識別子"
+          }
+        ]
+      },
+      {
+        "tableName": "ダッシュボード設定",
+        "purpose": "ユーザーまたはチームごとのダッシュボード表示設定を管理し、ウィジェットの表示/非表示、レイアウト、フィルター条件などをカスタマイズできる機能を提供する",
+        "columns": [
+          {
+            "name": "ダッシュボード設定ID",
+            "type": "uuid",
+            "required": true,
+            "description": "ダッシュボード設定の一意識別子"
+          },
+          {
+            "name": "ユーザーID",
+            "type": "uuid",
+            "required": false,
+            "description": "個人用ダッシュボード設定の場合のユーザーID、チーム用の場合はNULL"
+          },
+          {
+            "name": "チームID",
+            "type": "uuid",
+            "required": false,
+            "description": "チーム用ダッシュボード設定の場合のチームID、個人用の場合はNULL"
+          },
+          {
+            "name": "設定名",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ダッシュボード設定の名称"
+          },
+          {
+            "name": "ウィジェット表示設定",
+            "type": "text",
+            "required": true,
+            "description": "表示するウィジェットと非表示ウィジェットのリスト（カンマ区切りまたは構造化テキスト）"
+          },
+          {
+            "name": "レイアウトタイプ",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "ダッシュボードのレイアウト種別（例：2カラム、3カラム、カスタム）"
+          },
+          {
+            "name": "デフォルト期間",
+            "type": "varchar(100)",
+            "required": true,
+            "description": "デフォルト表示期間（例：本日、今週、今月）"
+          },
+          {
+            "name": "フィルター条件",
+            "type": "text",
+            "required": false,
+            "description": "ダッシュボードに適用するフィルター条件（チーム、ステータス、優先度など）"
+          },
+          {
+            "name": "自動更新間隔秒",
+            "type": "integer",
+            "required": false,
+            "description": "ダッシュボードの自動更新間隔（秒単位、0の場合は自動更新なし）"
+          },
+          {
+            "name": "デフォルト設定フラグ",
+            "type": "boolean",
+            "required": true,
+            "description": "このユーザー/チームのデフォルトダッシュボード設定かどうか"
+          },
+          {
+            "name": "有効フラグ",
+            "type": "boolean",
+            "required": true,
+            "description": "設定が有効かどうか"
+          },
+          {
+            "name": "作成日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "ダッシュボード設定の作成日時"
+          },
+          {
+            "name": "更新日時",
+            "type": "timestamp",
+            "required": true,
+            "description": "ダッシュボード設定の最終更新日時"
+          },
+          {
+            "name": "作成者ID",
+            "type": "uuid",
+            "required": true,
+            "description": "ダッシュボード設定を作成したユーザーID"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "systemId": "__common__",
+    "systemName": "共通",
+    "screens": [
+      {
+        "id": "scr-1787119211243",
+        "name": "リマインド通知管理画面",
+        "purpose": "チームメンバーへの朝会報告入力のリマインド通知を自動送信し、通知スケジュール、履歴、報告期限までの時間を一元管理する画面",
+        "items": [
+          "定時リマインド通知の自動送信設定",
+          "リマインド送信時刻の設定",
+          "対象チーム・メンバーの選択",
+          "報告期限までの時間表示",
+          "リマインド通知スケジュール一覧",
+          "スケジュール有効/無効の切り替え",
+          "リマインド通知履歴の確認",
+          "通知送信日時の表示",
+          "通知対象者の表示",
+          "通知ステータス（送信済み/未送信）の表示",
+          "通知内容の確認",
+          "スケジュール新規作成ボタン"
+        ]
+      }
+    ],
+    "tableDefinitions": []
+  }
+]

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nippo - ログイン画面</title>
+  <style>
+    :root {
+      /* Primary & Accent */
+      --primary: #4a9eff;
+      --primary-hover: #357abd;
+
+      /* Background Layers */
+      --bg-main: #0f1419;
+      --bg-card: #1a1f2e;
+      --bg-sidebar: #151b28;
+      --top-bar-bg: #0d1117;
+
+      /* Borders & Dividers */
+      --border: #2a3142;
+      --top-bar-border: #1e2535;
+
+      /* Text */
+      --text: #e8eef7;
+      --text-muted: #8a92a8;
+
+      /* Typography */
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+
+      /* Spacing & Sizing */
+      --space-unit: 8px;
+      --control-height: 36px;
+      --radius-card: 8px;
+      --radius-control: 6px;
+
+      /* Borders */
+      --border-width: 1px;
+
+      /* Shadows */
+      --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+      /* Motion */
+      --motion-duration: 200ms;
+
+      /* Surface Texture */
+      --surface-texture: 
+        linear-gradient(135deg, rgba(74, 158, 255, 0.03) 0%, transparent 50%),
+        linear-gradient(45deg, rgba(138, 146, 168, 0.02) 0%, transparent 50%),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 2px,
+          rgba(42, 49, 66, 0.5) 2px,
+          rgba(42, 49, 66, 0.5) 4px
+        );
+      --surface-texture-size: 100% 100%;
+      --surface-texture-position: 0 0;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: var(--font-family);
+      background-color: var(--bg-main);
+      color: var(--text);
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: var(--space-unit) * 2;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .login-card {
+      background-color: var(--bg-card);
+      border: var(--border-width) solid var(--border);
+      border-radius: var(--radius-card);
+      padding: calc(var(--space-unit) * 6);
+      box-shadow: var(--shadow-card);
+      background-image: var(--surface-texture);
+      background-size: var(--surface-texture-size);
+      background-position: var(--surface-texture-position);
+    }
+
+    .login-header {
+      margin-bottom: calc(var(--space-unit) * 5);
+      text-align: center;
+    }
+
+    .login-logo {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: calc(var(--space-unit) * 2);
+      background: linear-gradient(135deg, var(--primary) 0%, #6bb3ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .login-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: calc(var(--space-unit) * 1);
+    }
+
+    .login-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--space-unit) * 3);
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--space-unit) * 1.5);
+    }
+
+    .form-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.3px;
+    }
+
+    .form-input {
+      height: var(--control-height);
+      padding: 0 calc(var(--space-unit) * 2);
+      background-color: rgba(42, 49, 66, 0.4);
+      border: var(--border-width) solid var(--border);
+      border-radius: var(--radius-control);
+      font-family: var(--font-family);
+      font-size: 14px;
+      color: var(--text);
+      transition: all var(--motion-duration) ease;
+      outline: none;
+    }
+
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .form-input:hover {
+      border-color: rgba(74, 158, 255, 0.3);
+      background-color: rgba(42, 49, 66, 0.6);
+    }
+
+    .form-input:focus {
+      border-color: var(--primary);
+      background-color: rgba(42, 49, 66, 0.8);
+      box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
+    }
+
+    .login-button {
+      height: var(--control-height);
+      background: linear-gradient(135deg, var(--primary) 0%, #357abd 100%);
+      border: none;
+      border-radius: var(--radius-control);
+      font-family: var(--font-family);
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+      cursor: pointer;
+      transition: all var(--motion-duration) ease;
+      letter-spacing: 0.3px;
+      margin-top: calc(var(--space-unit) * 1);
+    }
+
+    .login-button:hover {
+      background: linear-gradient(135deg, var(--primary-hover) 0%, #2a5a8f 100%);
+      box-shadow: 0 8px 16px rgba(74, 158, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .login-button:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 8px rgba(74, 158, 255, 0.15);
+    }
+
+    .login-footer {
+      margin-top: calc(var(--space-unit) * 6);
+      padding-top: calc(var(--space-unit) * 4);
+      border-top: var(--border-width) solid var(--border);
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: var(--space-unit) * 2;
+      }
+
+      .login-card {
+        padding: calc(var(--space-unit) * 4);
+      }
+
+      .login-header {
+        margin-bottom: calc(var(--space-unit) * 4);
+      }
+
+      .login-logo {
+        font-size: 28px;
+      }
+
+      .login-title {
+        font-size: 18px;
+      }
+
+      .login-subtitle {
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo">nippo</div>
+        <h1 class="login-title" data-testid="login-title">朝会報告管理システム</h1>
+        <p class="login-subtitle">ログインして始める</p>
+      </div>
+
+      <form class="login-form" data-testid="login-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="username">ユーザー名</label>
+          <input
+            class="form-input"
+            type="text"
+            id="username"
+            name="username"
+            data-testid="username"
+            placeholder="ユーザー名を入力"
+            autocomplete="username"
+          >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">パスワード</label>
+          <input
+            class="form-input"
+            type="password"
+            id="password"
+            name="password"
+            data-testid="password"
+            placeholder="パスワードを入力"
+            autocomplete="current-password"
+          >
+        </div>
+
+        <button
+          class="login-button"
+          type="submit"
+          data-testid="login-button"
+        >
+          ログイン
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <p>※ サンプル実装のため、どの入力内容でもログインできます</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.querySelector('[data-testid="login-form"]').addEventListener('submit', function(e) {
+      e.preventDefault();
+      window.location.href = './index.html';
+    });
+  </script>
+</body>
+</html>
