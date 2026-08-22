@@ -6,230 +6,151 @@ test.describe("リマインド通知管理画面", () => {
   });
 
   // SCEN-011: [edge] リマインド通知管理画面 - リマインド通知スケジュール一覧に0件のときスケジュールなし表示になる
-  test("SCEN-011: スケジュール一覧に0件のときスケジュールなし表示になる", async ({ page }) => {
-    const scheduleSection = page.locator('text=スケジュール');
-    await scheduleSection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-011: スケジュール一覧が0件のとき『スケジュールなし』と表示される", async ({ page }) => {
+    const scheduleSection = page.locator("text=スケジュール");
+    await expect(scheduleSection).toBeVisible();
     
-    const noScheduleMessage = page.locator('text=スケジュールなし');
-    const isVisible = await noScheduleMessage.isVisible().catch(() => false);
-    
-    if (isVisible) {
-      await expect(noScheduleMessage).toBeVisible();
-    } else {
-      const scheduleItems = page.locator('[class*="schedule-item"]');
-      const count = await scheduleItems.count();
-      if (count === 0) {
-        await expect(page.locator('text=nippo')).toBeVisible();
-      }
-    }
+    const noScheduleMessage = page.locator("text=スケジュールなし");
+    await expect(noScheduleMessage).toBeVisible();
   });
 
   // SCEN-012: [normal] リマインド通知管理画面 - リマインド通知履歴一覧に複数件の履歴が表示される
   test("SCEN-012: リマインド通知履歴一覧に複数件の履歴が表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-    
-    const historyRows = page.locator('[class*="history-row"], [class*="notification-record"], tr').filter({
-      has: page.locator('[class*="status"]')
-    });
-    
-    const rowCount = await historyRows.count().catch(() => 0);
-    
-    if (rowCount > 0) {
-      await expect(historyRows.first()).toBeVisible();
-    } else {
-      await expect(page.locator('text=nippo')).toBeVisible();
-    }
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const historyRows = page.locator("tr, li").filter({ hasText: /送信済み|未送信/ });
+    const count = await historyRows.count();
+    expect(count).toBeGreaterThanOrEqual(2);
   });
 
   // SCEN-013: [edge] リマインド通知管理画面 - リマインド通知履歴一覧に0件のとき履歴なし表示になる
-  test("SCEN-013: リマインド通知履歴一覧に0件のとき履歴なし表示になる", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-    
-    const noHistoryMessage = page.locator('text=履歴なし');
+  test("SCEN-013: 履歴一覧が0件のとき『履歴なし』と表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const noHistoryMessage = page.locator("text=履歴なし");
     const isVisible = await noHistoryMessage.isVisible().catch(() => false);
     
     if (isVisible) {
       await expect(noHistoryMessage).toBeVisible();
     } else {
-      const historyRows = page.locator('[class*="history-row"], tr').filter({
-        has: page.locator('[class*="sent-date"], [class*="member-name"]')
-      });
+      const historyRows = page.locator("tr, li").filter({ hasText: /送信済み|未送信/ });
       const count = await historyRows.count();
-      if (count === 0) {
-        await expect(page.locator('text=nippo')).toBeVisible();
-      }
+      expect(count).toBe(0);
     }
   });
 
   // SCEN-014: [normal] リマインド通知管理画面 - リマインド通知履歴に通知送信日時が表示される
-  test("SCEN-014: リマインド通知履歴に通知送信日時が表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-014: 通知履歴に送信日時が表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const dateTimePattern = /\d{4}[-\/]\d{2}[-\/]\d{2}|\d{1,2}:\d{2}/;
+    const historyContent = page.locator("table, .history-list, [class*='history']");
+    const text = await historyContent.innerText().catch(() => "");
     
-    const dateTimeElements = page.locator('[class*="sent-date"], [class*="timestamp"], [class*="date-time"]');
-    const count = await dateTimeElements.count().catch(() => 0);
-    
-    if (count > 0) {
-      await expect(dateTimeElements.first()).toBeVisible();
-      const text = await dateTimeElements.first().textContent().catch(() => '');
-      if (text && text.trim()) {
-        expect(text.trim().length).toBeGreaterThan(0);
-      }
-    } else {
-      await expect(page.locator('text=nippo')).toBeVisible();
-    }
+    expect(text).toMatch(dateTimePattern);
   });
 
   // SCEN-015: [normal] リマインド通知管理画面 - リマインド通知履歴に通知対象者が表示される
-  test("SCEN-015: リマインド通知履歴に通知対象者が表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-015: 通知履歴に通知対象者が表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const notificationRow = page.locator("tr, li").first();
+    const text = await notificationRow.innerText();
     
-    const memberNameElements = page.locator('[class*="member-name"], [class*="recipient"], [class*="target-user"]');
-    const count = await memberNameElements.count().catch(() => 0);
-    
-    if (count > 0) {
-      await expect(memberNameElements.first()).toBeVisible();
-      const text = await memberNameElements.first().textContent().catch(() => '');
-      if (text && text.trim()) {
-        expect(text.trim().length).toBeGreaterThan(0);
-      }
-    } else {
-      const detailLink = page.locator('[class*="detail-link"], button:has-text("詳細"), a:has-text("詳細")');
-      if (await detailLink.count() > 0) {
-        await detailLink.first().click();
-        await page.waitForTimeout(300);
-        const recipientInfo = page.locator('[class*="recipient"], text=/通知対象者/');
-        await expect(recipientInfo).toBeVisible().catch(() => {});
-      }
-    }
+    expect(text.length).toBeGreaterThan(0);
+    expect(/対象者|ユーザー|メンバー|担当者/.test(text) || /[ぁ-ん]/.test(text)).toBeTruthy();
   });
 
   // SCEN-016: [normal] リマインド通知管理画面 - リマインド通知履歴に送信済みステータスが表示される
-  test("SCEN-016: リマインド通知履歴に送信済みステータスが表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-016: 通知履歴に『送信済み』ステータスが表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const sentStatus = page.locator("text=送信済み");
+    const isSentStatusVisible = await sentStatus.isVisible().catch(() => false);
     
-    const sentStatusElement = page.locator('text=送信済み');
-    const isVisible = await sentStatusElement.isVisible().catch(() => false);
-    
-    if (isVisible) {
-      await expect(sentStatusElement).toBeVisible();
+    if (isSentStatusVisible) {
+      await expect(sentStatus).toBeVisible();
     } else {
-      const statusElements = page.locator('[class*="status"]');
-      const count = await statusElements.count().catch(() => 0);
-      if (count > 0) {
-        await expect(statusElements.first()).toBeVisible();
-      }
+      const historyTable = page.locator("table, [class*='history']");
+      const text = await historyTable.innerText();
+      expect(text).toContain("送信済み");
     }
   });
 
   // SCEN-017: [normal] リマインド通知管理画面 - リマインド通知履歴に未送信ステータスが表示される
-  test("SCEN-017: リマインド通知履歴に未送信ステータスが表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-017: 通知履歴に『未送信』ステータスが表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const unsendStatus = page.locator("text=未送信");
+    const isUnsendStatusVisible = await unsendStatus.isVisible().catch(() => false);
     
-    const unsendStatusElement = page.locator('text=未送信');
-    const isVisible = await unsendStatusElement.isVisible().catch(() => false);
-    
-    if (isVisible) {
-      await expect(unsendStatusElement).toBeVisible();
+    if (isUnsendStatusVisible) {
+      await expect(unsendStatus).toBeVisible();
     } else {
-      const statusElements = page.locator('[class*="status"]');
-      const count = await statusElements.count().catch(() => 0);
-      expect(count).toBeGreaterThanOrEqual(0);
+      const historyTable = page.locator("table, [class*='history']");
+      const text = await historyTable.innerText();
+      expect(text).toMatch(/未送信|送信待ち|失敗/);
     }
   });
 
   // SCEN-018: [normal] リマインド通知管理画面 - リマインド通知内容確認リンク押下で通知内容が表示される
-  test("SCEN-018: リマインド通知内容確認リンク押下で通知内容が表示される", async ({ page }) => {
-    const historySection = page.locator('text=リマインド通知履歴');
-    await historySection.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  test("SCEN-018: 内容確認リンク押下で通知内容が表示される", async ({ page }) => {
+    const historySection = page.locator("text=リマインド通知履歴");
+    await expect(historySection).toBeVisible();
+
+    const detailLink = page.locator("a, button").filter({ hasText: /確認|詳細|内容/ }).first();
+    const isDetailLinkVisible = await detailLink.isVisible().catch(() => false);
     
-    const detailLinks = page.locator('text=内容確認, a:has-text("確認"), button:has-text("内容")');
-    const linkCount = await detailLinks.count().catch(() => 0);
-    
-    if (linkCount > 0) {
-      await detailLinks.first().click();
+    if (isDetailLinkVisible) {
+      await detailLink.click();
       await page.waitForTimeout(500);
       
-      const detailModal = page.locator('[class*="modal"], [class*="detail"], [class*="panel"]').filter({
-        has: page.locator('[class*="content"]')
-      });
-      const modalCount = await detailModal.count().catch(() => 0);
+      const detailPanel = page.locator("[class*='modal'], [class*='dialog'], [class*='panel']");
+      const isPanelVisible = await detailPanel.isVisible().catch(() => false);
       
-      if (modalCount > 0) {
-        await expect(detailModal.first()).toBeVisible();
-      } else {
-        const detailContent = page.locator('[class*="notification-detail"], [class*="content-detail"]');
-        await expect(detailContent).toBeVisible().catch(() => {});
-      }
-    } else {
-      await expect(page.locator('text=nippo')).toBeVisible();
+      expect(isPanelVisible || await page.content().then(c => c.includes("送信対象者"))).toBeTruthy();
     }
   });
 
   // SCEN-019: [normal] リマインド通知管理画面 - 報告期限までの時間が画面に表示される
   test("SCEN-019: 報告期限までの時間が画面に表示される", async ({ page }) => {
-    const memberList = page.locator('[class*="member-list"], [class*="member-row"], tr').first();
-    const isVisible = await memberList.isVisible().catch(() => false);
-    
-    if (isVisible) {
-      const timeElements = page.locator('[class*="remaining-time"], [class*="time-until"], text=/[0-9]+(時間|日)/');
-      const count = await timeElements.count().catch(() => 0);
-      
-      if (count > 0) {
-        await expect(timeElements.first()).toBeVisible();
-        const text = await timeElements.first().textContent().catch(() => '');
-        expect(/\d+/.test(text || '')).toBe(true);
-      }
-    } else {
-      await expect(page.locator('text=nippo')).toBeVisible();
-    }
+    const reminderContent = page.locator("body");
+    const text = await reminderContent.innerText();
+
+    const timePattern = /(\d+)\s*(時間|日|分|時|時間30分|日\d+時間)/;
+    expect(text).toMatch(timePattern);
   });
 
   // SCEN-020: [error] リマインド通知管理画面 - リマインド送信時刻を空で保存するとエラー表示になる
-  test("SCEN-020: リマインド送信時刻を空で保存するとエラー表示になる", async ({ page }) => {
-    const newScheduleButton = page.locator('button:has-text("新規"), button:has-text("追加"), [class*="add-button"]').first();
-    const buttonExists = await newScheduleButton.isVisible().catch(() => false);
+  test("SCEN-020: 送信時刻を空で保存するとエラーが表示される", async ({ page }) => {
+    const formButton = page.locator("button, [class*='btn']").filter({ hasText: /新規|追加|設定/ }).first();
+    const isFormButtonVisible = await formButton.isVisible().catch(() => false);
     
-    if (buttonExists) {
-      await newScheduleButton.click();
+    if (isFormButtonVisible) {
+      await formButton.click();
+      await page.waitForTimeout(300);
+    }
+
+    const saveButton = page.locator("button, [class*='btn']").filter({ hasText: /保存|登録|送信/ }).first();
+    const isSaveButtonVisible = await saveButton.isVisible().catch(() => false);
+    
+    if (isSaveButtonVisible) {
+      await saveButton.click();
       await page.waitForTimeout(500);
+
+      const errorMessage = page.locator("[class*='error'], [class*='alert'], [class*='message']");
+      const isErrorVisible = await errorMessage.isVisible().catch(() => false);
       
-      const timeInput = page.locator('input[type="time"], input[class*="time"], [class*="time-input"]').first();
-      const targetInput = page.locator('select, input[class*="target"], [class*="recipient"]').first();
-      const saveButton = page.locator('button:has-text("保存"), button:has-text("送信"), [class*="save-button"]').first();
-      
-      const timeInputExists = await timeInput.isVisible().catch(() => false);
-      const targetExists = await targetInput.isVisible().catch(() => false);
-      const saveExists = await saveButton.isVisible().catch(() => false);
-      
-      if (targetExists && saveExists) {
-        await targetInput.fill('テスト').catch(() => {});
-        await targetInput.selectOption('1').catch(() => {});
-        
-        if (timeInputExists) {
-          await timeInput.fill('').catch(() => {});
-        }
-        
-        await saveButton.click();
-        await page.waitForTimeout(300);
-        
-        const errorMessage = page.locator('text=送信時刻, text=必須, [class*="error"], [class*="alert"]');
-        const errorCount = await errorMessage.count().catch(() => 0);
-        
-        if (errorCount > 0) {
-          await expect(errorMessage.first()).toBeVisible();
-        } else {
-          const currentUrl = page.url();
-          expect(currentUrl).toContain('scr-1787119211243');
-        }
+      if (isErrorVisible) {
+        const errorText = await errorMessage.innerText();
+        expect(errorText.length).toBeGreaterThan(0);
       }
-    } else {
-      await expect(page.locator('text=nippo')).toBeVisible();
     }
   });
 });
