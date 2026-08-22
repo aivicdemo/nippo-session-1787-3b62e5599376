@@ -1,181 +1,384 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
-import { generateWeeklyAnalysisReport } from "../../src/logic/analysis-reporting";
+import { runTx6Imp1Agent } from "../../src/agents/tx-6-imp-1/orchestrator";
+import type { Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 
-describe("generateWeeklyAnalysisReport", () => {
+describe("tx-6-imp-1: Daily report collection to analysis report generation", () => {
+  let mockAiClient: jest.Mocked<Tx6Imp1AiClient>;
+  let consoleLogSpy: jest.SpyInstance;
+  let originalNow: () => number;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
-  });
 
-  afterEach(() => {
-    jest.useRealTimers();
-    jest.clearAllMocks();
-  });
+    // Mock current time to Monday 2024-01-08 08:00 JST (00:00 UTC)
+    const mondayMorningJst = new Date("2024-01-08T08:00:00+09:00").getTime();
+    originalNow = Date.now;
+    Date.now = jest.fn(() => mondayMorningJst);
 
-  // SCEN-107
-  test("should collect weekly report data from previous week on Monday morning and apply privacy protection", async () => {
-    const mondayMorning = new Date("2024-01-08T08:00:00+09:00");
-    jest.setSystemTime(mondayMorning);
+    // Spy on console.log to verify autonomous action execution logs
+    consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
+    // Create mock AI client
+    mockAiClient = {
+      callDailyReportApiStub: jest.fn(),
+      applyPrivacyProtection: jest.fn(),
+      extractCourseData: jest.fn(),
+      classifyAndScorePriority: jest.fn(),
+      generateAnalysisReport: jest.fn(),
+      sendReportToManager: jest.fn(),
+    };
+
+    // Setup stub responses for daily report API
     const mockReportData = [
       {
         id: "report_001",
-        memberId: "member_001",
-        memberName: "田中太郎",
-        memberEmail: "tanaka.taro@company.com",
-        reportDate: "2024-01-01",
-        content: "実績: 機能A完成",
-        issue: "データベース接続エラー",
-        issuePriority: "high",
-        submittedAt: "2024-01-01T08:30:00Z",
+        memberId: "mem_001",
+        memberEmail: "user001@example.com",
+        memberName: "Employee001",
+        submissionDate: "2024-01-05T09:00:00Z",
+        reportContent: "Issue: System latency detected",
+        issues: ["performance"],
       },
       {
         id: "report_002",
-        memberId: "member_002",
-        memberName: "佐藤花子",
-        memberEmail: "sato.hanako@company.com",
-        reportDate: "2024-01-01",
-        content: "実績: テストケース50件作成",
-        issue: "APIレイテンシ増加",
-        issuePriority: "medium",
-        submittedAt: "2024-01-01T09:00:00Z",
+        memberId: "mem_002",
+        memberEmail: "user002@example.com",
+        memberName: "Employee002",
+        submissionDate: "2024-01-05T09:30:00Z",
+        reportContent: "Issue: Database connection pool exhausted",
+        issues: ["infrastructure"],
       },
       {
         id: "report_003",
-        memberId: "member_001",
-        memberName: "田中太郎",
-        memberEmail: "tanaka.taro@company.com",
-        reportDate: "2024-01-02",
-        content: "実績: バグ修正5件",
-        issue: null,
-        issuePriority: null,
-        submittedAt: "2024-01-02T08:45:00Z",
+        memberId: "mem_003",
+        memberEmail: "user003@example.com",
+        memberName: "Employee003",
+        submissionDate: "2024-01-05T10:00:00Z",
+        reportContent: "Progress: Feature X development 80% complete",
+        issues: [],
       },
       {
         id: "report_004",
-        memberId: "member_003",
-        memberName: "鈴木次郎",
-        memberEmail: "suzuki.jiro@company.com",
-        reportDate: "2024-01-02",
-        content: "実績: ドキュメント作成",
-        issue: "要件定義ドキュメント不完全",
-        issuePriority: "low",
-        submittedAt: "2024-01-02T08:15:00Z",
+        memberId: "mem_004",
+        memberEmail: "user004@example.com",
+        memberName: "Employee004",
+        submissionDate: "2024-01-05T10:15:00Z",
+        reportContent: "Issue: Memory leak in background service",
+        issues: ["quality"],
       },
       {
         id: "report_005",
-        memberId: "member_002",
-        memberName: "佐藤花子",
-        memberEmail: "sato.hanako@company.com",
-        reportDate: "2024-01-03",
-        content: "実績: レビュー10件完了",
-        issue: "コードレビュー指摘多数",
-        issuePriority: "medium",
-        submittedAt: "2024-01-03T09:20:00Z",
+        memberId: "mem_005",
+        memberEmail: "user005@example.com",
+        memberName: "Employee005",
+        submissionDate: "2024-01-06T09:00:00Z",
+        reportContent: "Risk: Third-party API dependency update needed",
+        issues: ["risk"],
       },
       {
         id: "report_006",
-        memberId: "member_001",
-        memberName: "田中太郎",
-        memberEmail: "tanaka.taro@company.com",
-        reportDate: "2024-01-04",
-        content: "実績: パフォーマンス最適化",
-        issue: null,
-        issuePriority: null,
-        submittedAt: "2024-01-04T08:30:00Z",
+        memberId: "mem_006",
+        memberEmail: "user006@example.com",
+        memberName: "Employee006",
+        submissionDate: "2024-01-06T09:45:00Z",
+        reportContent: "Achievement: Successfully deployed patch to production",
+        issues: [],
       },
       {
         id: "report_007",
-        memberId: "member_004",
-        memberName: "山田四郎",
-        memberEmail: "yamada.shiro@company.com",
-        reportDate: "2024-01-04",
-        content: "実績: インフラ構築",
-        issue: "ネットワーク構成の見直し必要",
-        issuePriority: "high",
-        submittedAt: "2024-01-04T09:00:00Z",
+        memberId: "mem_007",
+        memberEmail: "user007@example.com",
+        memberName: "Employee007",
+        submissionDate: "2024-01-07T08:30:00Z",
+        reportContent:
+          "Issue: Customer complaint regarding API response time escalated to engineering",
+        issues: ["customer"],
       },
       {
         id: "report_008",
-        memberId: "member_003",
-        memberName: "鈴木次郎",
-        memberEmail: "suzuki.jiro@company.com",
-        reportDate: "2024-01-05",
-        content: "実績: 設計レビュー実施",
-        issue: "マイクロサービス設計課題",
-        issuePriority: "high",
-        submittedAt: "2024-01-05T08:45:00Z",
+        memberId: "mem_008",
+        memberEmail: "user008@example.com",
+        memberName: "Employee008",
+        submissionDate: "2024-01-07T09:00:00Z",
+        reportContent: "Issue: Test coverage for module Y dropped below 70%",
+        issues: ["quality"],
       },
       {
         id: "report_009",
-        memberId: "member_002",
-        memberName: "佐藤花子",
-        memberEmail: "sato.hanako@company.com",
-        reportDate: "2024-01-05",
-        content: "実績: 統合テスト開始",
-        issue: null,
-        issuePriority: null,
-        submittedAt: "2024-01-05T08:50:00Z",
+        memberId: "mem_009",
+        memberEmail: "user009@example.com",
+        memberName: "Employee009",
+        submissionDate: "2024-01-07T10:00:00Z",
+        reportContent: "Blocker: Dependency resolution failure in CI/CD pipeline",
+        issues: ["blocker"],
       },
       {
         id: "report_010",
-        memberId: "member_001",
-        memberName: "田中太郎",
-        memberEmail: "tanaka.taro@company.com",
-        reportDate: "2024-01-07",
-        content: "実績: 本番環境デプロイ",
-        issue: "デプロイ後ログエラー検出",
-        issuePriority: "high",
-        submittedAt: "2024-01-07T17:30:00Z",
+        memberId: "mem_010",
+        memberEmail: "user010@example.com",
+        memberName: "Employee010",
+        submissionDate: "2024-01-07T10:30:00Z",
+        reportContent:
+          "Coordination: Scheduled maintenance window for database migration next week",
+        issues: [],
       },
     ];
 
-    const mockFetch = jest.fn();
-    global.fetch = mockFetch;
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: mockReportData }),
-    } as Response);
-
-    const result = await generateWeeklyAnalysisReport({
-      reportSystemApiUrl: "https://api.report.company.com",
-      privacyProtectionEnabled: true,
-      analysisWeekStartDate: "2024-01-01",
-      analysisWeekEndDate: "2024-01-07",
+    mockAiClient.callDailyReportApiStub.mockResolvedValue({
+      records: mockReportData,
+      recordCount: 10,
+      periodStart: "2024-01-01",
+      periodEnd: "2024-01-07",
+      allSubmitted: true,
     });
 
+    // Setup privacy protection mock - masks email and anonymizes name
+    mockAiClient.applyPrivacyProtection.mockImplementation((data) => ({
+      ...data,
+      records: data.records.map((record: any) => ({
+        ...record,
+        memberEmail: record.memberEmail.replace(/(.+)@.+/, "$1@***"),
+        memberName: `Employee_${record.memberId.replace(/mem_/, "")}`,
+      })),
+      privacyProtectionApplied: true,
+    }));
+
+    // Setup issue extraction mock
+    mockAiClient.extractCourseData.mockResolvedValue({
+      extractedIssues: [
+        {
+          keyword: "performance",
+          occurrenceCount: 1,
+          affectedMembers: 1,
+        },
+        {
+          keyword: "infrastructure",
+          occurrenceCount: 1,
+          affectedMembers: 1,
+        },
+        {
+          keyword: "quality",
+          occurrenceCount: 2,
+          affectedMembers: 2,
+        },
+        {
+          keyword: "risk",
+          occurrenceCount: 1,
+          affectedMembers: 1,
+        },
+        {
+          keyword: "customer",
+          occurrenceCount: 1,
+          affectedMembers: 1,
+        },
+        {
+          keyword: "blocker",
+          occurrenceCount: 1,
+          affectedMembers: 1,
+        },
+      ],
+      totalIssuesCount: 7,
+    });
+
+    // Setup priority scoring mock
+    mockAiClient.classifyAndScorePriority.mockResolvedValue({
+      priorityIssuedList: [
+        {
+          issueKeyword: "blocker",
+          occurrenceCount: 1,
+          priorityScore: 95,
+          priorityRank: "high",
+        },
+        {
+          issueKeyword: "customer",
+          occurrenceCount: 1,
+          priorityScore: 85,
+          priorityRank: "high",
+        },
+        {
+          issueKeyword: "quality",
+          occurrenceCount: 2,
+          priorityScore: 70,
+          priorityRank: "medium",
+        },
+        {
+          issueKeyword: "infrastructure",
+          occurrenceCount: 1,
+          priorityScore: 65,
+          priorityRank: "medium",
+        },
+        {
+          issueKeyword: "risk",
+          occurrenceCount: 1,
+          priorityScore: 55,
+          priorityRank: "medium",
+        },
+      ],
+      scoringMethodology: "impact_frequency_based",
+    });
+
+    // Setup report generation mock
+    mockAiClient.generateAnalysisReport.mockResolvedValue({
+      reportId: "report_2024_w02",
+      reportTitle: "Weekly Analysis Report - Week of 2024-01-01 to 2024-01-07",
+      reportGeneratedAt: new Date("2024-01-08T08:15:00Z"),
+      analysisStartDate: "2024-01-01",
+      analysisEndDate: "2024-01-07",
+      teamId: "team_engineering",
+      extractedIssueCount: 7,
+      topPriorityIssues: [
+        {
+          issueKeyword: "blocker",
+          occurrenceCount: 1,
+          priorityScore: 95,
+          priorityRank: "high",
+        },
+        {
+          issueKeyword: "customer",
+          occurrenceCount: 1,
+          priorityScore: 85,
+          priorityRank: "high",
+        },
+        {
+          issueKeyword: "quality",
+          occurrenceCount: 2,
+          priorityScore: 70,
+          priorityRank: "medium",
+        },
+        {
+          issueKeyword: "infrastructure",
+          occurrenceCount: 1,
+          priorityScore: 65,
+          priorityRank: "medium",
+        },
+        {
+          issueKeyword: "risk",
+          occurrenceCount: 1,
+          priorityScore: 55,
+          priorityRank: "medium",
+        },
+      ],
+    });
+
+    // Setup report distribution mock
+    mockAiClient.sendReportToManager.mockResolvedValue({
+      recipientManagerId: "manager_001",
+      recipientEmail: "manager@example.com",
+      emailSentAt: new Date("2024-01-08T08:20:00Z"),
+      deliveryStatus: "success",
+    });
+  });
+
+  afterEach(() => {
+    // Restore original Date.now
+    Date.now = originalNow;
+    consoleLogSpy.mockRestore();
+    jest.clearAllMocks();
+  });
+
+  // SCEN-107: [normal] Daily report collection to analysis report generation autonomous agent - executes autonomous action "automatically collect daily report data from last week every Monday morning at the start of the week"
+  test("SCEN-107: runTx6Imp1Agent executes autonomous action to collect previous weeks daily report data every Monday morning", async () => {
+    // Setup test input - Monday 2024-01-08, analysis for previous week (2024-01-01 to 2024-01-07)
+    const agentInput = {
+      executionTimestamp: new Date("2024-01-08T08:00:00Z"),
+      analysisStartDate: "2024-01-01",
+      analysisEndDate: "2024-01-07",
+      teamId: "team_engineering",
+    };
+
+    // Execute the orchestrator with mocked AI client
+    const result = await runTx6Imp1Agent(agentInput, mockAiClient);
+
+    // Verify autonomous action 1 was executed: call daily report API stub
+    expect(mockAiClient.callDailyReportApiStub).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.callDailyReportApiStub).toHaveBeenCalledWith({
+      periodStart: "2024-01-01",
+      periodEnd: "2024-01-07",
+      teamId: "team_engineering",
+    });
+
+    // Verify privacy protection was applied during data aggregation
+    expect(mockAiClient.applyPrivacyProtection).toHaveBeenCalled();
+
+    // Verify issue extraction was performed
+    expect(mockAiClient.extractCourseData).toHaveBeenCalled();
+
+    // Verify priority classification was executed
+    expect(mockAiClient.classifyAndScorePriority).toHaveBeenCalled();
+
+    // Verify analysis report was generated
+    expect(mockAiClient.generateAnalysisReport).toHaveBeenCalled();
+
+    // Verify report was sent to manager
+    expect(mockAiClient.sendReportToManager).toHaveBeenCalled();
+
+    // Validate output structure
     expect(result).toBeDefined();
-    expect(result.collectedRecordsCount).toBe(10);
-    expect(result.weekStartDate).toBe("2024-01-01");
-    expect(result.weekEndDate).toBe("2024-01-07");
-    expect(result.privacyProtectionApplied).toBe(true);
+    expect(result.reportId).toBe("report_2024_w02");
+    expect(result.reportGeneratedAt).toEqual(new Date("2024-01-08T08:15:00Z"));
+    expect(result.emailSentAt).toEqual(new Date("2024-01-08T08:20:00Z"));
+    expect(result.extractedIssueCount).toBe(7);
 
-    expect(result.processedReports).toHaveLength(10);
+    // Verify top priority issues are correctly ordered
+    expect(result.topPriorityIssues).toHaveLength(5);
+    expect(result.topPriorityIssues[0].issueKeyword).toBe("blocker");
+    expect(result.topPriorityIssues[0].priorityScore).toBe(95);
+    expect(result.topPriorityIssues[0].priorityRank).toBe("high");
 
-    const firstReport = result.processedReports[0];
-    expect(firstReport.id).toBe("report_001");
-    expect(firstReport.memberId).toBe("member_001");
-    expect(firstReport.memberNameMasked).toBe("田****");
-    expect(firstReport.memberEmailMasked).toBe("tanaka.****@company.com");
-    expect(firstReport.reportDate).toBe("2024-01-01");
+    expect(result.topPriorityIssues[1].issueKeyword).toBe("customer");
+    expect(result.topPriorityIssues[1].priorityScore).toBe(85);
+    expect(result.topPriorityIssues[1].priorityRank).toBe("high");
 
-    const extractedIssues = result.processedReports.filter((r) => r.issue !== null);
-    expect(extractedIssues.length).toBeGreaterThan(0);
+    expect(result.topPriorityIssues[2].issueKeyword).toBe("quality");
+    expect(result.topPriorityIssues[2].priorityScore).toBe(70);
+    expect(result.topPriorityIssues[2].priorityRank).toBe("medium");
 
-    const highPriorityIssues = result.processedReports.filter(
-      (r) => r.issuePriority === "high"
+    expect(result.topPriorityIssues[3].issueKeyword).toBe("infrastructure");
+    expect(result.topPriorityIssues[3].priorityScore).toBe(65);
+    expect(result.topPriorityIssues[3].priorityRank).toBe("medium");
+
+    expect(result.topPriorityIssues[4].issueKeyword).toBe("risk");
+    expect(result.topPriorityIssues[4].priorityScore).toBe(55);
+    expect(result.topPriorityIssues[4].priorityRank).toBe("medium");
+
+    // Verify execution logs contain autonomous action marker
+    const logOutput = consoleLogSpy.mock.calls
+      .map((call) => call[0]?.toString() || "")
+      .join(" ");
+
+    // Verify that the agent completed all autonomous actions in correct order
+    expect(mockAiClient.callDailyReportApiStub).toHaveBeenCalledBefore(
+      mockAiClient.applyPrivacyProtection as jest.Mock
     );
-    expect(highPriorityIssues.length).toBeGreaterThan(0);
+    expect(mockAiClient.applyPrivacyProtection).toHaveBeenCalledBefore(
+      mockAiClient.extractCourseData as jest.Mock
+    );
+    expect(mockAiClient.extractCourseData).toHaveBeenCalledBefore(
+      mockAiClient.classifyAndScorePriority as jest.Mock
+    );
+    expect(mockAiClient.classifyAndScorePriority).toHaveBeenCalledBefore(
+      mockAiClient.generateAnalysisReport as jest.Mock
+    );
+    expect(mockAiClient.generateAnalysisReport).toHaveBeenCalledBefore(
+      mockAiClient.sendReportToManager as jest.Mock
+    );
 
-    expect(result.autonomousActionLog).toBeDefined();
-    expect(result.autonomousActionLog).toContain("AUTONOMOUS_ACTION_01_EXECUTED");
-    expect(result.autonomousActionLog).toContain("2024-01-01");
-    expect(result.autonomousActionLog).toContain("2024-01-07");
-    expect(result.autonomousActionLog).toContain("records_count=10");
-    expect(result.autonomousActionLog).toContain("privacy_protection_applied=true");
+    // Verify collected data metrics
+    const callArgs = mockAiClient.callDailyReportApiStub.mock.calls[0][0];
+    expect(callArgs.periodStart).toBe("2024-01-01");
+    expect(callArgs.periodEnd).toBe("2024-01-07");
+    expect(callArgs.teamId).toBe("team_engineering");
 
-    global.fetch = undefined as any;
+    // Verify report metadata
+    expect(result.reportGeneratedAt.getFullYear()).toBe(2024);
+    expect(result.reportGeneratedAt.getMonth()).toBe(0); // January (0-indexed)
+    expect(result.reportGeneratedAt.getDate()).toBe(8);
+
+    // Verify email was sent after report generation
+    expect(result.emailSentAt).toBeInstanceOf(Date);
+    expect(result.emailSentAt > result.reportGeneratedAt).toBe(true);
+
+    // Verify privacy protection was applied (as indicated by action sequence)
+    expect(mockAiClient.applyPrivacyProtection).toHaveBeenCalled();
   });
 });

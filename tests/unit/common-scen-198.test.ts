@@ -1,283 +1,171 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { detectAndNotifyUnsubmitted } from "../../src/logic/submission-status-management";
-import type { Tx11Imp1AiClient } from "../../src/agents/tx-11-imp-1/types";
-import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from "../../src/agents/tx-11-imp-1/prompts/action-04";
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx11Imp1Agent } from '../../src/agents/tx-11-imp-1/orchestrator';
+import { type Tx11Imp1AiClient } from '../../src/agents/tx-11-imp-1/orchestrator';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-11-imp-1/prompts/action-04';
 
-// Mock types for test data
-interface PastIssueExample {
-  exampleId: string;
-  occurrenceDate: string;
-  summary: string;
-  responseContent: string;
-  result: string;
-}
-
-interface MemberInfo {
-  memberId: string;
-  name: string;
-  email: string;
-}
-
-interface CurrentIssue {
-  description: string;
-  memberId: string;
-}
-
-interface ReferenceInfo {
-  exampleId: string;
-  occurrenceDate: string;
-  summary: string;
-  responseContent: string;
-  result: string;
-}
-
-interface DetectionResult {
-  unsubmittedMembers: MemberInfo[];
-  referenceInformation: ReferenceInfo[];
-  displayFormat: {
-    isStructured: boolean;
-    fields: string[];
-  };
-}
-
-describe("detectAndNotifyUnsubmitted - Action 4 past issue search and reference provision", () => {
+describe('Tx11Imp1Agent - 日報収集・確認・催促の自動化エージェント', () => {
   let mockAiClient: Tx11Imp1AiClient;
-  let pastIssueDatabase: PastIssueExample[];
-  let currentIssueRecords: CurrentIssue[];
-  let teamMembers: MemberInfo[];
 
   beforeEach(() => {
-    // Setup: Prepare past 30-day issue database with multiple issues per member
-    pastIssueDatabase = [
-      {
-        exampleId: "PAST-001",
-        occurrenceDate: "2024-11-15T09:30:00Z",
-        summary: "Database connection timeout during peak hours",
-        responseContent: "Implemented connection pool optimization and adjusted timeout values",
-        result: "Resolved in 2 hours, no recurrence for 3 weeks",
-      },
-      {
-        exampleId: "PAST-002",
-        occurrenceDate: "2024-11-14T14:20:00Z",
-        summary: "API response time degradation on payment service",
-        responseContent: "Added caching layer and optimized database queries",
-        result: "Response time improved from 5s to 0.8s",
-      },
-      {
-        exampleId: "PAST-003",
-        occurrenceDate: "2024-11-10T11:00:00Z",
-        summary: "Memory leak in background worker process",
-        responseContent: "Fixed event listener cleanup and implemented memory monitoring",
-        result: "Stable operation confirmed after 5 days of testing",
-      },
-      {
-        exampleId: "PAST-004",
-        occurrenceDate: "2024-11-08T16:45:00Z",
-        summary: "Duplicate data in cache causing inconsistency",
-        responseContent: "Implemented cache invalidation strategy and added data validation",
-        result: "Consistency verified across all environments",
-      },
-      {
-        exampleId: "PAST-005",
-        occurrenceDate: "2024-11-05T10:15:00Z",
-        summary: "Database connection timeout during peak hours",
-        responseContent: "Adjusted max connections and implemented connection pooling",
-        result: "No timeout incidents in last 2 weeks",
-      },
-    ];
-
-    // Setup: Prepare current submitted daily reports with 1-3 issue descriptions per member
-    currentIssueRecords = [
-      {
-        memberId: "MEM-A",
-        description: "Database connection timeout happening again during business hours",
-      },
-      {
-        memberId: "MEM-B",
-        description: "API response time is degrading unexpectedly on the payment endpoint",
-      },
-      {
-        memberId: "MEM-C",
-        description: "Payment service API experiencing latency issues similar to last week",
-      },
-    ];
-
-    // Setup: Team members information
-    teamMembers = [
-      {
-        memberId: "MEM-A",
-        name: "Alice Johnson",
-        email: "alice@company.com",
-      },
-      {
-        memberId: "MEM-B",
-        name: "Bob Smith",
-        email: "bob@company.com",
-      },
-      {
-        memberId: "MEM-C",
-        name: "Charlie Brown",
-        email: "charlie@company.com",
-      },
-    ];
-
-    // Setup: Mock AI client for Action 4 - past issue search and reference provision
     mockAiClient = {
-      async executeAction04(
-        currentIssueText: string,
-        pastIssueDb: PastIssueExample[],
-        memberInfo: MemberInfo[]
-      ): Promise<ReferenceInfo[]> {
-        // Simulate AI searching for similar issues and returning structured reference data
-        const similarExamples: ReferenceInfo[] = [];
-
-        // Search for "timeout" keyword matches
-        if (
-          currentIssueText.toLowerCase().includes("timeout") ||
-          currentIssueText.toLowerCase().includes("connection")
-        ) {
-          const timeoutExamples = pastIssueDb.filter((issue) =>
-            issue.summary.toLowerCase().includes("timeout")
-          );
-          similarExamples.push(
-            ...timeoutExamples.map((ex) => ({
-              exampleId: ex.exampleId,
-              occurrenceDate: ex.occurrenceDate,
-              summary: ex.summary,
-              responseContent: ex.responseContent,
-              result: ex.result,
-            }))
-          );
-        }
-
-        // Search for "API" and "response" keyword matches
-        if (
-          currentIssueText.toLowerCase().includes("api") ||
-          currentIssueText.toLowerCase().includes("response")
-        ) {
-          const apiExamples = pastIssueDb.filter((issue) =>
-            issue.summary.toLowerCase().includes("api") ||
-            issue.summary.toLowerCase().includes("response")
-          );
-          similarExamples.push(
-            ...apiExamples.map((ex) => ({
-              exampleId: ex.exampleId,
-              occurrenceDate: ex.occurrenceDate,
-              summary: ex.summary,
-              responseContent: ex.responseContent,
-              result: ex.result,
-            }))
-          );
-        }
-
-        // Remove duplicates by exampleId
-        const uniqueExamples = Array.from(
-          new Map(similarExamples.map((item) => [item.exampleId, item])).values()
-        );
-
-        return uniqueExamples.slice(0, 3);
-      },
-    } as Tx11Imp1AiClient;
+      generateText: jest.fn(),
+    };
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  // SCEN-198: Action 4 executes past issue search and provides reference information
-  test("SCEN-198: Executes Action 4 to search past issues and provide structured reference information to members", async () => {
-    // Execute: Call buildAction04Prompt to verify prompt module is correctly defined
-    const promptVersion = ACTION_04_PROMPT_VERSION;
-    expect(promptVersion).toBeDefined();
-    expect(typeof promptVersion).toBe("string");
+  // SCEN-198
+  test('should retrieve and present similar past issues and reference information when processing current daily reports', async () => {
+    const executionTimestamp = new Date('2024-01-15T08:00:00Z');
+    const teamId = 'team-001';
+    const reportDeadlineTime = '09:00';
+    const managerEmail = 'manager@example.com';
 
-    // Execute: Call buildAction04Prompt with test parameters
+    const pastReportDatabase = [
+      {
+        reportId: 'past-report-001',
+        issueName: 'Database connection timeout',
+        issueDescription: 'MySQL connection pool exhausted during peak load',
+        issueDate: '2024-01-01T10:30:00Z',
+        resolution: 'Increased connection pool size from 10 to 50',
+        result: 'Resolved - Response time improved by 40%',
+        memberId: 'member-A',
+      },
+      {
+        reportId: 'past-report-002',
+        issueName: 'Database connection timeout',
+        issueDescription: 'Connection timeout when running batch process',
+        issueDate: '2024-01-05T14:15:00Z',
+        resolution: 'Added connection retry logic with exponential backoff',
+        result: 'Resolved - Batch process completion rate improved to 99%',
+        memberId: 'member-B',
+      },
+      {
+        reportId: 'past-report-003',
+        issueName: 'Database performance degradation',
+        issueDescription: 'Slow query on user_logs table without proper index',
+        issueDate: '2024-01-10T09:45:00Z',
+        resolution: 'Created composite index on (user_id, timestamp)',
+        result: 'Resolved - Query response time reduced from 5s to 100ms',
+        memberId: 'member-C',
+      },
+    ];
+
+    const currentReports = [
+      {
+        memberId: 'member-A',
+        reportDate: '2024-01-15T08:30:00Z',
+        issueText: 'Database queries are timing out when too many concurrent users access the system',
+      },
+      {
+        memberId: 'member-B',
+        reportDate: '2024-01-15T08:35:00Z',
+        issueText: 'API endpoint response times increased significantly this morning',
+      },
+      {
+        memberId: 'member-C',
+        reportDate: '2024-01-15T08:40:00Z',
+        issueText: 'User list page loads very slowly, suspect missing database index',
+      },
+    ];
+
+    const similarIssuesSearchResults = [
+      {
+        exampleId: 'past-report-001',
+        occurrenceDate: '2024-01-01T10:30:00Z',
+        summary: 'Database connection timeout',
+        overview: 'MySQL connection pool exhausted during peak load',
+        countermeasure: 'Increased connection pool size from 10 to 50',
+        result: 'Resolved - Response time improved by 40%',
+      },
+      {
+        exampleId: 'past-report-002',
+        occurrenceDate: '2024-01-05T14:15:00Z',
+        summary: 'Database connection timeout',
+        overview: 'Connection timeout when running batch process',
+        countermeasure: 'Added connection retry logic with exponential backoff',
+        result: 'Resolved - Batch process completion rate improved to 99%',
+      },
+      {
+        exampleId: 'past-report-003',
+        occurrenceDate: '2024-01-10T09:45:00Z',
+        summary: 'Database performance degradation',
+        overview: 'Slow query on user_logs table without proper index',
+        countermeasure: 'Created composite index on (user_id, timestamp)',
+        result: 'Resolved - Query response time reduced from 5s to 100ms',
+      },
+    ];
+
+    (mockAiClient.generateText as jest.Mock).mockResolvedValue(
+      JSON.stringify(similarIssuesSearchResults)
+    );
+
+    const input = {
+      executionTimestamp,
+      teamId,
+      reportDeadlineTime,
+      managerEmail,
+    };
+
+    const result = await runTx11Imp1Agent(input, mockAiClient, {
+      pastReportDatabase,
+      currentReports,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.prioritizedIssues).toBeDefined();
+    expect(Array.isArray(result.prioritizedIssues)).toBe(true);
+
+    const referenceIssues = result.prioritizedIssues.filter(
+      (issue) => issue.referenceExamples && issue.referenceExamples.length > 0
+    );
+
+    expect(referenceIssues.length).toBeGreaterThan(0);
+
+    referenceIssues.forEach((issue) => {
+      if (issue.referenceExamples) {
+        issue.referenceExamples.forEach((example) => {
+          expect(example).toHaveProperty('exampleId');
+          expect(example).toHaveProperty('occurrenceDate');
+          expect(example).toHaveProperty('summary');
+          expect(example).toHaveProperty('overview');
+          expect(example).toHaveProperty('countermeasure');
+          expect(example).toHaveProperty('result');
+
+          expect(typeof example.exampleId).toBe('string');
+          expect(typeof example.occurrenceDate).toBe('string');
+          expect(typeof example.summary).toBe('string');
+          expect(typeof example.overview).toBe('string');
+          expect(typeof example.countermeasure).toBe('string');
+          expect(typeof example.result).toBe('string');
+        });
+      }
+    });
+
+    expect((mockAiClient.generateText as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+
+    const callArgs = (mockAiClient.generateText as jest.Mock).mock.calls[0];
+    expect(callArgs).toBeDefined();
+    expect(typeof callArgs[0]).toBe('string');
+
+    const promptFromCall = callArgs[0];
+    expect(promptFromCall).toContain('past');
+    expect(promptFromCall).toContain('similar');
+
+    expect(ACTION_04_PROMPT_VERSION).toBeDefined();
+    expect(typeof ACTION_04_PROMPT_VERSION).toBe('string');
+    expect(ACTION_04_PROMPT_VERSION.length).toBeGreaterThan(0);
+
     const action04Prompt = buildAction04Prompt({
-      currentIssueText: currentIssueRecords[0].description,
-      pastIssueDatabase: pastIssueDatabase,
-      memberInfo: teamMembers,
+      currentIssueText: currentReports[0].issueText,
+      pastDatabaseRecords: pastReportDatabase,
+      memberId: currentReports[0].memberId,
     });
 
     expect(action04Prompt).toBeDefined();
-    expect(typeof action04Prompt).toBe("string");
+    expect(typeof action04Prompt).toBe('string');
     expect(action04Prompt.length).toBeGreaterThan(0);
-
-    // Execute: Run detectAndNotifyUnsubmitted with mock AI client
-    const detectionResult = await detectAndNotifyUnsubmitted(
-      {
-        currentIssueRecords,
-        teamMembers,
-        pastIssueDatabase,
-        unsubmittedMembers: [
-          {
-            memberId: "MEM-D",
-            name: "David Wilson",
-            email: "david@company.com",
-          },
-        ],
-      },
-      mockAiClient
-    );
-
-    // Verify: Reference information contains past examples with correct structure
-    expect(detectionResult.referenceInformation).toBeDefined();
-    expect(Array.isArray(detectionResult.referenceInformation)).toBe(true);
-    expect(detectionResult.referenceInformation.length).toBeGreaterThanOrEqual(3);
-
-    // Verify: Each reference info includes all required fields
-    detectionResult.referenceInformation.forEach((reference: ReferenceInfo) => {
-      expect(reference.exampleId).toBeDefined();
-      expect(typeof reference.exampleId).toBe("string");
-      expect(reference.exampleId).toMatch(/^PAST-/);
-
-      expect(reference.occurrenceDate).toBeDefined();
-      expect(typeof reference.occurrenceDate).toBe("string");
-      // Verify ISO 8601 format
-      expect(new Date(reference.occurrenceDate).toISOString()).toBeDefined();
-
-      expect(reference.summary).toBeDefined();
-      expect(typeof reference.summary).toBe("string");
-      expect(reference.summary.length).toBeGreaterThan(0);
-
-      expect(reference.responseContent).toBeDefined();
-      expect(typeof reference.responseContent).toBe("string");
-      expect(reference.responseContent.length).toBeGreaterThan(0);
-
-      expect(reference.result).toBeDefined();
-      expect(typeof reference.result).toBe("string");
-      expect(reference.result.length).toBeGreaterThan(0);
-    });
-
-    // Verify: Display format is structured and contains expected fields
-    expect(detectionResult.displayFormat).toBeDefined();
-    expect(detectionResult.displayFormat.isStructured).toBe(true);
-    expect(Array.isArray(detectionResult.displayFormat.fields)).toBe(true);
-
-    const expectedFields = [
-      "exampleId",
-      "occurrenceDate",
-      "summary",
-      "responseContent",
-      "result",
-    ];
-    expectedFields.forEach((field) => {
-      expect(detectionResult.displayFormat.fields).toContain(field);
-    });
-
-    // Verify: Reference information is formatted for member display
-    expect(detectionResult.referenceInformation[0].exampleId).toMatch(/^PAST-\d{3}$/);
-    expect(detectionResult.referenceInformation[0].occurrenceDate).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
-    );
-
-    // Verify: Unsubmitted members are also detected
-    expect(detectionResult.unsubmittedMembers).toBeDefined();
-    expect(Array.isArray(detectionResult.unsubmittedMembers)).toBe(true);
-    expect(detectionResult.unsubmittedMembers.length).toBeGreaterThan(0);
-    expect(detectionResult.unsubmittedMembers[0].memberId).toBe("MEM-D");
-    expect(detectionResult.unsubmittedMembers[0].email).toBe("david@company.com");
-
-    // Verify: ACTION_04_PROMPT_VERSION is properly exported
-    expect(ACTION_04_PROMPT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

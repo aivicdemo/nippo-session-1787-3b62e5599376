@@ -1,138 +1,109 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { sendSummaryEmail } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx2Imp1Agent } from '../../src/agents/tx-2-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  // SCEN-051: AI出力が不正・曖昧・低確信度の場合、エスカレーション処理を実行
-  test('should escalate to manual review when AI output has low confidence or malformed structure', async () => {
-    // Setup: フェイクAIクライアントを用意
-    const mockAiClient = {
-      action01_collectDailyReports: jest.fn().mockResolvedValue({
-        status: 'success',
-        collected_reports: [
-          {
-            member_id: 'user_001',
-            member_name: '田中太郎',
-            report_date: '2024-01-15',
-            content: 'プロジェクトA進捗80%、予定通り',
-          },
-          {
-            member_id: 'user_002',
-            member_name: '佐藤花子',
-            report_date: '2024-01-15',
-            content: 'システム不具合発生、対応中',
-          },
-        ],
-        non_submitted_members: ['user_003'],
-      }),
-      action02_unifyFormat: jest.fn().mockResolvedValue({
-        status: 'success',
-        unified_reports: [
-          {
-            member_id: 'user_001',
-            member_name: '田中太郎',
-            report_date: '2024-01-15',
-            actual_results: 'プロジェクトA進捗80%',
-            issues: [],
-            format_version: 'v1.0',
-          },
-          {
-            member_id: 'user_002',
-            member_name: '佐藤花子',
-            report_date: '2024-01-15',
-            actual_results: 'システム対応中',
-            issues: ['システム不具合'],
-            format_version: 'v1.0',
-          },
-        ],
-      }),
-      action03_extractIssues: jest.fn().mockResolvedValue({
-        status: 'error',
-        extracted_issues: [
-          {
-            issue_id: 'issue_001',
-            description: '優先度: 中程度', // 不正: 数値ではなく文字列
-            priority: 'middle', // 不正: 定義済みカテゴリではない値
-            confidence_score: 0.25, // 低信頼度: 閾値0.5未満
-          },
-        ],
-        validation_errors: ['Invalid priority value: middle', 'Confidence score below threshold'],
-      }),
-      action04_assignPriority: jest.fn(),
-      action05_generateReport: jest.fn(),
-      action06_deliverEmail: jest.fn(),
-    };
+describe('Tx2Imp1Agent - Low Confidence AI Output Handling', () => {
+  // SCEN-051
+  test('should escalate and send manual review email when Action 3 returns low-confidence or malformed issue extraction', async () => {
+    const executionTimestamp = new Date('2024-01-15T08:55:00Z');
+    const teamId = 'team-001';
+    const reportingDeadline = new Date('2024-01-15T09:00:00Z');
+    const managerEmail = 'manager@example.com';
 
-    // 日報データセット（Action 2完了後の状態）
-    const unifiedReports = [
+    const normalizedDailyReports = [
       {
-        member_id: 'user_001',
-        member_name: '田中太郎',
-        report_date: '2024-01-15',
-        actual_results: 'プロジェクトA進捗80%',
-        issues: [],
-        format_version: 'v1.0',
+        memberId: 'member-001',
+        memberName: 'John Doe',
+        reportDate: '2024-01-15',
+        reportContent: 'Completed API development. Encountered database performance issue during load test.',
+        submittedAt: new Date('2024-01-15T08:30:00Z'),
       },
       {
-        member_id: 'user_002',
-        member_name: '佐藤花子',
-        report_date: '2024-01-15',
-        actual_results: 'システム対応中',
-        issues: ['システム不具合'],
-        format_version: 'v1.0',
+        memberId: 'member-002',
+        memberName: 'Jane Smith',
+        reportContent: 'Fixed authentication bug. QA testing passed.',
+        submittedAt: new Date('2024-01-15T08:25:00Z'),
       },
     ];
 
-    // sendSummaryEmail を呼び出し
-    const result = await sendSummaryEmail(
-      unifiedReports,
-      mockAiClient,
-      'director@company.example.com',
-      '2024-01-15T09:00:00Z',
+    const mockAiClient = {
+      action01_aggregateReports: async () => ({
+        aggregatedStatus: 'completed',
+        totalReportsCount: 2,
+        unsubmittedMembersCount: 0,
+      }),
+      action02_normalizeFormat: async () => ({
+        normalizationStatus: 'success',
+        normalizedReportsCount: 2,
+        formatValidationErrors: [],
+      }),
+      action03_extractAndClassifyIssues: async () => ({
+        issues: [
+          {
+            issueId: 'issue-001',
+            description: 'Database performance',
+            priority: 'medium level',
+            confidenceScore: 0.25,
+            category: undefined,
+          },
+        ],
+        extractionStatus: 'completed',
+        totalExtractedCount: 1,
+      }),
+      action04_assignPriority: async () => ({
+        prioritizedIssues: [],
+        priorityAssignmentStatus: 'skipped',
+      }),
+      action05_identifyUnsubmitted: async () => ({
+        unsubmittedMembers: [],
+        unsubmittedCount: 0,
+      }),
+      action06_sendConfirmationEmail: async () => ({
+        emailStatus: 'skipped',
+        reason: 'manual_review_required',
+      }),
+    };
+
+    const result = await runTx2Imp1Agent(
+      {
+        executionTimestamp,
+        teamId,
+        reportingDeadline,
+        managerEmail,
+      },
+      mockAiClient as any
     );
 
-    // Validation: エスカレーション処理が実行されたか確認
-    expect(result).toEqual({
-      status: 'escalated',
-      escalation_reason: 'low_confidence_ai_output',
-      affected_action: 3,
-      human_review_required: true,
-      fallback_email_sent_to_director: true,
-      manual_review_request_sent_at: expect.any(String),
-      validation_failed_issues: [
-        {
-          issue_id: 'issue_001',
-          description: '優先度: 中程度',
-          priority: 'middle',
-          confidence_score: 0.25,
-          failure_reason: 'Confidence score 0.25 < threshold 0.5; Invalid priority value',
-        },
-      ],
-      affected_members: ['佐藤花子'],
-    });
+    expect(result.aggregationStatus).toBe('completed');
+    expect(result.extractedIssuesCount).toBe(0);
+    expect(result.prioritizedIssuesList).toEqual([]);
+    expect(result.emailSendStatus).toBe('escalated');
 
-    // Validation: Action 3の実行が記録されているか
-    expect(mockAiClient.action03_extractIssues).toHaveBeenCalledWith(unifiedReports);
+    expect(result).toHaveProperty('escalation_reason');
+    expect(result.escalation_reason).toBe('low_confidence_ai_output');
 
-    // Validation: Action 6（自動配信）がスキップされているか
-    expect(mockAiClient.action06_deliverEmail).not.toHaveBeenCalled();
+    expect(result).toHaveProperty('affected_action');
+    expect(result.affected_action).toBe(3);
 
-    // Validation: 手動確認要求メールの内容構造が正しいか
-    expect(result.manual_review_request_email_content).toMatch(/手動確認をお願いします/);
-    expect(result.manual_review_request_email_content).toMatch(/信頼度が不足しています/);
-    expect(result.manual_review_request_email_content).toMatch(/佐藤花子/);
-    expect(result.manual_review_request_email_content).toMatch(/issue_001/);
+    expect(result).toHaveProperty('human_review_required');
+    expect(result.human_review_required).toBe(true);
 
-    // Validation: ログイベントにエスカレーション理由が記録されているか
-    expect(result.audit_log).toContainEqual({
-      event_type: 'action_validation_failed',
-      action_number: 3,
-      timestamp: expect.any(String),
-      reason: 'Confidence score 0.25 < threshold 0.5; Invalid priority value',
-      escalation_chain: ['action_03'],
-    });
+    expect(result).toHaveProperty('fallback_email_sent_to_director');
+    expect(result.fallback_email_sent_to_director).toBe(true);
 
-    // Validation: 不正な課題抽出結果が朝会資料に含まれていないか
-    expect(result.morning_briefing_report_generated).toBe(false);
-    expect(result.issues_in_briefing).toHaveLength(0);
+    expect(result).toHaveProperty('escalation_log');
+    expect(Array.isArray(result.escalation_log)).toBe(true);
+    expect(result.escalation_log.length).toBeGreaterThan(0);
+
+    const validationFailureLog = result.escalation_log.find(
+      (log: any) => log.event === 'Action 3 validation failed'
+    );
+    expect(validationFailureLog).toBeDefined();
+    expect(validationFailureLog.reason).toMatch(/confidence score/i);
+    expect(validationFailureLog.affected_issues).toBeDefined();
+
+    expect(result).toHaveProperty('manual_review_email_content');
+    expect(result.manual_review_email_content).toContain('AI出力の信頼度が不足しています');
+    expect(result.manual_review_email_content).toContain('John Doe');
+    expect(result.manual_review_email_content).toContain('手動で再判定');
   });
 });

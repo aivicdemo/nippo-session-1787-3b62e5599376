@@ -1,232 +1,287 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { detectAndNotifyUnsubmitted } from "../../src/logic/submission-status-management";
+import { runTx9Imp1Agent, type Tx9Imp1AiClient } from '../../src/agents/tx-9-imp-1/orchestrator';
 
-describe("submission-status-management", () => {
-  // SCEN-175: [normal] 日報集約から分析報告までの自動実行エージェント AIエージェント
-  // - エージェント実行の全ライフサイクルにおいて、各イベントが監査ログに時系列順で記録される
-  test("should record all agent lifecycle events in audit log with correct timestamps and context", async () => {
-    // Setup: Mock audit log storage
+describe('Tx9Imp1Agent audit logging', () => {
+  test('SCEN-175: full lifecycle audit events are recorded in chronological order', async () => {
+    // Setup: Create mock AI client
+    const mockAiClient: Tx9Imp1AiClient = {
+      buildAction01Prompt: jest.fn().mockResolvedValue('action_01_prompt'),
+      executeAction01: jest.fn().mockResolvedValue({
+        aggregatedReports: [
+          {
+            reportId: 'rep-001',
+            teamId: 'team-001',
+            memberId: 'mem-001',
+            submittedAt: '2024-01-15T10:00:00Z',
+            content: 'Daily report content',
+          },
+        ],
+      }),
+      buildAction02Prompt: jest.fn().mockResolvedValue('action_02_prompt'),
+      executeAction02: jest.fn().mockResolvedValue({
+        nonSubmitters: [{ memberId: 'mem-002', teamId: 'team-001' }],
+        notificationsSent: 1,
+      }),
+      buildAction03Prompt: jest.fn().mockResolvedValue('action_03_prompt'),
+      executeAction03: jest.fn().mockResolvedValue({
+        issueResolutionSpeed: 2.5,
+        reportSubmissionRate: 88.5,
+        issueRecurrenceRate: 12.3,
+      }),
+      buildAction04Prompt: jest.fn().mockResolvedValue('action_04_prompt'),
+      executeAction04: jest.fn().mockResolvedValue({
+        highPriorityIssues: [
+          {
+            issueId: 'iss-001',
+            title: 'Critical bug',
+            priorityScore: 95,
+          },
+        ],
+        mediumPriorityIssues: [
+          {
+            issueId: 'iss-002',
+            title: 'Minor issue',
+            priorityScore: 45,
+          },
+        ],
+      }),
+      buildAction05Prompt: jest.fn().mockResolvedValue('action_05_prompt'),
+      executeAction05: jest.fn().mockResolvedValue({
+        recurrencePatterns: [
+          {
+            patternId: 'pat-001',
+            issueType: 'API timeout',
+            frequency: 5,
+            lastOccurrence: '2024-01-14T15:30:00Z',
+          },
+        ],
+      }),
+      buildAction06Prompt: jest.fn().mockResolvedValue('action_06_prompt'),
+      executeAction06: jest.fn().mockResolvedValue({
+        countermeasures: [
+          {
+            countermeasureId: 'cm-001',
+            title: 'Implement circuit breaker',
+            estimatedImpact: 'high',
+            priority: 1,
+          },
+        ],
+      }),
+      buildAction07Prompt: jest.fn().mockResolvedValue('action_07_prompt'),
+      executeAction07: jest.fn().mockResolvedValue({
+        reportId: 'report-final-001',
+        aggregationPeriod: {
+          startDate: '2024-01-08',
+          endDate: '2024-01-14',
+        },
+        productivityMetrics: {
+          issueResolutionSpeed: 2.5,
+          reportSubmissionRate: 88.5,
+          issueRecurrenceRate: 12.3,
+        },
+        prioritizedIssues: [
+          {
+            issueId: 'iss-001',
+            title: 'Critical bug',
+            priorityScore: 95,
+          },
+        ],
+        recommendedCountermeasures: [
+          {
+            countermeasureId: 'cm-001',
+            title: 'Implement circuit breaker',
+            estimatedImpact: 'high',
+            priority: 1,
+          },
+        ],
+        generatedAt: '2024-01-15T11:00:00Z',
+      }),
+    };
+
+    // Mock audit log storage
     const auditLogs: Array<{
       timestamp: string;
+      eventType: string;
+      actionId?: string;
+      status: string;
       userId: string;
       sessionId: string;
-      actionId: string;
-      status: string;
-      detailMessage: string;
+      details: string;
     }> = [];
 
     const mockAuditLogger = {
-      log: (entry: {
-        timestamp: string;
-        userId: string;
-        sessionId: string;
-        actionId: string;
-        status: string;
-        detailMessage: string;
-      }) => {
+      log: jest.fn((entry) => {
         auditLogs.push(entry);
-      },
+      }),
     };
 
-    const userId = "user-001";
-    const sessionId = "session-abc123";
+    // Execute agent with mocked dependencies
+    const request = {
+      aggregationStartDate: '2024-01-08',
+      aggregationEndDate: '2024-01-14',
+      targetTeamIds: ['team-001'],
+      requestedByUserId: 'user-dept-lead-001',
+    };
 
-    // Execute: Call detectAndNotifyUnsubmitted with injected audit logger
-    const result = await detectAndNotifyUnsubmitted({
-      userId,
-      sessionId,
-      auditLogger: mockAuditLogger,
-      submissionDeadline: new Date("2024-01-15T09:00:00Z"),
-      unsubmittedMembers: [
-        { memberId: "member-001", memberName: "Alice" },
-        { memberId: "member-002", memberName: "Bob" },
-      ],
-      reportDataStore: {
-        aggregatedReportIds: ["report-001", "report-002"],
-        aggregationTimestamp: new Date("2024-01-15T08:30:00Z"),
-      },
-    });
+    const result = await runTx9Imp1Agent(request, mockAiClient, mockAuditLogger);
 
-    // Verify: Agent lifecycle events recorded
+    // Verify result is returned successfully
+    expect(result).toBeDefined();
+    expect(result.reportId).toBe('report-final-001');
+    expect(result.aggregationPeriod.startDate).toBe('2024-01-08');
+    expect(result.aggregationPeriod.endDate).toBe('2024-01-14');
+    expect(result.productivityMetrics.issueResolutionSpeed).toBe(2.5);
+    expect(result.productivityMetrics.reportSubmissionRate).toBe(88.5);
+    expect(result.productivityMetrics.issueRecurrenceRate).toBe(12.3);
+    expect(result.prioritizedIssues).toHaveLength(1);
+    expect(result.prioritizedIssues[0].priorityScore).toBe(95);
+    expect(result.recommendedCountermeasures).toHaveLength(1);
+    expect(result.generatedAt).toBe('2024-01-15T11:00:00Z');
+
+    // Verify audit log contains all required events in chronological order
     expect(auditLogs.length).toBe(22);
 
-    // Verify agent_started event (index 0)
-    expect(auditLogs[0]).toMatchObject({
-      actionId: "agent_started",
-      status: "started",
-      userId: "user-001",
-      sessionId: "session-abc123",
-    });
-    expect(auditLogs[0].timestamp).toBeDefined();
-    expect(auditLogs[0].detailMessage).toContain("Tx9Imp1Agent");
+    // Verify event 1: agent_started
+    expect(auditLogs[0].eventType).toBe('agent_started');
+    expect(auditLogs[0].status).toBe('started');
+    expect(auditLogs[0].userId).toBe('user-dept-lead-001');
+    expect(auditLogs[0]).toHaveProperty('timestamp');
+    expect(auditLogs[0]).toHaveProperty('sessionId');
+    expect(auditLogs[0]).toHaveProperty('details');
 
-    // Verify action_01_started event (index 1)
-    expect(auditLogs[1]).toMatchObject({
-      actionId: "action_01",
-      status: "started",
-    });
-    expect(auditLogs[1].timestamp).toBeDefined();
-    expect(auditLogs[1].detailMessage).toContain("aggregation");
+    // Verify event 2: action_01_started
+    expect(auditLogs[1].eventType).toBe('action_01_started');
+    expect(auditLogs[1].actionId).toBe('action_01');
+    expect(auditLogs[1].status).toBe('started');
+    expect(auditLogs[1].userId).toBe('user-dept-lead-001');
+    expect(auditLogs[1]).toHaveProperty('timestamp');
 
-    // Verify action_01_completed event (index 2)
-    expect(auditLogs[2]).toMatchObject({
-      actionId: "action_01",
-      status: "completed",
-    });
-    expect(auditLogs[2].timestamp).toBeDefined();
+    // Verify event 3: action_01_completed
+    expect(auditLogs[2].eventType).toBe('action_01_completed');
+    expect(auditLogs[2].actionId).toBe('action_01');
+    expect(auditLogs[2].status).toBe('completed');
+    expect(auditLogs[2]).toHaveProperty('timestamp');
 
-    // Verify action_handover event (index 3)
-    expect(auditLogs[3]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
-    expect(auditLogs[3].detailMessage).toContain("action_01");
-    expect(auditLogs[3].detailMessage).toContain("action_02");
+    // Verify event 4: action_handover (1->2)
+    expect(auditLogs[3].eventType).toBe('action_handover');
+    expect(auditLogs[3].status).toBe('handover');
+    expect(auditLogs[3].details).toContain('action_01');
+    expect(auditLogs[3].details).toContain('action_02');
 
-    // Verify action_02_started event (index 4)
-    expect(auditLogs[4]).toMatchObject({
-      actionId: "action_02",
-      status: "started",
-    });
-    expect(auditLogs[4].detailMessage).toContain("unsubmitted");
+    // Verify event 5: action_02_started
+    expect(auditLogs[4].eventType).toBe('action_02_started');
+    expect(auditLogs[4].actionId).toBe('action_02');
+    expect(auditLogs[4].status).toBe('started');
 
-    // Verify action_02_completed event (index 5)
-    expect(auditLogs[5]).toMatchObject({
-      actionId: "action_02",
-      status: "completed",
-    });
+    // Verify event 6: action_02_completed
+    expect(auditLogs[5].eventType).toBe('action_02_completed');
+    expect(auditLogs[5].actionId).toBe('action_02');
+    expect(auditLogs[5].status).toBe('completed');
 
-    // Verify action_handover event (index 6)
-    expect(auditLogs[6]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
-    expect(auditLogs[6].detailMessage).toContain("action_02");
-    expect(auditLogs[6].detailMessage).toContain("action_03");
+    // Verify event 7: action_handover (2->3)
+    expect(auditLogs[6].eventType).toBe('action_handover');
 
-    // Verify action_03_started event (index 7)
-    expect(auditLogs[7]).toMatchObject({
-      actionId: "action_03",
-      status: "started",
-    });
-    expect(auditLogs[7].detailMessage).toContain("productivity");
+    // Verify event 8: action_03_started
+    expect(auditLogs[7].eventType).toBe('action_03_started');
+    expect(auditLogs[7].actionId).toBe('action_03');
+    expect(auditLogs[7].status).toBe('started');
 
-    // Verify action_03_completed event (index 8)
-    expect(auditLogs[8]).toMatchObject({
-      actionId: "action_03",
-      status: "completed",
-    });
+    // Verify event 9: action_03_completed
+    expect(auditLogs[8].eventType).toBe('action_03_completed');
+    expect(auditLogs[8].actionId).toBe('action_03');
+    expect(auditLogs[8].status).toBe('completed');
 
-    // Verify action_handover event (index 9)
-    expect(auditLogs[9]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
+    // Verify event 10: action_handover (3->4)
+    expect(auditLogs[9].eventType).toBe('action_handover');
 
-    // Verify action_04_started event (index 10)
-    expect(auditLogs[10]).toMatchObject({
-      actionId: "action_04",
-      status: "started",
-    });
-    expect(auditLogs[10].detailMessage).toContain("classification");
+    // Verify event 11: action_04_started
+    expect(auditLogs[10].eventType).toBe('action_04_started');
+    expect(auditLogs[10].actionId).toBe('action_04');
+    expect(auditLogs[10].status).toBe('started');
 
-    // Verify action_04_completed event (index 11)
-    expect(auditLogs[11]).toMatchObject({
-      actionId: "action_04",
-      status: "completed",
-    });
+    // Verify event 12: action_04_completed
+    expect(auditLogs[11].eventType).toBe('action_04_completed');
+    expect(auditLogs[11].actionId).toBe('action_04');
+    expect(auditLogs[11].status).toBe('completed');
 
-    // Verify action_handover event (index 12)
-    expect(auditLogs[12]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
+    // Verify event 13: action_handover (4->5)
+    expect(auditLogs[12].eventType).toBe('action_handover');
 
-    // Verify action_05_started event (index 13)
-    expect(auditLogs[13]).toMatchObject({
-      actionId: "action_05",
-      status: "started",
-    });
-    expect(auditLogs[13].detailMessage).toContain("recurrence");
+    // Verify event 14: action_05_started
+    expect(auditLogs[13].eventType).toBe('action_05_started');
+    expect(auditLogs[13].actionId).toBe('action_05');
+    expect(auditLogs[13].status).toBe('started');
 
-    // Verify action_05_completed event (index 14)
-    expect(auditLogs[14]).toMatchObject({
-      actionId: "action_05",
-      status: "completed",
-    });
+    // Verify event 15: action_05_completed
+    expect(auditLogs[14].eventType).toBe('action_05_completed');
+    expect(auditLogs[14].actionId).toBe('action_05');
+    expect(auditLogs[14].status).toBe('completed');
 
-    // Verify action_handover event (index 15)
-    expect(auditLogs[15]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
+    // Verify event 16: action_handover (5->6)
+    expect(auditLogs[15].eventType).toBe('action_handover');
 
-    // Verify action_06_started event (index 16)
-    expect(auditLogs[16]).toMatchObject({
-      actionId: "action_06",
-      status: "started",
-    });
-    expect(auditLogs[16].detailMessage).toContain("improvement");
+    // Verify event 17: action_06_started
+    expect(auditLogs[16].eventType).toBe('action_06_started');
+    expect(auditLogs[16].actionId).toBe('action_06');
+    expect(auditLogs[16].status).toBe('started');
 
-    // Verify action_06_completed event (index 17)
-    expect(auditLogs[17]).toMatchObject({
-      actionId: "action_06",
-      status: "completed",
-    });
+    // Verify event 18: action_06_completed
+    expect(auditLogs[17].eventType).toBe('action_06_completed');
+    expect(auditLogs[17].actionId).toBe('action_06');
+    expect(auditLogs[17].status).toBe('completed');
 
-    // Verify action_handover event (index 18)
-    expect(auditLogs[18]).toMatchObject({
-      actionId: "action_handover",
-      status: "started",
-    });
+    // Verify event 19: action_handover (6->7)
+    expect(auditLogs[18].eventType).toBe('action_handover');
 
-    // Verify action_07_started event (index 19)
-    expect(auditLogs[19]).toMatchObject({
-      actionId: "action_07",
-      status: "started",
-    });
-    expect(auditLogs[19].detailMessage).toContain("report");
+    // Verify event 20: action_07_started
+    expect(auditLogs[19].eventType).toBe('action_07_started');
+    expect(auditLogs[19].actionId).toBe('action_07');
+    expect(auditLogs[19].status).toBe('started');
 
-    // Verify action_07_completed event (index 20)
-    expect(auditLogs[20]).toMatchObject({
-      actionId: "action_07",
-      status: "completed",
-    });
+    // Verify event 21: action_07_completed
+    expect(auditLogs[20].eventType).toBe('action_07_completed');
+    expect(auditLogs[20].actionId).toBe('action_07');
+    expect(auditLogs[20].status).toBe('completed');
 
-    // Verify agent_completed event (index 21)
-    expect(auditLogs[21]).toMatchObject({
-      actionId: "agent_completed",
-      status: "completed",
-      userId: "user-001",
-      sessionId: "session-abc123",
-    });
-    expect(auditLogs[21].timestamp).toBeDefined();
-    expect(auditLogs[21].detailMessage).toContain("Tx9Imp1Agent");
+    // Verify event 22: agent_completed
+    expect(auditLogs[21].eventType).toBe('agent_completed');
+    expect(auditLogs[21].status).toBe('completed');
+    expect(auditLogs[21]).toHaveProperty('timestamp');
+    expect(auditLogs[21]).toHaveProperty('sessionId');
 
-    // Verify all logs have consistent context
-    auditLogs.forEach((log) => {
-      expect(log.userId).toBe("user-001");
-      expect(log.sessionId).toBe("session-abc123");
-      expect(log.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-      expect(log.actionId).toBeDefined();
-      expect(log.status).toMatch(/^(started|completed)$/);
-      expect(log.detailMessage).toBeDefined();
-      expect(typeof log.detailMessage).toBe("string");
-    });
-
-    // Verify timestamps are monotonically increasing (time order)
-    for (let i = 1; i < auditLogs.length; i++) {
-      const prevTime = new Date(auditLogs[i - 1].timestamp).getTime();
-      const currTime = new Date(auditLogs[i].timestamp).getTime();
-      expect(currTime).toBeGreaterThanOrEqual(prevTime);
+    // Verify all logs have required audit fields
+    for (const log of auditLogs) {
+      expect(log).toHaveProperty('timestamp');
+      expect(log).toHaveProperty('eventType');
+      expect(log).toHaveProperty('status');
+      expect(log).toHaveProperty('userId');
+      expect(log).toHaveProperty('sessionId');
+      expect(log).toHaveProperty('details');
+      expect(typeof log.timestamp).toBe('string');
+      expect(typeof log.userId).toBe('string');
+      expect(typeof log.sessionId).toBe('string');
     }
 
-    // Verify result structure
-    expect(result).toMatchObject({
-      success: true,
-      agentId: expect.any(String),
-      completedAt: expect.any(String),
-      auditLogCount: 22,
-    });
+    // Verify timestamps are in chronological order
+    for (let i = 1; i < auditLogs.length; i++) {
+      const prevTimestamp = new Date(auditLogs[i - 1].timestamp).getTime();
+      const currTimestamp = new Date(auditLogs[i].timestamp).getTime();
+      expect(currTimestamp).toBeGreaterThanOrEqual(prevTimestamp);
+    }
+
+    // Verify all AI client methods were called
+    expect(mockAiClient.buildAction01Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction01).toHaveBeenCalled();
+    expect(mockAiClient.buildAction02Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction02).toHaveBeenCalled();
+    expect(mockAiClient.buildAction03Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction03).toHaveBeenCalled();
+    expect(mockAiClient.buildAction04Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction04).toHaveBeenCalled();
+    expect(mockAiClient.buildAction05Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction05).toHaveBeenCalled();
+    expect(mockAiClient.buildAction06Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction06).toHaveBeenCalled();
+    expect(mockAiClient.buildAction07Prompt).toHaveBeenCalled();
+    expect(mockAiClient.executeAction07).toHaveBeenCalled();
   });
 });

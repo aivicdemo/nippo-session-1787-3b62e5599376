@@ -1,154 +1,210 @@
-import { detectAndNotifyUnsubmitted } from "../../src/logic/submission-status-management";
+import { runTx10Imp1Agent } from "../../src/agents/tx-10-imp-1/orchestrator";
+import { type Tx10AgentInput, type Tx10AgentOutput } from "../../src/agents/tx-10-imp-1/types";
+import { type Tx10Imp1AiClient } from "../../src/agents/tx-10-imp-1/ai-client";
 
-describe("submission-status-management", () => {
-  test("SCEN-186: tx_10_imp_1 escalation when feedback outlier members detected - halts auto-distribution before side effects and escalates to human review", async () => {
-    // Setup: Initial state - orchestrator preparing to start tx_10_imp_1 (导入计画・研修実施・フィードバック対応)
-    // Actions 1-4 completed successfully, initial feedback target members collected
+describe("Tx10Imp1Agent Escalation - FEEDBACK_OUTLIER", () => {
+  // SCEN-186
+  test("should escalate and halt auto-distribution when initial feedback targets have outlier metrics", async () => {
+    const deploymentInitiationTimestamp = new Date("2024-01-15T08:00:00Z");
+    const reportingDeadlineTime = "09:00";
 
-    // Action 5 input: Initial feedback target members with samples significantly deviating from baseline
-    // Baseline: submission_rate >= 50%, report_quality_score >= 30
-    // Outlier sample: submission_rate = 20%, report_quality_score = 15
-    const feedback_target_members = [
+    const participantList = [
       {
-        member_id: "MBR001",
-        member_name: "田中太郎",
-        submission_rate: 0.95, // 95% - normal
-        report_quality_score: 85, // normal
+        userId: "PM001",
+        role: "ProjectManager",
+        email: "pm001@example.com",
       },
-      {
-        member_id: "MBR002",
-        member_name: "鈴木花子",
-        submission_rate: 0.2, // 20% - outlier, significantly below 50% baseline
-        report_quality_score: 15, // outlier, significantly below 30 baseline
-        deviation_reason: "system_login_issues",
-      },
-      {
-        member_id: "MBR003",
-        member_name: "佐藤次郎",
-        submission_rate: 0.85, // 85% - normal
-        report_quality_score: 72, // normal
-      },
+      { userId: "MGR001", role: "Manager", email: "mgr001@example.com" },
+      { userId: "ENG001", role: "Engineer", email: "eng001@example.com" },
+      { userId: "ENG002", role: "Engineer", email: "eng002@example.com" },
+      { userId: "ENG003", role: "Engineer", email: "eng003@example.com" },
+      { userId: "ENG004", role: "Engineer", email: "eng004@example.com" },
+      { userId: "ENG005", role: "Engineer", email: "eng005@example.com" },
+      { userId: "ENG006", role: "Engineer", email: "eng006@example.com" },
+      { userId: "ENG007", role: "Engineer", email: "eng007@example.com" },
+      { userId: "ENG008", role: "Engineer", email: "eng008@example.com" },
+      { userId: "ENG009", role: "Engineer", email: "eng009@example.com" },
+      { userId: "ENG010", role: "Engineer", email: "eng010@example.com" },
     ];
 
-    const orchestrator_input = {
-      action_sequence: [1, 2, 3, 4, 5],
-      current_action: 5,
-      initial_feedback_members: feedback_target_members,
-      quality_baseline_submission_rate: 0.5,
-      quality_baseline_report_score: 30,
-      escalation_threshold_deviation_factor: 0.4, // members deviating >40% below baseline trigger escalation
-      department_head_id: "DEPT_HEAD_001",
-      processing_timestamp: "2024-02-20T09:30:00Z",
+    const input: Tx10AgentInput = {
+      deploymentInitiationTimestamp,
+      participantList,
+      preparationDaysRequired: 5,
+      reportingDeadlineTime,
     };
 
-    // Fake AI client simulating Action 5 analysis result
-    const fake_ai_response = {
-      action: 5,
-      status: "ANALYSIS_COMPLETE",
-      analyzed_members: feedback_target_members,
-      outlier_detection: {
-        outlier_members: [
+    const mockAiClient: Tx10Imp1AiClient = {
+      action01_generateDeploymentSchedule: jest.fn().mockResolvedValue({
+        status: "success",
+        deployment_schedule: {
+          start_date: "2024-01-20",
+          phase_1_end_date: "2024-01-25",
+          phase_2_end_date: "2024-02-01",
+          phase_3_end_date: "2024-02-08",
+          go_live_date: "2024-02-12",
+        },
+      }),
+
+      action02_generateTrainingMaterials: jest.fn().mockResolvedValue({
+        status: "success",
+        training_materials: [
           {
-            member_id: "MBR002",
-            member_name: "鈴木花子",
-            deviation_metrics: {
-              submission_rate_deviation: -0.75, // (0.2 - 0.5) / 0.5 = -60% deviation
-              report_quality_deviation: -0.5, // (15 - 30) / 30 = -50% deviation
-            },
-            risk_assessment: "HIGH",
-            likely_causes: ["system_access_issues", "training_gap"],
+            material_type: "department_head_guide",
+            title: "朝会報告管理システム 部長向けガイド",
+            content_url: "https://example.com/guide-mgr.pdf",
+          },
+          {
+            material_type: "engineer_training",
+            title: "朝会報告管理システム エンジニア向け研修教材",
+            content_url: "https://example.com/training-eng.pdf",
           },
         ],
-        outlier_count: 1,
-        total_analyzed: 3,
-      },
-      escalation_flag: true,
-      escalation_reason_code: "FEEDBACK_OUTLIER",
-      affected_members: [
-        {
-          member_id: "MBR002",
-          member_name: "鈴木花子",
-          escalation_detail: "Submission rate 20% (baseline 50%), quality score 15 (baseline 30)",
+      }),
+
+      action03_collectInitialReportData: jest.fn().mockResolvedValue({
+        status: "success",
+        submission_count: 11,
+        submission_rate: 92,
+        data_quality_results: {
+          ENG001: { submission_rate: 100, data_quality_score: 85 },
+          ENG002: { submission_rate: 100, data_quality_score: 80 },
+          ENG003: { submission_rate: 100, data_quality_score: 78 },
+          ENG004: { submission_rate: 100, data_quality_score: 75 },
+          ENG005: { submission_rate: 100, data_quality_score: 82 },
+          ENG006: { submission_rate: 100, data_quality_score: 28 },
+          ENG007: { submission_rate: 45, data_quality_score: 35 },
+          ENG008: { submission_rate: 100, data_quality_score: 72 },
+          ENG009: { submission_rate: 100, data_quality_score: 80 },
+          ENG010: { submission_rate: 100, data_quality_score: 88 },
+          MGR001: { submission_rate: 100, data_quality_score: 92 },
+        },
+      }),
+
+      action04_validateReportQuality: jest.fn().mockResolvedValue({
+        status: "success",
+        quality_validation: {
+          overall_submission_rate: 92,
+          overall_data_quality_score: 75,
+          format_uniformity_score: 80,
+          validation_passed: true,
+        },
+      }),
+
+      action05_judgeInitialFeedback: jest.fn().mockResolvedValue({
+        status: "escalation_required",
+        escalation_flag: true,
+        escalation_reason_code: "FEEDBACK_OUTLIER",
+        escalation_details: {
+          outlier_count: 2,
+          affected_members: [
+            {
+              user_id: "ENG006",
+              email: "eng006@example.com",
+              data_quality_score: 28,
+              quality_threshold: 30,
+              submission_rate: 100,
+              submission_threshold: 50,
+              deviation_reason: "quality_score_below_threshold",
+              risk_level: "high",
+            },
+            {
+              user_id: "ENG007",
+              email: "eng007@example.com",
+              data_quality_score: 35,
+              quality_threshold: 30,
+              submission_rate: 45,
+              submission_threshold: 50,
+              deviation_reason: "submission_rate_below_threshold",
+              risk_level: "high",
+            },
+          ],
           recommended_actions: [
-            "schedule_1on1_with_department_head",
-            "provide_targeted_training",
-            "assess_technical_barriers",
+            "individual_coaching_for_eng006",
+            "submission_process_review_for_eng007",
           ],
         },
-      ],
+      }),
+
+      action06_distributeApprovedFeedback: jest.fn(),
     };
 
-    // Orchestrator execution with escalation condition triggered
-    // This should detect outlier at Action 5 and escalate before executing Action 6 (auto-distribution)
-    const orchestrator_result = await detectAndNotifyUnsubmitted(
-      orchestrator_input,
-      fake_ai_response
-    );
+    const recordEscalationStateMock = jest.fn().mockResolvedValue({
+      escalation_id: "ESC-2024-001",
+      escalation_status: "PENDING_HUMAN_REVIEW",
+      escalation_reason: "FEEDBACK_OUTLIER",
+      reviewed_at: null,
+    });
 
-    // Assertion 1: Orchestrator returns escalated status (Action 6 not executed)
-    expect(orchestrator_result.status).toBe("ESCALATED");
+    const auditLogMock = jest.fn().mockResolvedValue({
+      audit_id: "AUD-2024-001",
+      action: "ESCALATION_TRIGGERED",
+      escalation_trigger: "FEEDBACK_OUTLIER",
+      timestamp: new Date("2024-01-15T08:30:00Z").toISOString(),
+    });
 
-    // Assertion 2: Escalation reason is correctly set
-    expect(orchestrator_result.escalation_reason).toBe("FEEDBACK_OUTLIER");
+    const result: Tx10AgentOutput = await runTx10Imp1Agent(input, mockAiClient, {
+      recordEscalationState: recordEscalationStateMock,
+      auditLog: auditLogMock,
+    });
 
-    // Assertion 3: Pending human action indicates department head review required
-    expect(orchestrator_result.pending_human_action).toBeDefined();
-    expect(orchestrator_result.pending_human_action.department_head_review_required).toBe(
+    expect(result.status).toBe("ESCALATED");
+    expect(result.escalation_reason).toBe("FEEDBACK_OUTLIER");
+    expect(result.pending_human_action).toBeDefined();
+    expect(result.pending_human_action?.department_head_review_required).toBe(
       true
     );
+    expect(result.pending_human_action?.outlier_members).toHaveLength(2);
+    expect(result.pending_human_action?.outlier_members?.[0]).toEqual({
+      user_id: "ENG006",
+      email: "eng006@example.com",
+      data_quality_score: 28,
+      quality_threshold: 30,
+      submission_rate: 100,
+      submission_threshold: 50,
+      deviation_reason: "quality_score_below_threshold",
+      risk_level: "high",
+    });
+    expect(result.pending_human_action?.outlier_members?.[1]).toEqual({
+      user_id: "ENG007",
+      email: "eng007@example.com",
+      data_quality_score: 35,
+      quality_threshold: 30,
+      submission_rate: 45,
+      submission_threshold: 50,
+      deviation_reason: "submission_rate_below_threshold",
+      risk_level: "high",
+    });
 
-    // Assertion 4: Outlier members list includes detected member
-    expect(orchestrator_result.pending_human_action.outlier_members).toHaveLength(1);
-    expect(orchestrator_result.pending_human_action.outlier_members[0].member_id).toBe(
-      "MBR002"
+    expect(recordEscalationStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        escalation_reason: "FEEDBACK_OUTLIER",
+        status: "PENDING_HUMAN_REVIEW",
+        reviewed_at: null,
+      })
     );
-    expect(orchestrator_result.pending_human_action.outlier_members[0].member_name).toBe(
-      "鈴木花子"
+
+    expect(auditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ESCALATION_TRIGGERED",
+        escalation_trigger: "FEEDBACK_OUTLIER",
+      })
     );
 
-    // Assertion 5: Escalation timestamp is set in ISO8601 format
-    expect(orchestrator_result.pending_human_action.escalation_timestamp).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
-    );
+    expect(mockAiClient.action06_distributeApprovedFeedback).not.toHaveBeenCalled();
 
-    // Assertion 6: Escalation state recorded as PENDING_HUMAN_REVIEW (not auto-distributed)
-    expect(orchestrator_result.escalation_state).toBe("PENDING_HUMAN_REVIEW");
+    expect(mockAiClient.action01_generateDeploymentSchedule).toHaveBeenCalled();
+    expect(mockAiClient.action02_generateTrainingMaterials).toHaveBeenCalled();
+    expect(mockAiClient.action03_collectInitialReportData).toHaveBeenCalled();
+    expect(mockAiClient.action04_validateReportQuality).toHaveBeenCalled();
+    expect(mockAiClient.action05_judgeInitialFeedback).toHaveBeenCalled();
 
-    // Assertion 7: Escalation reason code stored in structured data
-    expect(orchestrator_result.escalation_metadata.reason_code).toBe("FEEDBACK_OUTLIER");
-
-    // Assertion 8: Detailed outlier information provided for human review
-    expect(orchestrator_result.escalation_metadata.outlier_details).toBeDefined();
+    expect(result.pending_human_action?.escalation_timestamp).toBeDefined();
     expect(
-      orchestrator_result.escalation_metadata.outlier_details.member_submission_rate_deviation
-    ).toBe(-0.6);
-    expect(
-      orchestrator_result.escalation_metadata.outlier_details.member_quality_score_deviation
-    ).toBe(-0.5);
-
-    // Assertion 9: Auto-distribution flag is false (Action 6 skipped)
-    expect(orchestrator_result.auto_distribution_executed).toBe(false);
-
-    // Assertion 10: Audit log entry created for escalation
-    expect(orchestrator_result.audit_log).toBeDefined();
-    expect(orchestrator_result.audit_log.action).toBe("ESCALATION_TRIGGERED");
-    expect(orchestrator_result.audit_log.escalation_trigger).toBe("FEEDBACK_OUTLIER");
-    expect(orchestrator_result.audit_log.timestamp).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
-    );
-
-    // Assertion 11: No feedback auto-distribution record created
-    expect(orchestrator_result.feedback_distribution_status).toBe("NOT_EXECUTED");
-
-    // Assertion 12: Control flow branched to human review path, not auto-execution
-    expect(orchestrator_result.next_action).toBe("AWAIT_DEPARTMENT_HEAD_REVIEW");
-
-    // Assertion 13: Recommended actions for human review provided
-    expect(orchestrator_result.escalation_metadata.recommended_actions).toContain(
-      "schedule_1on1_with_department_head"
-    );
-    expect(orchestrator_result.escalation_metadata.recommended_actions).toContain(
-      "provide_targeted_training"
-    );
+      typeof result.pending_human_action?.escalation_timestamp === "string" &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(
+          result.pending_human_action.escalation_timestamp
+        )
+    ).toBe(true);
   });
 });

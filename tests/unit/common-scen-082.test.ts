@@ -1,101 +1,151 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
+import type { Tx4AgentExecutionRequest, Tx4AgentExecutionResult } from '../../src/agents/tx-4-imp-1/orchestrator';
+import type { Tx4Imp1AiClient } from '../../src/agents/tx-4-imp-1/orchestrator';
 
-describe("notification-delivery", () => {
-  test("SCEN-082: escalation triggered when AI priority judgment is ambiguous with confidence below threshold", async () => {
-    // Setup: Mock data with ambiguous priority judgment
-    const ambiguousCaseIssue = {
-      issueId: "ISSUE-TX4-001",
-      department: "Engineering",
-      category: "Performance",
-      description: "Database query optimization needed",
+describe('Tx4Imp1Agent', () => {
+  // SCEN-082: [error] ダッシュボード分析から課題指示までの自動実行 AIエージェント - 曖昧な案件でのエスカレーション
+  test('should escalate ambiguous priority judgment before side effects confirmation', async () => {
+    const executionTimestamp = new Date('2024-01-15T08:00:00Z');
+    const targetDate = '2024-01-15';
+    const executorUserId = 'user-director-001';
+    const teamId = 'team-engineering-001';
+
+    const request: Tx4AgentExecutionRequest = {
+      executionTimestamp,
+      targetDate,
+      executorUserId,
+      teamId,
+    };
+
+    // Ambiguous priority judgment case: confidence score below threshold
+    const ambiguousCaseData = {
+      caseId: 'case-ambiguous-001',
+      title: 'Cross-department feature priority conflict',
       importance: 7,
       urgency: 7,
       confidenceScore: 0.35,
-      ambiguityFlag: true,
-      alternativePatterns: [
-        { priority: "HIGH", reasoning: "Affects customer SLA", confidence: 0.32 },
-        { priority: "MEDIUM", reasoning: "Internal optimization only", confidence: 0.33 },
+      ambiguityFlag: 'multiple_equally_valid_patterns',
+      affectedDepartments: ['backend', 'frontend', 'qa'],
+      competingPriorities: [
+        {
+          pattern: 'high_importance_low_urgency',
+          score: 0.48,
+        },
+        {
+          pattern: 'low_importance_high_urgency',
+          score: 0.47,
+        },
       ],
     };
 
-    const unsubmittedMembers = [
-      { userId: "USER-001", email: "member@example.com", name: "John Doe" },
-      { userId: "USER-002", email: "member2@example.com", name: "Jane Smith" },
-    ];
-
-    const mockAiClient = {
-      aggregateRealtimeProgress: async () => ({
-        issues: [ambiguousCaseIssue],
-        unsubmittedCount: 2,
-        timestamp: "2024-01-15T08:30:00Z",
+    // Fake AI client that returns ambiguous case data
+    const fakeAiClient: Tx4Imp1AiClient = {
+      aggregateDashboardData: async () => ({
+        aggregatedIssues: [ambiguousCaseData],
+        unsubmittedMembers: ['member-003'],
+        dashboardMetrics: {
+          totalProgress: 65,
+          delayedTasks: 3,
+          anomalyFlags: ['ambiguous_priority'],
+        },
       }),
-      extractAndRankIssues: async (issues) => ({
-        rankedIssues: issues.map((issue) => ({
-          ...issue,
-          confidenceScore: issue.confidenceScore,
-          ambiguityFlag: issue.ambiguityFlag,
-        })),
+      prioritizeIssues: async (issues) => ({
+        prioritizedList: [
+          {
+            issueId: ambiguousCaseData.caseId,
+            priority: 'ESCALATION_REQUIRED',
+            priorityScore: null,
+            confidenceScore: ambiguousCaseData.confidenceScore,
+            escalationReason: 'ambiguous_priority_judgment',
+            competingPatterns: ambiguousCaseData.competingPriorities,
+            requiresHumanJudgment: true,
+          },
+        ],
       }),
-      generateDashboardReport: async () => ({ status: "pending", reason: "awaiting_human_review" }),
+      generateCountermeasurePlan: async () => ({
+        planId: 'plan-pending-001',
+        recommendedActions: [],
+        estimatedResolutionDays: null,
+        assignedOwner: null,
+        status: 'awaiting_human_confirmation',
+      }),
+      sendSummaryEmail: async () => ({
+        emailSent: false,
+        reason: 'escalation_in_progress_pending_human_judgment',
+        recipientEmail: null,
+      }),
+      recordEscalationEvent: async (escalationData) => ({
+        auditEventId: 'audit-event-001',
+        eventType: 'escalation',
+        reason: escalationData.reason,
+        timestamp: new Date('2024-01-15T08:15:00Z'),
+        actor: 'ai_agent_tx4_imp1',
+        caseId: escalationData.caseId,
+        escalationDetails: {
+          confidenceScore: ambiguousCaseData.confidenceScore,
+          competingPatterns: ambiguousCaseData.competingPriorities,
+          aiJudgmentReason: 'importance_urgency_equally_high_ambiguous_context',
+          requiresManualDecision: true,
+        },
+      }),
     };
 
-    const escalationEvents = [];
-    const mockAuditLogger = {
-      logEscalation: (event) => {
-        escalationEvents.push(event);
-      },
-    };
+    const result = await runTx4Imp1Agent(request, fakeAiClient);
 
-    const mockNotificationService = {
-      sendEmail: async () => ({ sent: false, reason: "escalation_pending" }),
-    };
-
-    // Execute: Call sendUnsubmittedReminder with ambiguous case scenario
-    const result = await sendUnsubmittedReminder(
-      unsubmittedMembers,
-      mockAiClient,
-      mockAuditLogger,
-      mockNotificationService,
-      {
-        confidenceThreshold: 0.5,
-        escalationRequired: true,
-      }
+    // Assertion 1: Escalation was triggered
+    expect(result.completionTimestamp).toBeDefined();
+    expect(result.completionTimestamp.getTime()).toBeGreaterThan(
+      executionTimestamp.getTime()
     );
 
-    // Verify: Escalation triggered and recorded
-    expect(result.escalationTriggered).toBe(true);
-    expect(result.escalationReason).toBe("ambiguous_priority_judgment");
+    // Assertion 2: Ambiguous case was detected and escalated
+    expect(result.prioritizedIssues).toBeDefined();
+    expect(result.prioritizedIssues.length).toBeGreaterThan(0);
+    const escalatedIssue = result.prioritizedIssues.find(
+      (issue) => issue.escalationReason === 'ambiguous_priority_judgment'
+    );
+    expect(escalatedIssue).toBeDefined();
+    expect(escalatedIssue?.confidenceScore).toBe(0.35);
+    expect(escalatedIssue?.requiresHumanJudgment).toBe(true);
 
-    // Verify: Escalation event contains required information
-    expect(escalationEvents.length).toBeGreaterThan(0);
-    const escalationEvent = escalationEvents[0];
-    expect(escalationEvent.eventType).toBe("escalation");
-    expect(escalationEvent.reason).toBe("ambiguous_priority_judgment");
-    expect(escalationEvent.actor).toBe("ai_agent_tx4_imp1");
-    expect(escalationEvent.timestamp).toBeDefined();
-    expect(escalationEvent.details).toBeDefined();
-    expect(escalationEvent.details.issueId).toBe("ISSUE-TX4-001");
-    expect(escalationEvent.details.confidenceScore).toBe(0.35);
-    expect(escalationEvent.details.alternativePatterns).toEqual([
-      { priority: "HIGH", reasoning: "Affects customer SLA", confidence: 0.32 },
-      { priority: "MEDIUM", reasoning: "Internal optimization only", confidence: 0.33 },
-    ]);
-    expect(escalationEvent.details.judgedConfidenceIsBelowThreshold).toBe(true);
+    // Assertion 3: Side effects (summary email and confirmed dashboard) were NOT executed
+    expect(result.summaryEmailSent).toBe(false);
 
-    // Verify: Side effects (email send, dashboard confirmation) not executed
-    expect(result.dashboardReportStatus).toBe("pending");
-    expect(result.dashboardReportReason).toBe("awaiting_human_review");
-    expect(result.emailsSent).toBe(0);
+    // Assertion 4: Countermeasure plan is in awaiting confirmation state
+    expect(result.countermeasurePlan).toBeDefined();
+    expect(result.countermeasurePlan.status).toBe('awaiting_human_confirmation');
+    expect(result.countermeasurePlan.assignedOwner).toBeNull();
+    expect(result.countermeasurePlan.recommendedActions).toHaveLength(0);
 
-    // Verify: Dashboard material remains in "confirmed awaiting" state, not sent
-    expect(result.materialConfirmed).toBe(false);
-    expect(result.briefingConfirmed).toBe(false);
+    // Assertion 5: Escalation event was recorded with required fields
+    expect(result.escalationEventId).toBeDefined();
+    expect(result.escalationEventReason).toBe('ambiguous_priority_judgment');
+    expect(result.escalationDetails).toBeDefined();
+    expect(result.escalationDetails.confidenceScore).toBe(0.35);
+    expect(result.escalationDetails.competingPatterns).toHaveLength(2);
+    expect(result.escalationDetails.competingPatterns[0]).toEqual({
+      pattern: 'high_importance_low_urgency',
+      score: 0.48,
+    });
+    expect(result.escalationDetails.requiresManualDecision).toBe(true);
 
-    // Verify: Human escalation info prepared for review
-    expect(result.escalationInfo).toBeDefined();
-    expect(result.escalationInfo.requiresHumanReview).toBe(true);
-    expect(result.escalationInfo.issueDetails).toBeDefined();
-    expect(result.escalationInfo.issueDetails.issueId).toBe("ISSUE-TX4-001");
+    // Assertion 6: Multiple judgment patterns are included in escalation details
+    expect(result.escalationDetails.competingPatterns.length).toBeGreaterThanOrEqual(
+      2
+    );
+    result.escalationDetails.competingPatterns.forEach((pattern) => {
+      expect(pattern.pattern).toBeDefined();
+      expect(typeof pattern.score).toBe('number');
+      expect(pattern.score).toBeGreaterThanOrEqual(0);
+      expect(pattern.score).toBeLessThanOrEqual(1);
+    });
+
+    // Assertion 7: Unsubmitted members were tracked separately
+    expect(result.aggregatedReportCount).toBeGreaterThanOrEqual(0);
+    expect(result.extractedIssueCount).toBeGreaterThanOrEqual(1);
+
+    // Assertion 8: Execution state indicates escalation pending human confirmation
+    expect(result.executionStatus).toBe('escalation_pending_human_confirmation');
+    expect(result.escalatedCaseCount).toBe(1);
   });
 });

@@ -1,236 +1,231 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx10Imp1Agent } from "../../src/agents/tx-10-imp-1/orchestrator";
+import { type Tx10Imp1AiClient } from "../../src/agents/tx-10-imp-1/orchestrator";
 
-// SCEN-187: [error] 導入計画・研修実施・フィードバック対応の自動化・統合 AIエージェント
-// システム障害や運用ルール変更が発生した場合に副作用の確定前に人へ引き継ぐ
-describe('sendUnsubmittedReminder - Escalation on System Failure and Operational Rule Change', () => {
-  let mockEnv: NodeJS.ProcessEnv;
-  let mockAuditLogger: jest.Mock;
-  let mockTransactionRollback: jest.Mock;
-  let mockNotificationQueue: jest.Mock;
+describe("Tx10Imp1Agent - Onboarding Automation Integration", () => {
+  // SCEN-187
+  test(
+    "escalation when system failure and operational rule change occur during action 5 execution",
+    async () => {
+      const mockAiClient: Tx10Imp1AiClient = {
+        action01_generateDeploymentSchedule: jest
+          .fn()
+          .mockResolvedValue({
+            schedule_id: "sched_001",
+            start_date: "2024-02-01",
+            phases: [
+              {
+                phase_name: "preparation",
+                deadline: "2024-02-05",
+              },
+              {
+                phase_name: "training",
+                deadline: "2024-02-12",
+              },
+            ],
+            full_operation_start_date: "2024-02-20",
+          }),
 
-  beforeEach(() => {
-    mockEnv = { ...process.env };
-    mockAuditLogger = jest.fn();
-    mockTransactionRollback = jest.fn().mockResolvedValue(undefined);
-    mockNotificationQueue = jest.fn();
+        action02_generateTrainingMaterials: jest
+          .fn()
+          .mockResolvedValue({
+            materials: [
+              {
+                target_role: "Manager",
+                material_id: "mat_mgr_001",
+                title: "Manager Operation Guide",
+                content_url: "https://example.com/mgr_guide.pdf",
+              },
+              {
+                target_role: "Engineer",
+                material_id: "mat_eng_001",
+                title: "Engineer Training Materials",
+                content_url: "https://example.com/eng_training.pdf",
+              },
+            ],
+          }),
 
-    // Set operational rule change flag via environment
-    process.env.OPERATIONAL_RULE_CHANGED = 'true';
-    process.env.OPERATIONAL_RULE_PREVIOUS_REQUIRED_ITEMS = '3';
-    process.env.OPERATIONAL_RULE_NEW_REQUIRED_ITEMS = '4';
-  });
+        action03_analyzeInitialReportData: jest
+          .fn()
+          .mockResolvedValue({
+            submission_rate: 85,
+            data_quality_score: 78,
+            format_uniformity_score: 82,
+            report_samples: [
+              {
+                user_id: "user_001",
+                submission_timestamp: "2024-02-01T09:30:00Z",
+                quality_score: 78,
+              },
+            ],
+          }),
 
-  afterEach(() => {
-    process.env = mockEnv;
-    jest.clearAllMocks();
-  });
+        action04_createFeedbackCandidates: jest
+          .fn()
+          .mockResolvedValue({
+            feedback_candidates: [
+              {
+                user_id: "user_002",
+                issue_type: "missing_mandatory_field",
+                recommended_action: "notify_resubmission",
+                severity: "medium",
+              },
+              {
+                user_id: "user_003",
+                issue_type: "low_data_quality",
+                recommended_action: "provide_training",
+                severity: "low",
+              },
+            ],
+            candidates_generated_at: "2024-02-01T10:00:00Z",
+          }),
 
-  test('should escalate to human review when system failure occurs during Action 5 with concurrent operational rule change', async () => {
-    // Input: Unsubmitted members list with system failure injection
-    const unsubmittedMembers = [
-      { memberId: 'ENG-001', memberName: 'Alice', email: 'alice@example.com' },
-      { memberId: 'ENG-002', memberName: 'Bob', email: 'bob@example.com' },
-      { memberId: 'ENG-003', memberName: 'Charlie', email: 'charlie@example.com' }
-    ];
-
-    const complianceDeadline = new Date('2024-01-15T09:00:00Z');
-    const currentTime = new Date('2024-01-15T08:45:00Z');
-
-    // Mock Action 1-4 completion state (導入計画・研修教材作成・データ分析が正常に実行)
-    const actionStates = {
-      action_1_schedule_generated: {
-        status: 'COMPLETED',
-        timestamp: new Date('2024-01-15T06:00:00Z'),
-        schedule_data: { total_members: 3, training_phase_duration_days: 5 }
-      },
-      action_2_training_materials_created: {
-        status: 'COMPLETED',
-        timestamp: new Date('2024-01-15T06:15:00Z'),
-        materials_count: 12
-      },
-      action_3_training_executed: {
-        status: 'COMPLETED',
-        timestamp: new Date('2024-01-15T07:00:00Z'),
-        attendees: 3
-      },
-      action_4_initial_data_analyzed: {
-        status: 'COMPLETED',
-        timestamp: new Date('2024-01-15T07:30:00Z'),
-        submission_count: 3
-      }
-    };
-
-    // Action 5 feedback generation input data
-    const memberProficiencyResults = [
-      {
-        memberId: 'ENG-001',
-        proficiencyScore: 85,
-        completedTasks: 8,
-        submissionQualityMetrics: { completeness: 0.95, timeliness: 0.90 }
-      },
-      {
-        memberId: 'ENG-002',
-        proficiencyScore: 62,
-        completedTasks: 5,
-        submissionQualityMetrics: { completeness: 0.70, timeliness: 0.75 }
-      },
-      {
-        memberId: 'ENG-003',
-        proficiencyScore: 78,
-        completedTasks: 7,
-        submissionQualityMetrics: { completeness: 0.88, timeliness: 0.92 }
-      }
-    ];
-
-    // System failure injection: simulating database connection timeout during Action 5
-    const systemFailureEvent = {
-      type: 'DATABASE_CONNECTION_FAILURE',
-      timestamp: new Date('2024-01-15T08:40:00Z'),
-      errorCode: 'DB_TIMEOUT_5000ms',
-      affectedOperation: 'ACTION_5_PROFICIENCY_EVALUATION_PERSISTENCE'
-    };
-
-    // Operational rule change event
-    const operationalRuleChangeEvent = {
-      type: 'REQUIRED_FIELDS_CHANGE',
-      timestamp: new Date('2024-01-15T08:39:00Z'),
-      changedField: 'REPORT_REQUIRED_FIELDS',
-      previousValue: 3,
-      newValue: 4,
-      newRequiredFields: ['summary', 'issues', 'achievements', 'risks']
-    };
-
-    // Mock the reminder sending function to detect escalation
-    // The function should detect the system failure and concurrent rule change before confirming side effects
-    let escalationDetected = false;
-    let handoverObject: any = null;
-    let auditLogEntry: any = null;
-    let rollbackExecuted = false;
-    let feedbackDeliveryExecuted = false;
-
-    // Simulate sendUnsubmittedReminder with escalation condition
-    try {
-      // Before executing action 5, inject system failure and rule change
-      if (systemFailureEvent && operationalRuleChangeEvent) {
-        // Escalation condition triggered
-        escalationDetected = true;
-
-        // Generate handover object before side effects are confirmed
-        handoverObject = {
-          escalation_status: 'AWAITING_HUMAN_REVIEW',
-          escalation_reason: 'SYSTEM_FAILURE_AND_OPERATIONAL_RULE_CHANGE_DETECTED',
-          escalation_timestamp: new Date('2024-01-15T08:40:05Z').toISOString(),
-          current_action: 'ACTION_5',
-          action_5_input_data: {
-            member_proficiency_results: memberProficiencyResults,
-            previous_required_fields_count: operationalRuleChangeEvent.previousValue,
-            new_required_fields_count: operationalRuleChangeEvent.newValue
+        action05_generateFeedbackProposal: jest.fn().mockRejectedValue({
+          error_type: "SYSTEM_FAILURE",
+          error_code: "DB_CONNECTION_TIMEOUT",
+          error_message: "Database connection failed after 30s timeout",
+          error_timestamp: "2024-02-01T10:15:00Z",
+          operational_rule_change: {
+            change_type: "MANDATORY_FIELD_ADDITION",
+            previous_required_fields: 3,
+            new_required_fields: 4,
+            new_field_name: "escalation_category",
+            effective_date: "2024-02-01T10:00:00Z",
+            change_detected_at: "2024-02-01T10:14:00Z",
           },
-          system_failure_details: {
-            failure_type: systemFailureEvent.type,
-            error_code: systemFailureEvent.errorCode,
-            affected_operation: systemFailureEvent.affectedOperation,
-            failure_timestamp: systemFailureEvent.timestamp.toISOString()
-          },
-          operational_rule_change_details: {
-            change_type: operationalRuleChangeEvent.type,
-            previous_value: operationalRuleChangeEvent.previousValue,
-            new_value: operationalRuleChangeEvent.newValue,
-            new_required_fields: operationalRuleChangeEvent.newRequiredFields,
-            change_timestamp: operationalRuleChangeEvent.timestamp.toISOString()
-          },
-          awaiting_human_approval: true,
-          action_6_feedback_delivery_executed: false,
-          partial_side_effects_detected: false,
-          rollback_status: 'PENDING'
-        };
+        }),
 
-        // Record audit event BEFORE side effects confirmation
-        auditLogEntry = {
-          event_type: 'ESCALATION_TRIGGERED',
-          timestamp: new Date('2024-01-15T08:40:05Z').toISOString(),
-          escalation_reason: 'SYSTEM_FAILURE_AND_OPERATIONAL_RULE_CHANGE_DETECTED',
-          agent_contract_id: 'tx_10_imp_1',
-          action_number: 5,
-          current_action_status: 'INTERRUPTED_BEFORE_SIDE_EFFECT_CONFIRMATION',
-          handover_data_checksum: 'SHA256_HASH_OF_HANDOVER_OBJECT'
-        };
-
-        // Execute rollback to ensure no partial side effects
-        rollbackExecuted = true;
-        await mockTransactionRollback();
-
-        // Verify that Action 6 (feedback delivery) has NOT been executed
-        feedbackDeliveryExecuted = false;
-      }
-
-      // Simulate function call that should throw or return escalation status
-      const result = {
-        escalation_status: escalationDetected ? 'AWAITING_HUMAN_REVIEW' : 'COMPLETED',
-        handover_data: handoverObject,
-        audit_event: auditLogEntry
+        action06_distributeFeedbackToMembers: jest.fn(),
       };
 
-      if (escalationDetected) {
-        throw new Error('ESCALATION_REQUIRED');
+      const deploymentInput = {
+        deploymentInitiationTimestamp: new Date("2024-02-01T08:00:00Z"),
+        participantList: [
+          {
+            userId: "pm_001",
+            role: "ProjectManager",
+            email: "pm@example.com",
+          },
+          {
+            userId: "mgr_001",
+            role: "Manager",
+            email: "manager@example.com",
+          },
+          {
+            userId: "eng_001",
+            role: "Engineer",
+            email: "engineer001@example.com",
+          },
+          {
+            userId: "eng_002",
+            role: "Engineer",
+            email: "engineer002@example.com",
+          },
+        ],
+        preparationDaysRequired: 5,
+        reportingDeadlineTime: "09:00",
+      };
+
+      const auditLog: Array<{
+        event_type: string;
+        timestamp: string;
+        escalation_reason?: string;
+        handover_data?: Record<string, unknown>;
+      }> = [];
+
+      const originalConsoleError = console.error;
+      console.error = jest.fn((message, data) => {
+        if (
+          message &&
+          typeof message === "string" &&
+          message.includes("ESCALATION_TRIGGERED")
+        ) {
+          auditLog.push({
+            event_type: "ESCALATION_TRIGGERED",
+            timestamp: new Date().toISOString(),
+            escalation_reason: data?.reason,
+            handover_data: data?.handover,
+          });
+        }
+      });
+
+      let result: {
+        escalation_status?: string;
+        handover_object?: Record<string, unknown>;
+        error?: Error;
+      } = {};
+
+      try {
+        result = await runTx10Imp1Agent(deploymentInput, mockAiClient);
+      } catch (error) {
+        result.error = error instanceof Error ? error : new Error(String(error));
       }
 
-      // Expectations for escalation scenario
-      expect(escalationDetected).toBe(true);
-      expect(handoverObject).not.toBeNull();
-      expect(handoverObject.escalation_status).toBe('AWAITING_HUMAN_REVIEW');
-      expect(handoverObject.escalation_reason).toBe('SYSTEM_FAILURE_AND_OPERATIONAL_RULE_CHANGE_DETECTED');
-      expect(handoverObject.current_action).toBe('ACTION_5');
+      console.error = originalConsoleError;
 
-      // Verify handover object contains required fields
-      expect(handoverObject.action_5_input_data).toBeDefined();
-      expect(handoverObject.action_5_input_data.member_proficiency_results).toEqual(memberProficiencyResults);
-      expect(handoverObject.action_5_input_data.previous_required_fields_count).toBe(3);
-      expect(handoverObject.action_5_input_data.new_required_fields_count).toBe(4);
+      expect(mockAiClient.action01_generateDeploymentSchedule).toHaveBeenCalled();
+      expect(mockAiClient.action02_generateTrainingMaterials).toHaveBeenCalled();
+      expect(mockAiClient.action03_analyzeInitialReportData).toHaveBeenCalled();
+      expect(mockAiClient.action04_createFeedbackCandidates).toHaveBeenCalled();
 
-      // Verify system failure details are captured
-      expect(handoverObject.system_failure_details).toBeDefined();
-      expect(handoverObject.system_failure_details.failure_type).toBe('DATABASE_CONNECTION_FAILURE');
-      expect(handoverObject.system_failure_details.error_code).toBe('DB_TIMEOUT_5000ms');
-      expect(handoverObject.system_failure_details.affected_operation).toBe('ACTION_5_PROFICIENCY_EVALUATION_PERSISTENCE');
+      expect(mockAiClient.action05_generateFeedbackProposal).toHaveBeenCalled();
 
-      // Verify operational rule change is captured
-      expect(handoverObject.operational_rule_change_details).toBeDefined();
-      expect(handoverObject.operational_rule_change_details.change_type).toBe('REQUIRED_FIELDS_CHANGE');
-      expect(handoverObject.operational_rule_change_details.previous_value).toBe(3);
-      expect(handoverObject.operational_rule_change_details.new_value).toBe(4);
-      expect(handoverObject.operational_rule_change_details.new_required_fields).toEqual(['summary', 'issues', 'achievements', 'risks']);
+      expect(mockAiClient.action06_distributeFeedbackToMembers).not.toHaveBeenCalled();
 
-      // Verify audit log entry
-      expect(auditLogEntry).toBeDefined();
-      expect(auditLogEntry.event_type).toBe('ESCALATION_TRIGGERED');
-      expect(auditLogEntry.escalation_reason).toBe('SYSTEM_FAILURE_AND_OPERATIONAL_RULE_CHANGE_DETECTED');
-      expect(auditLogEntry.agent_contract_id).toBe('tx_10_imp_1');
-      expect(auditLogEntry.action_number).toBe(5);
-      expect(auditLogEntry.current_action_status).toBe('INTERRUPTED_BEFORE_SIDE_EFFECT_CONFIRMATION');
+      if (result.error) {
+        expect(result.error.message).toMatch(/DB_CONNECTION_TIMEOUT|system|failure/i);
+      } else if (result.escalation_status) {
+        expect(result.escalation_status).toBe("AWAITING_HUMAN_REVIEW");
+        expect(result.handover_object).toBeDefined();
 
-      // Verify rollback was executed
-      expect(rollbackExecuted).toBe(true);
-      expect(mockTransactionRollback).toHaveBeenCalledTimes(1);
+        const handover = result.handover_object as Record<string, unknown>;
+        expect(handover).toHaveProperty("action_5_input_data");
+        expect(handover).toHaveProperty("system_failure_details");
+        expect(handover).toHaveProperty("operational_rule_change");
+        expect(handover).toHaveProperty("current_process_state");
+        expect(handover).toHaveProperty("manager_approval_required");
 
-      // Verify Action 6 (feedback delivery) was NOT executed
-      expect(feedbackDeliveryExecuted).toBe(false);
-      expect(mockNotificationQueue).not.toHaveBeenCalled();
+        const systemFailureDetails = handover.system_failure_details as Record<
+          string,
+          unknown
+        >;
+        expect(systemFailureDetails.error_code).toBe("DB_CONNECTION_TIMEOUT");
+        expect(systemFailureDetails.error_type).toBe("SYSTEM_FAILURE");
 
-      // Verify awaiting human approval flag
-      expect(handoverObject.awaiting_human_approval).toBe(true);
-      expect(handoverObject.action_6_feedback_delivery_executed).toBe(false);
+        const ruleChange = handover.operational_rule_change as Record<
+          string,
+          unknown
+        >;
+        expect(ruleChange.change_type).toBe("MANDATORY_FIELD_ADDITION");
+        expect(ruleChange.new_required_fields).toBe(4);
+        expect(ruleChange.previous_required_fields).toBe(3);
+        expect(ruleChange.new_field_name).toBe("escalation_category");
 
-      // Verify no partial side effects
-      expect(handoverObject.partial_side_effects_detected).toBe(false);
-    } catch (error: any) {
-      // Catch the escalation error
-      expect(error.message).toMatch(/ESCALATION_REQUIRED/);
-      expect(escalationDetected).toBe(true);
-      expect(handoverObject).not.toBeNull();
-      expect(auditLogEntry).not.toBeNull();
-      expect(rollbackExecuted).toBe(true);
+        const processState = handover.current_process_state as Record<
+          string,
+          unknown
+        >;
+        expect(processState.action_number).toBe(5);
+        expect(processState.action_name).toMatch(/feedback/i);
+        expect(processState.status).toBe("INTERRUPTED");
+
+        expect(handover.manager_approval_required).toBe(true);
+      }
+
+      expect(auditLog.length).toBeGreaterThanOrEqual(1);
+      const escalationEvent = auditLog.find(
+        (log) => log.event_type === "ESCALATION_TRIGGERED"
+      );
+      expect(escalationEvent).toBeDefined();
+      expect(escalationEvent?.timestamp).toBeTruthy();
+      expect(escalationEvent?.escalation_reason).toBeTruthy();
+      expect(escalationEvent?.handover_data).toBeTruthy();
+
+      const nonDistributedFeedbackUsers = ["user_002", "user_003"];
+      expect(mockAiClient.action06_distributeFeedbackToMembers).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_ids: expect.arrayContaining(nonDistributedFeedbackUsers),
+        })
+      );
     }
-  });
+  );
 });

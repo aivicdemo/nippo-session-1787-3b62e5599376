@@ -1,151 +1,143 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
 import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
-import { buildAction03Prompt, ACTION_03_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-03';
 import type { Tx4Imp1AiClient } from '../../src/agents/tx-4-imp-1/orchestrator';
 
-describe('notification-delivery: sendUnsubmittedReminder with TX4 recurrence risk evaluation', () => {
-  // SCEN-075: ダッシュボード分析から課題指示までの自動実行 AIエージェント
-  // 「過去の類似課題と照合して再発リスクを評価する」の自律処理が契約どおり実行される
-  
-  let mockAiClient: jest.Mocked<Tx4Imp1AiClient>;
-  let pastCaseDatabase: Array<{
-    caseId: string;
-    department: string;
-    issueType: string;
-    detectedDate: string;
-    resolutionMethod: string;
-    recurrenceFlag: boolean;
-  }>;
-  let currentDashboardAnalysis: Array<{
-    issueName: string;
-    detectionDate: string;
-    importance: 'HIGH' | 'MEDIUM' | 'LOW';
-    urgency: 'HIGH' | 'MEDIUM' | 'LOW';
-  }>;
-
-  beforeEach(() => {
-    // 過去課題データベース（スタブ）を初期化
-    pastCaseDatabase = [
+describe('tx-4-imp-1: ダッシュボード分析から課題指示までの自動実行', () => {
+  // SCEN-075: [normal] ダッシュボード分析から課題指示までの自動実行 AIエージェント - 過去の類似課題と照合して再発リスクを評価する
+  test('should evaluate recurrence risk by comparing with past similar issues', async () => {
+    // 過去の類似課題データベース（スタブ）
+    const pastIssuesDatabase = [
       {
-        caseId: 'PAST-001',
-        department: 'Sales',
-        issueType: 'Delivery Delay',
-        detectedDate: '2024-01-15',
-        resolutionMethod: 'Resource Addition',
+        issueId: 'PAST-001',
+        content: '納期遅延（営業部）',
+        occurrenceDate: '2024-01-15',
+        resolutionMethod: 'リソース追加',
         recurrenceFlag: true,
       },
     ];
 
-    // 現在のダッシュボード分析結果（スタブ）を初期化
-    currentDashboardAnalysis = [
+    // 現在のダッシュボード分析結果（スタブ）
+    const currentDashboardIssues = [
       {
-        issueName: 'Delivery Delay in Sales Department',
+        issue: '営業部の納期遅延',
         detectionDate: '2024-01-29',
-        importance: 'HIGH',
-        urgency: 'HIGH',
+        importance: '高',
+        urgency: '高',
       },
     ];
 
-    // モックAIクライアントの設定
-    mockAiClient = {
-      callAction03: jest.fn().mockResolvedValue({
+    // Tx4Imp1AiClientインターフェースに準拠したモックAIクライアント
+    const mockAiClient: Tx4Imp1AiClient = {
+      action01: jest.fn().mockResolvedValue({
+        aggregatedReports: currentDashboardIssues,
+      }),
+      action02: jest.fn().mockResolvedValue({
+        extractedIssues: currentDashboardIssues,
+      }),
+      action03: jest.fn().mockResolvedValue({
         similarityScore: 85,
         riskLevel: 'HIGH',
         reasoning:
-          'Same department and same type of delay event. Recurred 14 days after previous occurrence. Risk score: 85/100',
+          '同一部門での同一内容の遅延事象。前回から14日で再発。リスク評価値：85/100',
         recommendedAction:
-          'Report immediately to sales manager and consider applying previous resolution method (Resource Addition)',
+          '即座に営業部長へ報告し過去の解決方法「リソース追加」の適用を検討する',
       }),
-    } as any;
-  });
-
-  test('should evaluate recurrence risk by comparing current issue with past similar cases and incorporate result into morning meeting report', async () => {
-    // action-03プロンプト生成関数の呼び出しを追跡
-    const buildAction03PromptSpy = jest.spyOn(
-      require('../../src/agents/tx-4-imp-1/prompts/action-03'),
-      'buildAction03Prompt',
-      'get'
-    );
-
-    // 現在の課題（ダッシュボード分析結果）
-    const currentIssue = currentDashboardAnalysis[0];
-
-    // 過去の類似課題を検索（シンプルなフィルタロジック）
-    const similarPastCases = pastCaseDatabase.filter(
-      (pastCase) =>
-        pastCase.department === 'Sales' && pastCase.issueType === 'Delivery Delay'
-    );
-
-    expect(similarPastCases).toHaveLength(1);
-    expect(similarPastCases[0].caseId).toBe('PAST-001');
-
-    // action-03プロンプトの生成（モック）
-    const action03Prompt = buildAction03Prompt({
-      currentIssue: currentIssue.issueName,
-      pastCases: similarPastCases,
-      evaluationCriteria: {
-        similarity: 'department and issue type match',
-        riskFactors: ['recurrence flag', 'time since last occurrence'],
-      },
-    });
-
-    // プロンプトが以下の要素を含むことを確認
-    // (a) 現在の課題内容
-    expect(action03Prompt).toContain('Delivery Delay in Sales Department');
-    
-    // (b) 過去課題のレコードID
-    expect(action03Prompt).toContain('PAST-001');
-    
-    // (c) 照合指示
-    expect(action03Prompt).toMatch(/similar|risk.*evaluat|score/i);
-
-    // モックAIクライアント経由でリスク評価を実行
-    const riskAssessmentResult = await mockAiClient.callAction03({
-      currentIssue: currentIssue.issueName,
-      pastCases: similarPastCases,
-    });
-
-    // 再発リスク評価結果の検証
-    expect(riskAssessmentResult.similarityScore).toBe(85);
-    expect(riskAssessmentResult.riskLevel).toBe('HIGH');
-    expect(riskAssessmentResult.reasoning).toMatch(/same department/i);
-    expect(riskAssessmentResult.reasoning).toMatch(/14 day/i);
-    expect(riskAssessmentResult.recommendedAction).toContain(
-      'Resource Addition'
-    );
-
-    // 朝会報告資料に再発リスク評価結果が組み込まれた形式を検証
-    const morningMeetingReport = {
-      issue: currentIssue.issueName,
-      recurrenceRisk: `HIGH (${riskAssessmentResult.similarityScore}/100)`,
-      recommendedApproach:
-        'Prioritize considering resource addition based on previous resolution method',
+      action04: jest.fn().mockResolvedValue({
+        prioritizedIssues: [
+          {
+            issueId: 'NEW-001',
+            content: '営業部の納期遅延',
+            priority: 1,
+            riskLevel: 'HIGH',
+            riskScore: 85,
+          },
+        ],
+      }),
+      action05: jest.fn().mockResolvedValue({
+        planId: 'PLAN-001',
+        recommendedActions: ['過去の解決方法を踏まえてリソース追加を優先検討する'],
+        estimatedResolutionDays: 1,
+        assignedOwner: '営業部長',
+      }),
+      action06: jest.fn().mockResolvedValue({
+        reportContent: '朝会報告資料',
+      }),
+      action07: jest.fn().mockResolvedValue({
+        emailSent: true,
+      }),
     };
 
-    expect(morningMeetingReport.recurrenceRisk).toBe('HIGH (85/100)');
-    expect(morningMeetingReport.recommendedApproach).toContain('resource addition');
+    // テスト用の実行リクエスト
+    const executionRequest = {
+      executionTimestamp: new Date('2024-01-29T08:00:00Z'),
+      targetDate: '2024-01-29',
+      executorUserId: 'USER-001',
+      teamId: 'TEAM-001',
+    };
 
-    // ACTION_03_PROMPT_VERSIONがバージョン管理と一致していることを確認
-    expect(ACTION_03_PROMPT_VERSION).toBeDefined();
-    expect(typeof ACTION_03_PROMPT_VERSION).toBe('string');
+    // runTx4Imp1Agent関数を呼び出す
+    const result = await runTx4Imp1Agent(executionRequest, mockAiClient);
 
-    // sendUnsubmittedReminderを呼び出す（統合確認）
-    // ここではモック引数で渡されたAIクライアントが使用されることを確認
-    const unsubmittedReminders = await sendUnsubmittedReminder(
-      {
-        dashboardAnalysis: currentDashboardAnalysis,
-        pastCaseDatabase: pastCaseDatabase,
-        targetDepartments: ['Sales'],
-      },
-      mockAiClient
+    // action-03が呼び出されたことを確認
+    expect(mockAiClient.action03).toHaveBeenCalled();
+
+    // action-03の呼び出しの引数を取得
+    const action03CallArgs = (mockAiClient.action03 as jest.Mock).mock.calls[0];
+    expect(action03CallArgs).toBeDefined();
+
+    // action-03の入力が正しい構造を持つことを確認
+    const action03Input = action03CallArgs[0];
+    expect(action03Input).toHaveProperty('currentIssue');
+    expect(action03Input).toHaveProperty('pastIssuesDatabase');
+    expect(action03Input.currentIssue).toEqual(
+      expect.objectContaining({
+        issue: '営業部の納期遅延',
+        detectionDate: '2024-01-29',
+      })
     );
 
-    // リマインダーが生成されたことを確認
-    expect(unsubmittedReminders).toBeDefined();
+    // リスク評価結果の検証
+    const action03Result = (mockAiClient.action03 as jest.Mock).mock.results[0]
+      .value;
+    expect(action03Result.similarityScore).toBe(85);
+    expect(action03Result.riskLevel).toBe('HIGH');
+    expect(action03Result.reasoning).toContain('同一部門');
+    expect(action03Result.reasoning).toContain('14日で再発');
+    expect(action03Result.reasoning).toContain('85/100');
+    expect(action03Result.recommendedAction).toContain('リソース追加');
 
-    // スタブデータ以外のシステム連携が発生していないことを確認
-    // (モックAIクライアントのみが呼び出されている)
-    expect(mockAiClient.callAction03).toHaveBeenCalled();
+    // 最終結果の検証
+    expect(result).toHaveProperty('executionId');
+    expect(result).toHaveProperty('aggregatedReportCount');
+    expect(result).toHaveProperty('extractedIssueCount');
+    expect(result).toHaveProperty('prioritizedIssues');
+    expect(result).toHaveProperty('countermeasurePlan');
+    expect(result).toHaveProperty('summaryEmailSent');
+    expect(result).toHaveProperty('completionTimestamp');
+
+    // 優先度付け課題の検証
+    expect(result.prioritizedIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          riskLevel: 'HIGH',
+          riskScore: 85,
+        }),
+      ])
+    );
+
+    // 対応方針案の検証
+    expect(result.countermeasurePlan.recommendedActions).toContain(
+      '過去の解決方法を踏まえてリソース追加を優先検討する'
+    );
+    expect(result.countermeasurePlan.assignedOwner).toBe('営業部長');
+
+    // メール送信フラグの検証
+    expect(result.summaryEmailSent).toBe(true);
+
+    // 完了時刻が設定されていることを確認
+    expect(result.completionTimestamp).toBeInstanceOf(Date);
+    expect(result.completionTimestamp.getTime()).toBeGreaterThan(
+      executionRequest.executionTimestamp.getTime()
+    );
   });
 });

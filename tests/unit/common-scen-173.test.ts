@@ -1,174 +1,175 @@
-import { getDashboardData } from "../../src/logic/dashboard-display";
+import { runTx9Imp1Agent } from '../../src/agents/tx-9-imp-1/orchestrator';
+import { type Tx9Imp1AiClient } from '../../src/agents/tx-9-imp-1/orchestrator';
 
-describe("Dashboard Display Authorization", () => {
+describe('Tx9Imp1Agent Authorization', () => {
   // SCEN-173
-  test("should deny data aggregation access for unauthorized user role and permit for authorized role", async () => {
-    const unauthorizedUserId = "user-member-001";
-    const unauthorizedUserRole = "member";
-    const authorizedUserId = "user-head-001";
-    const authorizedUserRole = "department_head";
-    const testAccessToken = "test-token-xyz";
-    const aggregationStartDate = "2024-01-01T00:00:00Z";
-    const aggregationEndDate = "2024-01-31T23:59:59Z";
+  test('should deny data aggregation for unauthorized member role and allow for authorized department_head role', async () => {
+    const aggregationStartDate = '2024-01-08';
+    const aggregationEndDate = '2024-01-14';
+    const targetTeamIds = ['team-001', 'team-002'];
+    const requestedByUserIdMember = 'user-member-001';
+    const requestedByUserIdHead = 'user-head-001';
+    const accessTokenMember = 'token-member-abc123';
+    const accessTokenHead = 'token-head-xyz789';
 
-    // Mock AI client for unauthorized scenario
-    const unauthorizedAiClient = {
-      userId: unauthorizedUserId,
-      userRole: unauthorizedUserRole,
-      accessToken: testAccessToken,
-      checkAuthorization: jest.fn(async (action: string) => {
-        if (
-          action === "data_aggregation" &&
-          unauthorizedUserRole !== "department_head" &&
-          unauthorizedUserRole !== "analyst"
-        ) {
-          return {
-            authorized: false,
-            reason: "insufficient_privileges",
-          };
-        }
-        return { authorized: true, reason: "" };
+    // Mock AI client with authorization check
+    const mockAiClientDenied: Tx9Imp1AiClient = {
+      userId: requestedByUserIdMember,
+      userRole: 'member',
+      accessToken: accessTokenMember,
+      executeAction01: jest.fn(async () => {
+        const error = new Error('User role member is not authorized to execute data aggregation. Required role: department_head or analyst');
+        (error as any).statusCode = 403;
+        (error as any).errorCode = 'INSUFFICIENT_PRIVILEGES';
+        throw error;
       }),
-      getAggregatedReportData: jest.fn(),
-      extractIssues: jest.fn(),
-      analyzeProductivityMetrics: jest.fn(),
-      proposeImprovementMeasures: jest.fn(),
-      generateAnalysisReport: jest.fn(),
-      createAuditLogEntry: jest.fn(),
+      executeAction02: jest.fn(),
+      executeAction03: jest.fn(),
+      executeAction04: jest.fn(),
+      executeAction05: jest.fn(),
+      executeAction06: jest.fn(),
+      executeAction07: jest.fn(),
+      recordAuditLog: jest.fn(async (event: any) => {
+        return { logId: 'audit-log-001', timestamp: new Date().toISOString(), ...event };
+      }),
     };
 
-    // Mock AI client for authorized scenario
-    const authorizedAiClient = {
-      userId: authorizedUserId,
-      userRole: authorizedUserRole,
-      accessToken: testAccessToken,
-      checkAuthorization: jest.fn(async (action: string) => {
-        if (
-          action === "data_aggregation" &&
-          (authorizedUserRole === "department_head" ||
-            authorizedUserRole === "analyst")
-        ) {
-          return { authorized: true, reason: "" };
-        }
-        return {
-          authorized: false,
-          reason: "insufficient_privileges",
-        };
+    const mockAiClientAuthorized: Tx9Imp1AiClient = {
+      userId: requestedByUserIdHead,
+      userRole: 'department_head',
+      accessToken: accessTokenHead,
+      executeAction01: jest.fn(async () => ({
+        aggregatedReports: [
+          { reportId: 'rep-001', date: '2024-01-08', teamId: 'team-001' },
+          { reportId: 'rep-002', date: '2024-01-09', teamId: 'team-002' },
+        ],
+        totalReports: 2,
+        missingReports: [],
+      })),
+      executeAction02: jest.fn(async () => ({
+        unsubmittedMembers: [],
+        remindersSent: 0,
+      })),
+      executeAction03: jest.fn(async () => ({
+        extractedIssues: [
+          { issueId: 'iss-001', category: 'quality', priority: 'high' },
+          { issueId: 'iss-002', category: 'schedule', priority: 'medium' },
+        ],
+        totalExtracted: 2,
+      })),
+      executeAction04: jest.fn(async () => ({
+        quantifiedMetrics: {
+          issueResolutionSpeed: 3.5,
+          reportSubmissionRate: 88.5,
+          issueRecurrenceRate: 12.3,
+        },
+      })),
+      executeAction05: jest.fn(async () => ({
+        classifiedIssues: [
+          { issueId: 'iss-001', priority: 'high' },
+          { issueId: 'iss-002', priority: 'medium' },
+        ],
+      })),
+      executeAction06: jest.fn(async () => ({
+        proposedActions: [
+          { actionId: 'act-001', description: 'Implement quality review process' },
+        ],
+      })),
+      executeAction07: jest.fn(async () => ({
+        reportId: 'report-final-001',
+        generatedAt: '2024-01-15T10:00:00Z',
+      })),
+      recordAuditLog: jest.fn(async (event: any) => {
+        return { logId: 'audit-log-002', timestamp: new Date().toISOString(), ...event };
       }),
-      getAggregatedReportData: jest.fn(async () => ({
-        reportDataId: "report-001",
-        periodStart: aggregationStartDate,
-        periodEnd: aggregationEndDate,
-        aggregatedCount: 42,
-      })),
-      extractIssues: jest.fn(async () => ({
-        issues: [{ id: "issue-001", priority: "high", title: "Test Issue" }],
-      })),
-      analyzeProductivityMetrics: jest.fn(async () => ({
-        metricsId: "metrics-001",
-        averageResolutionDays: 3.5,
-      })),
-      proposeImprovementMeasures: jest.fn(async () => ({
-        measures: [{ id: "measure-001", description: "Improve process" }],
-      })),
-      generateAnalysisReport: jest.fn(async () => ({
-        reportId: "analysis-001",
-        status: "completed",
-      })),
-      createAuditLogEntry: jest.fn(async () => ({
-        logId: "audit-001",
-        status: "recorded",
-      })),
     };
 
-    // Test unauthorized access scenario
-    const unauthorizedAuthCheck = await unauthorizedAiClient.checkAuthorization(
-      "data_aggregation"
+    // Test case 1: Authorization denial for member role
+    const requestDenied = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      requestedByUserId: requestedByUserIdMember,
+    };
+
+    let denialError: any = null;
+    try {
+      await runTx9Imp1Agent(requestDenied, mockAiClientDenied);
+    } catch (error) {
+      denialError = error;
+    }
+
+    expect(denialError).toBeDefined();
+    expect(denialError.statusCode).toBe(403);
+    expect(denialError.errorCode).toBe('INSUFFICIENT_PRIVILEGES');
+    expect(denialError.message).toMatch(/member/);
+    expect(denialError.message).toMatch(/not authorized/);
+
+    // Verify authorization check happened before other actions
+    expect(mockAiClientDenied.executeAction01).toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction02).not.toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction03).not.toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction04).not.toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction05).not.toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction06).not.toHaveBeenCalled();
+    expect(mockAiClientDenied.executeAction07).not.toHaveBeenCalled();
+
+    // Verify audit log recorded authorization denial
+    expect(mockAiClientDenied.recordAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'AUTHORIZATION_DENIAL',
+        userId: requestedByUserIdMember,
+        userRole: 'member',
+        action: 'data_aggregation',
+        reason: 'insufficient_privileges',
+        timestamp: expect.any(String),
+      })
     );
 
-    expect(unauthorizedAuthCheck.authorized).toBe(false);
-    expect(unauthorizedAuthCheck.reason).toBe("insufficient_privileges");
+    // Test case 2: Authorization granted for department_head role
+    const requestAuthorized = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      requestedByUserId: requestedByUserIdHead,
+    };
 
-    await unauthorizedAiClient.createAuditLogEntry({
-      userId: unauthorizedUserId,
-      action: "data_aggregation",
-      userRole: unauthorizedUserRole,
-      timestamp: new Date("2024-01-15T11:00:00Z").toISOString(),
-      eventType: "Authorization Denial",
-      reason: "insufficient_privileges",
-    });
+    const resultAuthorized = await runTx9Imp1Agent(requestAuthorized, mockAiClientAuthorized);
 
-    expect(unauthorizedAiClient.createAuditLogEntry).toHaveBeenCalledWith({
-      userId: unauthorizedUserId,
-      action: "data_aggregation",
-      userRole: unauthorizedUserRole,
-      timestamp: "2024-01-15T11:00:00Z",
-      eventType: "Authorization Denial",
-      reason: "insufficient_privileges",
-    });
+    expect(resultAuthorized).toBeDefined();
+    expect(resultAuthorized.reportId).toBe('report-final-001');
+    expect(resultAuthorized.aggregationPeriod.startDate).toBe(aggregationStartDate);
+    expect(resultAuthorized.aggregationPeriod.endDate).toBe(aggregationEndDate);
+    expect(resultAuthorized.generatedAt).toBe('2024-01-15T10:00:00Z');
 
-    // Verify subsequent actions are blocked
-    expect(unauthorizedAiClient.getAggregatedReportData).not.toHaveBeenCalled();
-    expect(unauthorizedAiClient.extractIssues).not.toHaveBeenCalled();
-    expect(unauthorizedAiClient.analyzeProductivityMetrics).not.toHaveBeenCalled();
-    expect(
-      unauthorizedAiClient.proposeImprovementMeasures
-    ).not.toHaveBeenCalled();
-    expect(unauthorizedAiClient.generateAnalysisReport).not.toHaveBeenCalled();
+    // Verify all actions were executed in sequence
+    expect(mockAiClientAuthorized.executeAction01).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction02).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction03).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction04).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction05).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction06).toHaveBeenCalled();
+    expect(mockAiClientAuthorized.executeAction07).toHaveBeenCalled();
 
-    // Test authorized access scenario
-    const authorizedAuthCheck = await authorizedAiClient.checkAuthorization(
-      "data_aggregation"
+    // Verify no authorization denial was recorded for authorized user
+    const auditLogCalls = mockAiClientAuthorized.recordAuditLog.mock.calls;
+    const denialEvents = auditLogCalls.filter((call) =>
+      call[0]?.eventType === 'AUTHORIZATION_DENIAL'
     );
+    expect(denialEvents.length).toBe(0);
 
-    expect(authorizedAuthCheck.authorized).toBe(true);
+    // Verify productivity metrics in result
+    expect(resultAuthorized.productivityMetrics).toBeDefined();
+    expect(resultAuthorized.productivityMetrics.issueResolutionSpeed).toBe(3.5);
+    expect(resultAuthorized.productivityMetrics.reportSubmissionRate).toBe(88.5);
+    expect(resultAuthorized.productivityMetrics.issueRecurrenceRate).toBe(12.3);
 
-    const aggregatedData = await authorizedAiClient.getAggregatedReportData();
-    expect(aggregatedData.reportDataId).toBe("report-001");
-    expect(aggregatedData.aggregatedCount).toBe(42);
+    // Verify prioritized issues present
+    expect(resultAuthorized.prioritizedIssues).toBeDefined();
+    expect(resultAuthorized.prioritizedIssues.length).toBeGreaterThan(0);
 
-    const extractedIssues = await authorizedAiClient.extractIssues();
-    expect(extractedIssues.issues).toHaveLength(1);
-    expect(extractedIssues.issues[0].priority).toBe("high");
-
-    const metrics = await authorizedAiClient.analyzeProductivityMetrics();
-    expect(metrics.averageResolutionDays).toBe(3.5);
-
-    const measures = await authorizedAiClient.proposeImprovementMeasures();
-    expect(measures.measures).toHaveLength(1);
-
-    const report = await authorizedAiClient.generateAnalysisReport();
-    expect(report.status).toBe("completed");
-
-    await authorizedAiClient.createAuditLogEntry({
-      userId: authorizedUserId,
-      action: "data_aggregation",
-      userRole: authorizedUserRole,
-      timestamp: new Date("2024-01-15T11:00:00Z").toISOString(),
-      eventType: "Authorization Success",
-      reason: "sufficient_privileges",
-    });
-
-    expect(authorizedAiClient.createAuditLogEntry).toHaveBeenCalledWith({
-      userId: authorizedUserId,
-      action: "data_aggregation",
-      userRole: authorizedUserRole,
-      timestamp: "2024-01-15T11:00:00Z",
-      eventType: "Authorization Success",
-      reason: "sufficient_privileges",
-    });
-
-    // Verify getDashboardData can be called with authorized context
-    const dashboardResult = await getDashboardData({
-      userId: authorizedUserId,
-      userRole: authorizedUserRole,
-      accessToken: testAccessToken,
-      startDate: aggregationStartDate,
-      endDate: aggregationEndDate,
-    });
-
-    expect(dashboardResult).toBeDefined();
-    expect(dashboardResult.userId).toBe(authorizedUserId);
-    expect(dashboardResult.userRole).toBe(authorizedUserRole);
+    // Verify recommended countermeasures present
+    expect(resultAuthorized.recommendedCountermeasures).toBeDefined();
+    expect(resultAuthorized.recommendedCountermeasures.length).toBeGreaterThan(0);
   });
 });

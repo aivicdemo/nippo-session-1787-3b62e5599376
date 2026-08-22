@@ -1,593 +1,684 @@
-import { generateWeeklyAnalysisReport } from '../../src/logic/analysis-reporting';
-import type { Tx8Imp1AiClient } from '../../src/agents/tx-8-imp-1/orchestrator';
+import { runTx8Imp1Agent } from '../../src/agents/tx-8-imp-1/orchestrator';
+import { buildAction01Prompt, ACTION_01_PROMPT_VERSION } from '../../src/agents/tx-8-imp-1/prompts/action-01';
+import { buildAction02Prompt, ACTION_02_PROMPT_VERSION } from '../../src/agents/tx-8-imp-1/prompts/action-02';
+import { buildAction03Prompt, ACTION_03_PROMPT_VERSION } from '../../src/agents/tx-8-imp-1/prompts/action-03';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-8-imp-1/prompts/action-04';
+import { buildAction05Prompt, ACTION_05_PROMPT_VERSION } from '../../src/agents/tx-8-imp-1/prompts/action-05';
+import type { Tx8AgentInput, Tx8AgentOutput } from '../../src/agents/tx-8-imp-1/types';
 
-describe('generateWeeklyAnalysisReport', () => {
-  // SCEN-145: [normal] 課題検索から可視化レポート作成までの自動実行 AIエージェント
-  test('should execute all 5 autonomous actions in order, validate escalation conditions, log audit events, and return final report payload with correct structure', async () => {
-    // Setup: Mock AI client that conforms to Tx8Imp1AiClient interface
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-001',
-            title: 'Database performance degradation',
-            description: 'Query response time exceeds threshold',
-            status: 'OPEN',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-          {
-            issueId: 'ISS-002',
-            title: 'API timeout errors',
-            description: 'Intermittent 504 errors in production',
-            status: 'OPEN',
-            detectedAt: '2024-01-09T14:15:00Z',
-          },
-          {
-            issueId: 'ISS-003',
-            title: 'Database performance degradation',
-            description: 'Query response time exceeds threshold',
-            status: 'OPEN',
-            detectedAt: '2024-01-10T11:00:00Z',
-          },
-        ],
-        dataQualityScore: 0.85,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [
-          {
-            patternId: 'PAT-001',
-            occurrenceStart: '2024-01-08T09:30:00Z',
-            occurrenceEnd: '2024-01-10T11:00:00Z',
-            recurrenceCount: 2,
-            classification: 'PERFORMANCE_DEGRADATION',
-          },
-          {
-            patternId: 'PAT-002',
-            occurrenceStart: '2024-01-09T14:15:00Z',
-            occurrenceEnd: '2024-01-09T14:15:00Z',
-            recurrenceCount: 1,
-            classification: 'API_FAILURE',
-          },
-        ],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [
-          {
-            patternType: 'RESOURCE_CONTENTION',
-            detectedAt: '2024-01-10T11:00:00Z',
-            impactScore: 82,
-            rootCauseCandidates: ['Connection pool exhaustion', 'Memory leak in service'],
-          },
-        ],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-2024-01-15-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://dashboard.example.com/viz/2024-01-15-001.json',
-        patternStatisticsSummary: {
-          totalPatterns: 2,
-          uniqueClassifications: 2,
-          timeSpanDays: 3,
-        },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [
-          {
-            issueId: 'ISS-003',
-            priorityLevel: 'HIGH',
-            isHighlighted: true,
-          },
-          {
-            issueId: 'ISS-001',
-            priorityLevel: 'HIGH',
-            isHighlighted: true,
-          },
-          {
-            issueId: 'ISS-002',
-            priorityLevel: 'MEDIUM',
-            isHighlighted: false,
-          },
-        ],
-      })),
+describe('tx-8-imp-1: Tx8Imp1Agent - 課題検索から可視化レポート作成までの自動実行', () => {
+  // SCEN-145: [normal] AIエージェント - 課題検索から可視化レポート作成までの自動実行が契約どおり実行する
+
+  test('should execute all 5 autonomous actions in correct order with escalation detection and audit logging', async () => {
+    // Setup: Mock AI Client implementation
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-001',
+              occurredAt: '2024-01-10T09:00:00Z',
+              title: 'Database Connection Timeout',
+              description: 'Connection pool exhausted during peak hours',
+              status: 'RESOLVED'
+            },
+            {
+              issueId: 'ISSUE-002',
+              occurredAt: '2024-01-11T10:30:00Z',
+              title: 'Memory Leak in Cache Module',
+              description: 'Unfreed memory accumulation detected',
+              status: 'IN_PROGRESS'
+            },
+            {
+              issueId: 'ISSUE-003',
+              occurredAt: '2024-01-12T14:15:00Z',
+              title: 'Database Connection Timeout',
+              description: 'Same issue recurrence',
+              status: 'URGENT'
+            }
+          ],
+          dataQualityScore: 0.85,
+          totalIssueCount: 3
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [
+            {
+              patternId: 'PATTERN-DB-001',
+              occurrenceDatetimeRange: {
+                startDate: '2024-01-10T09:00:00Z',
+                endDate: '2024-01-12T14:15:00Z'
+              },
+              recurrenceCount: 2,
+              classification: 'DATABASE_PERFORMANCE'
+            },
+            {
+              patternId: 'PATTERN-MEM-001',
+              occurrenceDatetimeRange: {
+                startDate: '2024-01-11T10:30:00Z',
+                endDate: '2024-01-11T10:30:00Z'
+              },
+              recurrenceCount: 1,
+              classification: 'MEMORY_MANAGEMENT'
+            }
+          ],
+          totalPatternCount: 2
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [
+            {
+              patternType: 'RESOURCE_SATURATION',
+              detectedAt: '2024-01-12T14:15:00Z',
+              impactScore: 85,
+              rootCauseCandidates: ['Insufficient connection pool size', 'Traffic spike not handled']
+            },
+            {
+              patternType: 'MEMORY_LEAK',
+              detectedAt: '2024-01-11T10:30:00Z',
+              impactScore: 60,
+              rootCauseCandidates: ['Circular reference in cache', 'Missing cleanup in event handler']
+            }
+          ],
+          totalBottleneckCount: 2
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-2024-01-15-001',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://dashboard.example.com/graphs/report-2024-01-15-001',
+          patternStatisticsSummary: {
+            totalPatterns: 2,
+            patternsByClassification: {
+              DATABASE_PERFORMANCE: 1,
+              MEMORY_MANAGEMENT: 1
+            },
+            averageRecurrenceCount: 1.5
+          }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [
+            {
+              issueId: 'ISSUE-003',
+              priorityLevel: 'HIGH',
+              highlighted: true,
+              title: 'Database Connection Timeout',
+              impactScore: 85
+            },
+            {
+              issueId: 'ISSUE-002',
+              priorityLevel: 'MEDIUM',
+              highlighted: false,
+              title: 'Memory Leak in Cache Module',
+              impactScore: 60
+            },
+            {
+              issueId: 'ISSUE-001',
+              priorityLevel: 'LOW',
+              highlighted: false,
+              title: 'Database Connection Timeout',
+              impactScore: 40
+            }
+          ],
+          highPriorityCount: 1,
+          totalPrioritizedCount: 3
+        }
+      })
     };
 
-    const auditLog: Array<{
-      timestamp: string;
-      eventType: string;
-      actionName: string;
-      status: string;
-      escalationReason?: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    const escalationEvents: Array<{
-      escalationFlag: boolean;
-      reasonCode: string;
-      timestamp: string;
-    }> = [];
+    // Execute
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    // Execute the function
-    const result = await generateWeeklyAnalysisReport(
-      {
-        startDate: '2024-01-08T00:00:00Z',
-        endDate: '2024-01-14T23:59:59Z',
-        userId: 'user-001',
-      },
-      mockAiClient,
-      {
-        onAuditEvent: (event) => {
-          auditLog.push({
-            timestamp: event.timestamp,
-            eventType: event.eventType,
-            actionName: event.actionName,
-            status: event.status,
-            escalationReason: event.escalationReason,
-          });
-        },
-        onEscalation: (event) => {
-          escalationEvents.push({
-            escalationFlag: event.escalationFlag,
-            reasonCode: event.reasonCode,
-            timestamp: event.timestamp,
-          });
-        },
-      }
-    );
+    // Verify: Action 1 - Issue data extraction
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    const action01Call = mockAiClient.executeAction01.mock.calls[0];
+    expect(action01Call[0]).toContain('2024-01-10');
+    expect(action01Call[0]).toContain('2024-01-15');
+    expect(buildAction01Prompt).toBeDefined();
+    expect(ACTION_01_PROMPT_VERSION).toBeDefined();
 
-    // Verify all 5 actions were called in correct order
-    expect(mockAiClient.executeAction01).toHaveBeenCalled();
-    expect(mockAiClient.executeAction02).toHaveBeenCalled();
-    expect(mockAiClient.executeAction03).toHaveBeenCalled();
-    expect(mockAiClient.executeAction04).toHaveBeenCalled();
-    expect(mockAiClient.executeAction05).toHaveBeenCalled();
+    // Verify: Action 2 - Recurrence pattern analysis
+    expect(mockAiClient.executeAction02).toHaveBeenCalledTimes(1);
+    const action02Call = mockAiClient.executeAction02.mock.calls[0];
+    expect(action02Call).toBeDefined();
+    expect(buildAction02Prompt).toBeDefined();
+    expect(ACTION_02_PROMPT_VERSION).toBeDefined();
 
-    // Verify return payload structure
-    expect(result).toHaveProperty('reportId');
-    expect(result.reportId).toBe('RPT-2024-01-15-001');
+    // Verify: Action 3 - Bottleneck detection
+    expect(mockAiClient.executeAction03).toHaveBeenCalledTimes(1);
+    const action03Call = mockAiClient.executeAction03.mock.calls[0];
+    expect(action03Call).toBeDefined();
+    expect(buildAction03Prompt).toBeDefined();
+    expect(ACTION_03_PROMPT_VERSION).toBeDefined();
 
-    expect(result).toHaveProperty('totalIssueCount');
+    // Verify: Action 4 - Visualization report generation
+    expect(mockAiClient.executeAction04).toHaveBeenCalledTimes(1);
+    const action04Call = mockAiClient.executeAction04.mock.calls[0];
+    expect(action04Call).toBeDefined();
+    expect(buildAction04Prompt).toBeDefined();
+    expect(ACTION_04_PROMPT_VERSION).toBeDefined();
+
+    // Verify: Action 5 - High-priority issue extraction and highlighting
+    expect(mockAiClient.executeAction05).toHaveBeenCalledTimes(1);
+    const action05Call = mockAiClient.executeAction05.mock.calls[0];
+    expect(action05Call).toBeDefined();
+    expect(buildAction05Prompt).toBeDefined();
+    expect(ACTION_05_PROMPT_VERSION).toBeDefined();
+
+    // Verify: Final output structure and values
+    expect(result.reportId).toBe('REPORT-2024-01-15-001');
+    expect(result.analysisStatus).toBe('completed');
+    expect(result.recurringIssueCount).toBe(2);
+    expect(result.reportDeliveryStatus).toBe('sent');
+
+    // Verify: Issue counts
     expect(result.totalIssueCount).toBe(3);
+    expect(result.totalPatternCount).toBe(2);
+    expect(result.totalBottleneckCount).toBe(2);
+    expect(result.highPriorityIssueCount).toBe(1);
 
-    expect(result).toHaveProperty('recurrencePatternCount');
-    expect(result.recurrencePatternCount).toBe(2);
+    // Verify: No escalation in happy path (data quality >= 0.7, no contradictions)
+    expect(result.escalations).toEqual([]);
 
-    expect(result).toHaveProperty('bottleneckCount');
-    expect(result.bottleneckCount).toBe(1);
-
-    expect(result).toHaveProperty('highPriorityIssueCount');
-    expect(result.highPriorityIssueCount).toBe(2);
-
-    // Verify audit events were logged
-    expect(auditLog.length).toBeGreaterThan(0);
-    const action01Event = auditLog.find((e) => e.actionName === 'Action01');
-    expect(action01Event).toBeDefined();
-    expect(action01Event?.status).toBe('success');
-
-    const action05Event = auditLog.find((e) => e.actionName === 'Action05');
-    expect(action05Event).toBeDefined();
-    expect(action05Event?.status).toBe('success');
-
-    // Verify no escalation events logged (data quality is 0.85, no urgent issues, patterns are classified)
-    expect(escalationEvents.length).toBe(0);
+    // Verify: Audit logging
+    expect(result.auditLog).toBeDefined();
+    expect(result.auditLog.length).toBeGreaterThan(0);
+    expect(result.auditLog[0]).toContain('Action 1');
+    expect(result.auditLog).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Action 1'),
+        expect.stringContaining('Action 2'),
+        expect.stringContaining('Action 3'),
+        expect.stringContaining('Action 4'),
+        expect.stringContaining('Action 5')
+      ])
+    );
   });
 
-  test('should escalate when data quality score is below 0.7', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-001',
-            title: 'Test issue',
-            description: 'Test',
-            status: 'OPEN',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-        ],
-        dataQualityScore: 0.65, // Below threshold
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 0, uniqueClassifications: 0, timeSpanDays: 7 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [],
-      })),
+  test('should detect DATA_QUALITY_LOW escalation when data quality score below 0.7', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-X',
+              occurredAt: '2024-01-10T09:00:00Z',
+              title: 'Test Issue',
+              description: 'Low quality data',
+              status: 'UNRESOLVED'
+            }
+          ],
+          dataQualityScore: 0.65,
+          totalIssueCount: 1
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [],
+          totalPatternCount: 0
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [],
+          totalBottleneckCount: 0
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-LOW-QUALITY',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com/graphs/low',
+          patternStatisticsSummary: { totalPatterns: 0, patternsByClassification: {}, averageRecurrenceCount: 0 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [],
+          highPriorityCount: 0,
+          totalPrioritizedCount: 0
+        }
+      })
     };
 
-    const escalationEvents: Array<{
-      escalationFlag: boolean;
-      reasonCode: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: 'user-001' },
-      mockAiClient,
-      {
-        onAuditEvent: () => {},
-        onEscalation: (event) => {
-          escalationEvents.push({
-            escalationFlag: event.escalationFlag,
-            reasonCode: event.reasonCode,
-          });
-        },
-      }
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
+
+    expect(result.escalations).toContainEqual(
+      expect.objectContaining({
+        escalationFlag: true,
+        reasonCode: 'DATA_QUALITY_LOW'
+      })
     );
-
-    const dataQualityEscalation = escalationEvents.find((e) => e.reasonCode === 'DATA_QUALITY_LOW');
-    expect(dataQualityEscalation).toBeDefined();
-    expect(dataQualityEscalation?.escalationFlag).toBe(true);
   });
 
-  test('should escalate when unclassified pattern is detected', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-001',
-            title: 'Unknown issue',
-            description: 'Unknown',
-            status: 'OPEN',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-        ],
-        dataQualityScore: 0.85,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [
-          {
-            patternId: 'PAT-UNKNOWN',
-            occurrenceStart: '2024-01-08T09:30:00Z',
-            occurrenceEnd: '2024-01-08T09:30:00Z',
-            recurrenceCount: 1,
-            classification: 'UNKNOWN_CLASSIFICATION', // Not in predefined list
-          },
-        ],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 1, uniqueClassifications: 1, timeSpanDays: 1 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [],
-      })),
+  test('should detect UNCLASSIFIED_PATTERN_DETECTED escalation when new pattern found', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-NEW',
+              occurredAt: '2024-01-10T09:00:00Z',
+              title: 'Novel Issue Type',
+              description: 'Unprecedented issue category',
+              status: 'UNRESOLVED'
+            }
+          ],
+          dataQualityScore: 0.8,
+          totalIssueCount: 1
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [
+            {
+              patternId: 'PATTERN-UNKNOWN-999',
+              occurrenceDatetimeRange: { startDate: '2024-01-10T09:00:00Z', endDate: '2024-01-10T09:00:00Z' },
+              recurrenceCount: 1,
+              classification: 'UNCLASSIFIED'
+            }
+          ],
+          totalPatternCount: 1
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [],
+          totalBottleneckCount: 0
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-UNCLASS',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com/graphs/unclass',
+          patternStatisticsSummary: { totalPatterns: 1, patternsByClassification: { UNCLASSIFIED: 1 }, averageRecurrenceCount: 1 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [],
+          highPriorityCount: 0,
+          totalPrioritizedCount: 0
+        }
+      })
     };
 
-    const escalationEvents: Array<{
-      escalationFlag: boolean;
-      reasonCode: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: 'user-001' },
-      mockAiClient,
-      {
-        onAuditEvent: () => {},
-        onEscalation: (event) => {
-          escalationEvents.push({
-            escalationFlag: event.escalationFlag,
-            reasonCode: event.reasonCode,
-          });
-        },
-      }
-    );
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    const unclassifiedEscalation = escalationEvents.find(
-      (e) => e.reasonCode === 'UNCLASSIFIED_PATTERN_DETECTED'
+    expect(result.escalations).toContainEqual(
+      expect.objectContaining({
+        escalationFlag: true,
+        reasonCode: 'UNCLASSIFIED_PATTERN_DETECTED'
+      })
     );
-    expect(unclassifiedEscalation).toBeDefined();
-    expect(unclassifiedEscalation?.escalationFlag).toBe(true);
   });
 
-  test('should escalate when urgent issue with high impact score is detected', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-URGENT',
-            title: 'Critical system failure',
-            description: 'System down',
-            status: 'URGENT',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-        ],
-        dataQualityScore: 0.85,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [
-          {
-            patternId: 'PAT-CRIT',
-            occurrenceStart: '2024-01-08T09:30:00Z',
-            occurrenceEnd: '2024-01-08T09:30:00Z',
-            recurrenceCount: 1,
-            classification: 'CRITICAL_FAILURE',
-          },
-        ],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [
-          {
-            patternType: 'SYSTEM_FAILURE',
-            detectedAt: '2024-01-08T09:30:00Z',
-            impactScore: 95, // Above threshold
-            rootCauseCandidates: ['Power outage', 'Hardware failure'],
-          },
-        ],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 1, uniqueClassifications: 1, timeSpanDays: 1 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [
-          {
-            issueId: 'ISS-URGENT',
-            priorityLevel: 'HIGH',
-            isHighlighted: true,
-          },
-        ],
-      })),
+  test('should detect URGENT_ISSUE_DETECTED escalation when urgent status with high impact', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-URGENT-001',
+              occurredAt: '2024-01-12T14:00:00Z',
+              title: 'Critical System Failure',
+              description: 'Production outage',
+              status: 'URGENT'
+            }
+          ],
+          dataQualityScore: 0.9,
+          totalIssueCount: 1
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [],
+          totalPatternCount: 0
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [
+            {
+              patternType: 'CRITICAL_FAILURE',
+              detectedAt: '2024-01-12T14:00:00Z',
+              impactScore: 95,
+              rootCauseCandidates: ['Total system collapse']
+            }
+          ],
+          totalBottleneckCount: 1
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-URGENT',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com/graphs/urgent',
+          patternStatisticsSummary: { totalPatterns: 0, patternsByClassification: {}, averageRecurrenceCount: 0 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [
+            {
+              issueId: 'ISSUE-URGENT-001',
+              priorityLevel: 'HIGH',
+              highlighted: true,
+              title: 'Critical System Failure',
+              impactScore: 95
+            }
+          ],
+          highPriorityCount: 1,
+          totalPrioritizedCount: 1
+        }
+      })
     };
 
-    const escalationEvents: Array<{
-      escalationFlag: boolean;
-      reasonCode: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: 'user-001' },
-      mockAiClient,
-      {
-        onAuditEvent: () => {},
-        onEscalation: (event) => {
-          escalationEvents.push({
-            escalationFlag: event.escalationFlag,
-            reasonCode: event.reasonCode,
-          });
-        },
-      }
-    );
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    const urgentEscalation = escalationEvents.find(
-      (e) => e.reasonCode === 'URGENT_ISSUE_DETECTED'
+    expect(result.escalations).toContainEqual(
+      expect.objectContaining({
+        escalationFlag: true,
+        reasonCode: 'URGENT_ISSUE_DETECTED'
+      })
     );
-    expect(urgentEscalation).toBeDefined();
-    expect(urgentEscalation?.escalationFlag).toBe(true);
   });
 
-  test('should escalate when analysis contradiction is detected', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-001',
-            title: 'Issue A',
-            description: 'Test',
-            status: 'OPEN',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-          {
-            issueId: 'ISS-002',
-            title: 'Issue B',
-            description: 'Test',
-            status: 'OPEN',
-            detectedAt: '2024-01-09T14:15:00Z',
-          },
-        ],
-        dataQualityScore: 0.85,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [
-          {
-            patternId: 'PAT-001',
-            occurrenceStart: '2024-01-08T09:30:00Z',
-            occurrenceEnd: '2024-01-09T14:15:00Z',
-            recurrenceCount: 5, // Contradiction: 5 recurrences but only 2 issues
-            classification: 'TYPE_A',
-          },
-        ],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [
-          {
-            patternType: 'TYPE_A',
-            detectedAt: '2024-01-08T09:30:00Z',
-            impactScore: 50,
-            rootCauseCandidates: ['Root cause A'],
-          },
-          {
-            patternType: 'TYPE_B',
-            detectedAt: '2024-01-09T00:00:00Z',
-            impactScore: 60,
-            rootCauseCandidates: ['Root cause B'],
-          },
-          {
-            patternType: 'TYPE_C',
-            detectedAt: '2024-01-10T00:00:00Z',
-            impactScore: 70,
-            rootCauseCandidates: ['Root cause C'],
-          },
-        ], // 3 bottlenecks but only 1 pattern
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 1, uniqueClassifications: 1, timeSpanDays: 2 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [],
-      })),
+  test('should detect ANALYSIS_CONTRADICTION escalation when pattern count mismatch', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-001',
+              occurredAt: '2024-01-10T09:00:00Z',
+              title: 'Issue Type A',
+              description: 'First occurrence',
+              status: 'RESOLVED'
+            },
+            {
+              issueId: 'ISSUE-002',
+              occurredAt: '2024-01-11T10:00:00Z',
+              title: 'Issue Type B',
+              description: 'Second occurrence',
+              status: 'RESOLVED'
+            }
+          ],
+          dataQualityScore: 0.8,
+          totalIssueCount: 2
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [
+            {
+              patternId: 'PATTERN-A',
+              occurrenceDatetimeRange: { startDate: '2024-01-10T09:00:00Z', endDate: '2024-01-10T09:00:00Z' },
+              recurrenceCount: 1,
+              classification: 'TYPE_A'
+            }
+          ],
+          totalPatternCount: 1
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [
+            {
+              patternType: 'PATTERN_A',
+              detectedAt: '2024-01-10T09:00:00Z',
+              impactScore: 50,
+              rootCauseCandidates: ['Cause A']
+            },
+            {
+              patternType: 'PATTERN_B',
+              detectedAt: '2024-01-11T10:00:00Z',
+              impactScore: 55,
+              rootCauseCandidates: ['Cause B']
+            }
+          ],
+          totalBottleneckCount: 2
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-CONTRADICTION',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com/graphs/contradiction',
+          patternStatisticsSummary: { totalPatterns: 1, patternsByClassification: { TYPE_A: 1 }, averageRecurrenceCount: 1 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [],
+          highPriorityCount: 0,
+          totalPrioritizedCount: 0
+        }
+      })
     };
 
-    const escalationEvents: Array<{
-      escalationFlag: boolean;
-      reasonCode: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: 'user-001' },
-      mockAiClient,
-      {
-        onAuditEvent: () => {},
-        onEscalation: (event) => {
-          escalationEvents.push({
-            escalationFlag: event.escalationFlag,
-            reasonCode: event.reasonCode,
-          });
-        },
-      }
-    );
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    const contradictionEscalation = escalationEvents.find(
-      (e) => e.reasonCode === 'ANALYSIS_CONTRADICTION'
+    expect(result.escalations).toContainEqual(
+      expect.objectContaining({
+        escalationFlag: true,
+        reasonCode: 'ANALYSIS_CONTRADICTION'
+      })
     );
-    expect(contradictionEscalation).toBeDefined();
-    expect(contradictionEscalation?.escalationFlag).toBe(true);
   });
 
-  test('should verify orchestrator boundary and AI client interface compatibility', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [],
-        dataQualityScore: 0.9,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 0, uniqueClassifications: 0, timeSpanDays: 7 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [],
-      })),
+  test('should handle malformed action output and return insufficient_data status', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [],
+          dataQualityScore: 0.5,
+          totalIssueCount: 0
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: {
+          patterns: [],
+          totalPatternCount: 0
+        }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: {
+          bottlenecks: [],
+          totalBottleneckCount: 0
+        }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: null
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: {
+          prioritizedIssues: [],
+          highPriorityCount: 0,
+          totalPrioritizedCount: 0
+        }
+      })
     };
 
-    // Type check: mockAiClient is structurally identical to Tx8Imp1AiClient
-    const _typeCheck: Tx8Imp1AiClient = mockAiClient;
-    expect(_typeCheck).toBeDefined();
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    const result = await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: 'user-001' },
-      mockAiClient,
-      {
-        onAuditEvent: () => {},
-        onEscalation: () => {},
-      }
-    );
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    expect(result).toHaveProperty('reportId');
-    expect(result.reportId).toBe('RPT-001');
+    expect(result.analysisStatus).toBe('insufficient_data');
   });
 
-  test('should log complete audit trail with timestamps and user information', async () => {
-    const mockAiClient: Tx8Imp1AiClient = {
-      executeAction01: jest.fn(async () => ({
-        issues: [
-          {
-            issueId: 'ISS-001',
-            title: 'Test issue',
-            description: 'Test description',
-            status: 'OPEN',
-            detectedAt: '2024-01-08T09:30:00Z',
-          },
-        ],
-        dataQualityScore: 0.85,
-      })),
-      executeAction02: jest.fn(async () => ({
-        patterns: [
-          {
-            patternId: 'PAT-001',
-            occurrenceStart: '2024-01-08T09:30:00Z',
-            occurrenceEnd: '2024-01-08T09:30:00Z',
-            recurrenceCount: 1,
-            classification: 'PERFORMANCE_ISSUE',
-          },
-        ],
-      })),
-      executeAction03: jest.fn(async () => ({
-        bottlenecks: [],
-      })),
-      executeAction04: jest.fn(async () => ({
-        reportId: 'RPT-AUDIT-001',
-        generatedAt: '2024-01-15T06:00:00Z',
-        graphDataUrl: 'https://example.com/viz.json',
-        patternStatisticsSummary: { totalPatterns: 1, uniqueClassifications: 1, timeSpanDays: 1 },
-      })),
-      executeAction05: jest.fn(async () => ({
-        prioritizedIssues: [
-          {
-            issueId: 'ISS-001',
-            priorityLevel: 'MEDIUM',
-            isHighlighted: false,
-          },
-        ],
-      })),
+  test('should handle action execution error and return failed status', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockRejectedValue(new Error('API connection failed')),
+      executeAction02: jest.fn(),
+      executeAction03: jest.fn(),
+      executeAction04: jest.fn(),
+      executeAction05: jest.fn()
     };
 
-    const auditLog: Array<{
-      timestamp: string;
-      eventType: string;
-      actionName: string;
-      status: string;
-      userId?: string;
-    }> = [];
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    const testUserId = 'user-audit-test-001';
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    await generateWeeklyAnalysisReport(
-      { startDate: '2024-01-08T00:00:00Z', endDate: '2024-01-14T23:59:59Z', userId: testUserId },
-      mockAiClient,
-      {
-        onAuditEvent: (event) => {
-          auditLog.push({
-            timestamp: event.timestamp,
-            eventType: event.eventType,
-            actionName: event.actionName,
-            status: event.status,
-            userId: event.userId,
-          });
-        },
-        onEscalation: () => {},
-      }
-    );
+    expect(result.analysisStatus).toBe('failed');
+    expect(result.reportDeliveryStatus).toBe('failed');
+  });
 
-    expect(auditLog.length).toBeGreaterThanOrEqual(5);
+  test('should verify orchestrator boundary - second parameter conforms to Tx8Imp1AiClient', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [],
+          dataQualityScore: 0.8,
+          totalIssueCount: 0
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: { patterns: [], totalPatternCount: 0 }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: { bottlenecks: [], totalBottleneckCount: 0 }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-BOUNDARY',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com',
+          patternStatisticsSummary: { totalPatterns: 0, patternsByClassification: {}, averageRecurrenceCount: 0 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: { prioritizedIssues: [], highPriorityCount: 0, totalPrioritizedCount: 0 }
+      })
+    };
 
-    const allActionNames = auditLog.map((e) => e.actionName);
-    expect(allActionNames).toContain('Action01');
-    expect(allActionNames).toContain('Action02');
-    expect(allActionNames).toContain('Action03');
-    expect(allActionNames).toContain('Action04');
-    expect(allActionNames).toContain('Action05');
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
 
-    const allStatuses = auditLog.map((e) => e.status);
-    expect(allStatuses.every((s) => s === 'success' || s === 'escalation')).toBe(true);
+    // Type checking: mockAiClient must be assignable to Tx8Imp1AiClient
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
 
-    const withUserId = auditLog.filter((e) => e.userId === testUserId);
-    expect(withUserId.length).toBeGreaterThanOrEqual(1);
+    expect(result).toBeDefined();
+    expect(typeof result.reportId).toBe('string');
+    expect(typeof result.analysisStatus).toBe('string');
+    expect(typeof result.recurringIssueCount).toBe('number');
+    expect(typeof result.reportDeliveryStatus).toBe('string');
+  });
 
-    auditLog.forEach((event) => {
-      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  test('should log all audit events with timestamps and action names', async () => {
+    const mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        payload: {
+          issues: [
+            {
+              issueId: 'ISSUE-AUDIT',
+              occurredAt: '2024-01-10T09:00:00Z',
+              title: 'Audit Test Issue',
+              description: 'For audit logging',
+              status: 'RESOLVED'
+            }
+          ],
+          dataQualityScore: 0.85,
+          totalIssueCount: 1
+        }
+      }),
+      executeAction02: jest.fn().mockResolvedValue({
+        payload: { patterns: [], totalPatternCount: 0 }
+      }),
+      executeAction03: jest.fn().mockResolvedValue({
+        payload: { bottlenecks: [], totalBottleneckCount: 0 }
+      }),
+      executeAction04: jest.fn().mockResolvedValue({
+        payload: {
+          reportId: 'REPORT-AUDIT',
+          generatedAt: '2024-01-15T08:00:00Z',
+          graphDataUrl: 'https://example.com',
+          patternStatisticsSummary: { totalPatterns: 0, patternsByClassification: {}, averageRecurrenceCount: 0 }
+        }
+      }),
+      executeAction05: jest.fn().mockResolvedValue({
+        payload: { prioritizedIssues: [], highPriorityCount: 0, totalPrioritizedCount: 0 }
+      })
+    };
+
+    const input: Tx8AgentInput = {
+      analysisPeriodStartDate: '2024-01-10',
+      analysisPeriodEndDate: '2024-01-15',
+      managerEmail: 'manager@example.com',
+      minimumDataThreshold: 10
+    };
+
+    const result: Tx8AgentOutput = await runTx8Imp1Agent(input, mockAiClient);
+
+    expect(result.auditLog).toBeDefined();
+    expect(Array.isArray(result.auditLog)).toBe(true);
+    expect(result.auditLog.length).toBeGreaterThanOrEqual(5);
+
+    const logString = result.auditLog.join(' ');
+    expect(logString).toContain('Action 1');
+    expect(logString).toContain('Action 2');
+    expect(logString).toContain('Action 3');
+    expect(logString).toContain('Action 4');
+    expect(logString).toContain('Action 5');
+
+    result.auditLog.forEach((logEntry) => {
+      expect(typeof logEntry).toBe('string');
+      expect(logEntry.length).toBeGreaterThan(0);
     });
   });
 });

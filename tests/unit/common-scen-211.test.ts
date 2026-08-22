@@ -1,230 +1,181 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import type { Mock } from "jest-mock";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx11Imp1Agent } from '../../src/agents/tx-11-imp-1/orchestrator';
+import { type Tx11AgentInput, type Tx11AgentOutput } from '../../src/agents/tx-11-imp-1/types';
+import { type Tx11Imp1AiClient } from '../../src/agents/tx-11-imp-1/types';
 
-// Mock types matching Tx11Imp1AiClient interface
-interface MockAiClientAction {
-  actionNumber: number;
-  success: boolean;
-  result?: unknown;
-  error?: Error;
-}
+describe('Tx11Imp1Agent', () => {
+  // SCEN-211
+  test('should rollback compensation when Action 3 fails after Actions 1-2 succeed, preserving Action 1 results and audit logs', async () => {
+    const executionTimestamp = new Date('2024-01-15T06:00:00Z');
+    const teamId = 'team-001';
+    const reportDeadlineTime = '09:00';
+    const managerEmail = 'manager@example.com';
 
-interface MockAiClient {
-  executeAction: Mock<Promise<unknown>>;
-  trackActions: Mock<void>;
-  getExecutionHistory: Mock<MockAiClientAction[]>;
-}
+    const input: Tx11AgentInput = {
+      executionTimestamp,
+      teamId,
+      reportDeadlineTime,
+      managerEmail,
+    };
 
-interface UnsubmittedMember {
-  memberId: string;
-  memberName: string;
-  deadline: Date;
-}
+    const submissionRecords: Record<string, boolean> = {
+      memberA: true,
+      memberB: false,
+      memberC: true,
+      memberD: false,
+      memberE: true,
+      memberF: true,
+      memberG: true,
+      memberH: true,
+      memberI: true,
+      memberJ: true,
+    };
 
-interface SendReminderInput {
-  unsubmittedMembers: UnsubmittedMember[];
-  aiClient: MockAiClient;
-  auditLogWriter: (message: string) => void;
-}
+    const notificationSentRecords: Array<{ memberId: string; sentAt: Date }> = [];
+    const auditEventRecords: Array<{
+      timestamp: Date;
+      action: string;
+      status: string;
+      details: string;
+    }> = [];
+    const extractedIssues: Array<{
+      issueId: string;
+      title: string;
+      priority: number;
+    }> = [];
 
-interface ReminderState {
-  sentNotifications: Array<{
-    memberId: string;
-    sentAt: Date;
-    notificationId: string;
-  }>;
-  submissionStatus: Record<string, string>;
-  transactionId: string;
-}
+    let action2CompleteFlag = false;
+    let action3ErrorTriggered = false;
 
-// SCEN-211
-describe("sendUnsubmittedReminder rollback on partial failure", () => {
-  let mockAiClient: MockAiClient;
-  let auditLogEntries: string[];
-  let stateSnapshot: ReminderState;
-  let action1Success: boolean;
-  let action2NotificationsSent: Array<{ memberId: string; notificationId: string }>;
-
-  beforeEach(() => {
-    auditLogEntries = [];
-    action1Success = false;
-    action2NotificationsSent = [];
-
-    // Initialize mock AI client with execution tracking
-    mockAiClient = {
-      executeAction: jest.fn(async (actionNum: number) => {
-        if (actionNum === 1) {
-          // Action 1: Confirm submission status (succeeds)
-          action1Success = true;
-          return {
-            actionNumber: 1,
-            success: true,
-            result: {
-              submissionStatus: {
-                memberA: "submitted",
-                memberB: "submitted",
-                memberC: "not_submitted",
-                memberD: "not_submitted",
-                memberE: "submitted",
-                memberF: "submitted",
-                memberG: "submitted",
-                memberH: "submitted",
-                memberI: "submitted",
-                memberJ: "submitted",
-              },
-            },
-          };
-        } else if (actionNum === 2) {
-          // Action 2: Send unsubmitted member reminders (succeeds)
-          action2NotificationsSent = [
-            { memberId: "memberC", notificationId: "notif-001" },
-            { memberId: "memberD", notificationId: "notif-002" },
-          ];
-          return {
-            actionNumber: 2,
-            success: true,
-            result: {
-              sentCount: 2,
-              notificationIds: ["notif-001", "notif-002"],
-            },
-          };
-        } else if (actionNum === 3) {
-          // Action 3: Extract issues (fails with timeout)
-          const timeoutError = new Error("LLM response timeout");
-          return {
-            actionNumber: 3,
-            success: false,
-            error: timeoutError,
-          };
-        }
-        return { actionNumber: actionNum, success: false };
+    const mockAiClient: Tx11Imp1AiClient = {
+      action01_fetchSubmissionStatus: jest.fn(async () => {
+        auditEventRecords.push({
+          timestamp: new Date('2024-01-15T06:00:05Z'),
+          action: 'Action 1 - Fetch Submission Status',
+          status: 'success',
+          details: 'Retrieved submission status for 10 members',
+        });
+        return {
+          totalMembers: 10,
+          submittedCount: 8,
+          unsubmittedMembers: ['memberB', 'memberD'],
+        };
       }),
-      trackActions: jest.fn(),
-      getExecutionHistory: jest.fn(() => [
-        { actionNumber: 1, success: true },
-        { actionNumber: 2, success: true },
-        { actionNumber: 3, success: false, error: new Error("LLM response timeout") },
-      ]),
-    };
-  });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
+      action02_sendReminderNotifications: jest.fn(async (unsubmittedMembers) => {
+        notificationSentRecords.push({
+          memberId: 'memberB',
+          sentAt: new Date('2024-01-15T06:00:10Z'),
+        });
+        notificationSentRecords.push({
+          memberId: 'memberD',
+          sentAt: new Date('2024-01-15T06:00:11Z'),
+        });
+        action2CompleteFlag = true;
+        auditEventRecords.push({
+          timestamp: new Date('2024-01-15T06:00:10Z'),
+          action: 'Action 2 - Send Reminder Notifications',
+          status: 'success',
+          details: `Sent reminder notifications to ${unsubmittedMembers.length} members`,
+        });
+        return {
+          notificationsSent: [
+            { memberId: 'memberB', type: 'email', status: 'sent' },
+            { memberId: 'memberD', type: 'email', status: 'sent' },
+          ],
+        };
+      }),
 
-  test("should rollback sent notifications and restore state when Action 3 fails", async () => {
-    // Prepare test dataset: 10 members, 3 with extracted issues, 2 unsubmitted
-    const unsubmittedMembers: UnsubmittedMember[] = [
-      {
-        memberId: "memberC",
-        memberName: "Member C",
-        deadline: new Date("2024-01-15T09:00:00Z"),
-      },
-      {
-        memberId: "memberD",
-        memberName: "Member D",
-        deadline: new Date("2024-01-15T09:00:00Z"),
-      },
-    ];
+      action03_extractIssuesFromReports: jest.fn(async () => {
+        action3ErrorTriggered = true;
+        throw new Error('LLM_RESPONSE_TIMEOUT');
+      }),
 
-    // Initial state snapshot before execution
-    const initialState: ReminderState = {
-      sentNotifications: [],
-      submissionStatus: {},
-      transactionId: "tx-11-imp-1-20240115-001",
-    };
+      action04_assignPrioritiesToIssues: jest.fn(async () => {
+        return { prioritizedIssues: [] };
+      }),
 
-    // Execute agent with injected mock AI client
-    const reminderInput: SendReminderInput = {
-      unsubmittedMembers,
-      aiClient: mockAiClient,
-      auditLogWriter: (msg: string) => auditLogEntries.push(msg),
-    };
+      action05_generateMorningMeetingSummary: jest.fn(async () => {
+        return {
+          summaryContent: 'Morning meeting summary',
+          issuesCount: 0,
+        };
+      }),
 
-    // Execute Action 1 (confirm submission status) - should succeed
-    const action1Result = await mockAiClient.executeAction(1);
-    expect(action1Result.success).toBe(true);
-    expect(action1Success).toBe(true);
+      action06_sendSummaryToManager: jest.fn(async () => {
+        return { emailSent: false };
+      }),
 
-    // Capture post-Action-1 state
-    const stateAfterAction1: ReminderState = {
-      sentNotifications: [],
-      submissionStatus: action1Result.result.submissionStatus,
-      transactionId: initialState.transactionId,
-    };
-
-    // Execute Action 2 (send reminders) - should succeed
-    const action2Result = await mockAiClient.executeAction(2);
-    expect(action2Result.success).toBe(true);
-    expect(action2Result.result.sentCount).toBe(2);
-
-    // Capture state after Action 2 with sent notifications
-    const stateAfterAction2: ReminderState = {
-      sentNotifications: [
-        {
-          memberId: "memberC",
-          sentAt: new Date("2024-01-15T08:30:00Z"),
-          notificationId: "notif-001",
-        },
-        {
-          memberId: "memberD",
-          sentAt: new Date("2024-01-15T08:30:00Z"),
-          notificationId: "notif-002",
-        },
-      ],
-      submissionStatus: stateAfterAction1.submissionStatus,
-      transactionId: initialState.transactionId,
+      action07_compensateRollback: jest.fn(async (failedActionNumber) => {
+        if (failedActionNumber === 3 && action2CompleteFlag) {
+          notificationSentRecords.length = 0;
+          auditEventRecords.push({
+            timestamp: new Date('2024-01-15T06:00:15Z'),
+            action: 'Rollback Compensation',
+            status: 'completed',
+            details:
+              'tx_11_imp_1 Action 3失敗に伴うロールバック実行。Action 2で送信した催促通知2件を無効化。復帰時刻：2024-01-15 06:00:15',
+          });
+        }
+        return { rollbackCompleted: true };
+      }),
     };
 
-    // Verify notifications were recorded in state
-    expect(stateAfterAction2.sentNotifications).toHaveLength(2);
-    expect(stateAfterAction2.sentNotifications[0].memberId).toBe("memberC");
-    expect(stateAfterAction2.sentNotifications[1].memberId).toBe("memberD");
+    let caughtError: Error | null = null;
+    let finalOutput: Tx11AgentOutput | null = null;
 
-    // Execute Action 3 (extract issues) - should fail with timeout
-    const action3Result = await mockAiClient.executeAction(3);
-    expect(action3Result.success).toBe(false);
-    expect(action3Result.error?.message).toMatch(/timeout/i);
+    try {
+      finalOutput = await runTx11Imp1Agent(input, mockAiClient);
+    } catch (error) {
+      caughtError = error as Error;
+    }
 
-    // Trigger rollback: Cancel sent notifications and restore state
-    const rolledBackState: ReminderState = {
-      sentNotifications: [],
-      submissionStatus: stateAfterAction1.submissionStatus,
-      transactionId: initialState.transactionId,
-    };
+    expect(caughtError).not.toBeNull();
+    expect(caughtError?.message).toMatch(/LLM_RESPONSE_TIMEOUT/);
 
-    // Verify all sent notifications are cleared
-    expect(rolledBackState.sentNotifications).toHaveLength(0);
-
-    // Verify submission status is preserved (Action 1 result not rolled back)
-    expect(rolledBackState.submissionStatus).toEqual(
-      stateAfterAction1.submissionStatus
+    expect(mockAiClient.action01_fetchSubmissionStatus).toHaveBeenCalledWith(
+      teamId,
+      reportDeadlineTime
     );
 
-    // Record audit log for rollback
-    const rollbackMessage = `tx_11_imp_1 Action 3失敗に伴うロールバック実行。Action 2で送信した催促通知2件を無効化。復帰時刻：2024-01-15 08:31:00`;
-    auditLogEntries.push(rollbackMessage);
+    expect(mockAiClient.action02_sendReminderNotifications).toHaveBeenCalledWith(
+      ['memberB', 'memberD'],
+      teamId
+    );
 
-    // Verify audit log captures rollback details
-    expect(auditLogEntries).toContainEqual(expect.stringMatching(/ロールバック実行/));
-    expect(auditLogEntries[auditLogEntries.length - 1]).toMatch(/催促通知2件を無効化/);
-    expect(auditLogEntries[auditLogEntries.length - 1]).toMatch(/2024-01-15 08:31:00/);
+    expect(mockAiClient.action03_extractIssuesFromReports).toHaveBeenCalled();
 
-    // Verify execution history tracks all action attempts
-    const history = mockAiClient.getExecutionHistory();
-    expect(history).toHaveLength(3);
-    expect(history[0].actionNumber).toBe(1);
-    expect(history[0].success).toBe(true);
-    expect(history[1].actionNumber).toBe(2);
-    expect(history[1].success).toBe(true);
-    expect(history[2].actionNumber).toBe(3);
-    expect(history[2].success).toBe(false);
+    expect(action3ErrorTriggered).toBe(true);
 
-    // Verify final state: notifications cleared, submission status preserved
-    expect(rolledBackState.sentNotifications).toEqual([]);
-    expect(Object.keys(rolledBackState.submissionStatus).length).toBeGreaterThan(0);
-    expect(rolledBackState.submissionStatus.memberC).toBe("not_submitted");
-    expect(rolledBackState.submissionStatus.memberD).toBe("not_submitted");
+    expect(notificationSentRecords.length).toBe(0);
+
+    const action1AuditEvent = auditEventRecords.find(
+      (e) => e.action === 'Action 1 - Fetch Submission Status'
+    );
+    expect(action1AuditEvent).toBeDefined();
+    expect(action1AuditEvent?.status).toBe('success');
+
+    const action2AuditEvent = auditEventRecords.find(
+      (e) => e.action === 'Action 2 - Send Reminder Notifications'
+    );
+    expect(action2AuditEvent).toBeDefined();
+    expect(action2AuditEvent?.status).toBe('success');
+
+    const rollbackAuditEvent = auditEventRecords.find(
+      (e) => e.action === 'Rollback Compensation'
+    );
+    expect(rollbackAuditEvent).toBeDefined();
+    expect(rollbackAuditEvent?.status).toBe('completed');
+    expect(rollbackAuditEvent?.details).toMatch(
+      /tx_11_imp_1 Action 3失敗に伴うロールバック実行/
+    );
+    expect(rollbackAuditEvent?.details).toMatch(/催促通知2件を無効化/);
+    expect(rollbackAuditEvent?.details).toMatch(/復帰時刻/);
+
+    expect(mockAiClient.action07_compensateRollback).toHaveBeenCalledWith(3);
+
+    const submissionAuditEvent = auditEventRecords.find(
+      (e) => e.details.includes('Retrieved submission status')
+    );
+    expect(submissionAuditEvent).toBeDefined();
   });
 });

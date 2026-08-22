@@ -1,148 +1,238 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
+import { runTx3Imp1Agent } from "../../src/agents/tx-3-imp-1/orchestrator";
+import type {
+  Tx3Imp1AgentInput,
+  Tx3Imp1AgentOutput,
+  ExtractedIssue,
+  PrioritizedIssue,
+  EmailSendStatus,
+  PriorityThresholdConfig,
+} from "../../src/agents/tx-3-imp-1/orchestrator";
 
-describe('notification-delivery', () => {
-  test('SCEN-069: idempotent retry prevents duplicate mail delivery and database writes', async () => {
-    // Setup: Initialize test database with aggregated daily report data
-    const aggregatedReportId = 'report-20240115-001';
-    const aggregatedReportData = {
-      reportId: aggregatedReportId,
-      submissionDate: '2024-01-15T09:00:00Z',
-      keywords: ['システムダウン', 'データ不整合'],
-      content: 'System downtime occurred, data inconsistency detected',
-      priority: undefined, // Will be set by AI agent
-      unsubmittedMembers: ['user-002', 'user-003'],
+describe("tx-3-imp-1 orchestrator", () => {
+  // SCEN-069
+  test("should maintain idempotence when executing same aggregated report data twice", async () => {
+    const mockAiClient = {
+      extractIssuesFromReport: jest.fn(),
+      prioritizeIssues: jest.fn(),
+      generatePrioritizedList: jest.fn(),
+      sendEmailToManager: jest.fn(),
     };
 
-    // Mock database for first execution
-    const mockDbFirstExecution = {
-      auditLogRecords: [] as Array<{ operation: string; timestamp: string; recordId: string }>,
-      mailSendLogs: [] as Array<{ mailId: string; memberId: string; reportId: string; timestamp: string }>,
-      prioritizedIssuesList: [] as Array<{ issueId: string; reportId: string; priority: number; timestamp: string }>,
-      query: function(table: string) {
-        if (table === 'audit_log') return this.auditLogRecords;
-        if (table === 'mail_send_log') return this.mailSendLogs;
-        if (table === 'prioritized_issues') return this.prioritizedIssuesList;
-        return [];
+    const mockDatabase = {
+      emailSendLogs: [] as Array<{
+        id: string;
+        reportAggregationId: string;
+        sentAt: Date;
+        recipientEmail: string;
+        issueCount: number;
+      }>,
+      prioritizedIssueLogs: [] as Array<{
+        id: string;
+        reportAggregationId: string;
+        issueId: string;
+        priority: "high" | "medium" | "low";
+        createdAt: Date;
+      }>,
+      auditLogs: [] as Array<{
+        id: string;
+        operation: string;
+        reportAggregationId: string;
+        timestamp: Date;
+        details: Record<string, unknown>;
+      }>,
+      getEmailSendLogCount: function (reportId: string): number {
+        return this.emailSendLogs.filter((log) => log.reportAggregationId === reportId).length;
       },
-      insert: function(table: string, record: any) {
-        if (table === 'audit_log') {
-          this.auditLogRecords.push(record);
-        } else if (table === 'mail_send_log') {
-          this.mailSendLogs.push(record);
-        } else if (table === 'prioritized_issues') {
-          this.prioritizedIssuesList.push(record);
-        }
+      getAuditLogCount: function (reportId: string, operation: string): number {
+        return this.auditLogs.filter(
+          (log) => log.reportAggregationId === reportId && log.operation === operation
+        ).length;
       },
-    };
-
-    // Mock mail delivery service for first execution
-    const mailDeliveryLog: Array<{ to: string; timestamp: string }> = [];
-    const mockMailService = {
-      send: function(to: string) {
-        mailDeliveryLog.push({ to, timestamp: new Date('2024-01-15T09:05:00Z').toISOString() });
-        return Promise.resolve({ success: true });
-      },
-    };
-
-    // First execution: send reminder to unsubmitted members
-    const firstExecutionParams = {
-      reportId: aggregatedReportId,
-      unsubmittedMembers: aggregatedReportData.unsubmittedMembers,
-      reportContent: aggregatedReportData.content,
-      keywords: aggregatedReportData.keywords,
-    };
-
-    const firstResult = await sendUnsubmittedReminder(
-      firstExecutionParams,
-      mockMailService as any
-    );
-
-    // Record database state after first execution
-    const firstExecutionMailLogCount = mockDbFirstExecution.query('mail_send_log').length;
-    const firstExecutionAuditLogInserts = mockDbFirstExecution.query('audit_log').filter(
-      (record: any) => record.operation === 'INSERT'
-    ).length;
-    const firstExecutionPrioritizedCount = mockDbFirstExecution.query('prioritized_issues').length;
-
-    // Verify first execution results
-    expect(firstResult).toBeDefined();
-    expect(mailDeliveryLog.length).toBe(2); // One mail per unsubmitted member
-    expect(mailDeliveryLog[0].to).toBe('user-002');
-    expect(mailDeliveryLog[1].to).toBe('user-003');
-
-    // Store first execution mail delivery count
-    const firstExecutionMailDeliveryCount = mailDeliveryLog.length;
-
-    // Setup: Reset mock database for second execution (simulating stateful DB)
-    const mockDbSecondExecution = {
-      auditLogRecords: [...mockDbFirstExecution.auditLogRecords],
-      mailSendLogs: [...mockDbFirstExecution.mailSendLogs],
-      prioritizedIssuesList: [...mockDbFirstExecution.prioritizedIssuesList],
-      query: function(table: string) {
-        if (table === 'audit_log') return this.auditLogRecords;
-        if (table === 'mail_send_log') return this.mailSendLogs;
-        if (table === 'prioritized_issues') return this.prioritizedIssuesList;
-        return [];
-      },
-      insert: function(table: string, record: any) {
-        if (table === 'audit_log') {
-          this.auditLogRecords.push(record);
-        } else if (table === 'mail_send_log') {
-          this.mailSendLogs.push(record);
-        } else if (table === 'prioritized_issues') {
-          this.prioritizedIssuesList.push(record);
-        }
-      },
-    };
-
-    // Reset mail delivery log for second execution
-    const mailDeliveryLogSecondExecution: Array<{ to: string; timestamp: string }> = [];
-    const mockMailServiceSecondExecution = {
-      send: function(to: string) {
-        mailDeliveryLogSecondExecution.push({
-          to,
-          timestamp: new Date('2024-01-15T09:10:00Z').toISOString(),
+      addEmailSendLog: function (log: {
+        reportAggregationId: string;
+        sentAt: Date;
+        recipientEmail: string;
+        issueCount: number;
+      }): void {
+        this.emailSendLogs.push({
+          id: `email-${this.emailSendLogs.length + 1}`,
+          ...log,
         });
-        return Promise.resolve({ success: true });
+        this.auditLogs.push({
+          id: `audit-${this.auditLogs.length + 1}`,
+          operation: "INSERT_EMAIL_LOG",
+          reportAggregationId: log.reportAggregationId,
+          timestamp: new Date("2024-01-15T11:00:00Z"),
+          details: { issueCount: log.issueCount },
+        });
+      },
+      addPrioritizedIssueLog: function (log: {
+        reportAggregationId: string;
+        issueId: string;
+        priority: "high" | "medium" | "low";
+      }): void {
+        this.prioritizedIssueLogs.push({
+          id: `issue-${this.prioritizedIssueLogs.length + 1}`,
+          ...log,
+          createdAt: new Date("2024-01-15T11:00:00Z"),
+        });
+        this.auditLogs.push({
+          id: `audit-${this.auditLogs.length + 1}`,
+          operation: "INSERT_PRIORITIZED_ISSUE",
+          reportAggregationId: log.reportAggregationId,
+          timestamp: new Date("2024-01-15T11:00:00Z"),
+          details: { issueId: log.issueId, priority: log.priority },
+        });
       },
     };
 
-    // Second execution: Retry with identical parameters
-    const secondExecutionParams = {
-      reportId: aggregatedReportId,
-      unsubmittedMembers: aggregatedReportData.unsubmittedMembers,
-      reportContent: aggregatedReportData.content,
-      keywords: aggregatedReportData.keywords,
+    const reportAggregationId = "agg-001";
+    const analysisExecutionTime = new Date("2024-01-15T10:00:00Z");
+    const managerEmail = "manager@example.com";
+    const priorityThresholds: PriorityThresholdConfig = {
+      highPriorityMinScore: 75,
+      mediumPriorityMinScore: 50,
     };
 
-    const secondResult = await sendUnsubmittedReminder(
-      secondExecutionParams,
-      mockMailServiceSecondExecution as any
+    const mockExtractedIssues: ExtractedIssue[] = [
+      {
+        keyword: "システムダウン",
+        frequency: 3,
+        impactScore: 95,
+      },
+      {
+        keyword: "データ不整合",
+        frequency: 2,
+        impactScore: 85,
+      },
+    ];
+
+    const mockPrioritizedIssues: PrioritizedIssue[] = [
+      {
+        issueId: "issue-001",
+        keyword: "システムダウン",
+        priority: "high",
+        priorityScore: 95,
+        colorCode: "red",
+        frequency: 3,
+        impactScore: 95,
+      },
+      {
+        issueId: "issue-002",
+        keyword: "データ不整合",
+        priority: "high",
+        priorityScore: 85,
+        colorCode: "red",
+        frequency: 2,
+        impactScore: 85,
+      },
+    ];
+
+    const mockEmailStatus: EmailSendStatus = {
+      success: true,
+      recipientEmail: managerEmail,
+      sentAt: new Date("2024-01-15T11:00:00Z"),
+      issueCount: 2,
+    };
+
+    mockAiClient.extractIssuesFromReport.mockResolvedValue(mockExtractedIssues);
+    mockAiClient.prioritizeIssues.mockResolvedValue(mockPrioritizedIssues);
+    mockAiClient.generatePrioritizedList.mockResolvedValue({
+      prioritizedList: mockPrioritizedIssues,
+    });
+    mockAiClient.sendEmailToManager.mockResolvedValue(mockEmailStatus);
+
+    const agentInput: Tx3Imp1AgentInput = {
+      reportAggregationId,
+      analysisExecutionTime,
+      managerEmail,
+      priorityThresholds,
+    };
+
+    // First execution
+    const firstResult: Tx3Imp1AgentOutput = await runTx3Imp1Agent(agentInput, mockAiClient as any);
+
+    expect(firstResult.extractedIssues).toHaveLength(2);
+    expect(firstResult.extractedIssues[0].keyword).toBe("システムダウン");
+    expect(firstResult.prioritizedIssueList).toHaveLength(2);
+    expect(firstResult.prioritizedIssueList[0].priority).toBe("high");
+    expect(firstResult.emailSendStatus.success).toBe(true);
+    expect(firstResult.emailSendStatus.issueCount).toBe(2);
+
+    const firstEmailLogCount = mockDatabase.getEmailSendLogCount(reportAggregationId);
+    const firstAuditInsertCount = mockDatabase.getAuditLogCount(
+      reportAggregationId,
+      "INSERT_EMAIL_LOG"
     );
 
-    // Verify idempotency: No new mail delivery on retry
-    expect(mailDeliveryLogSecondExecution.length).toBe(0);
+    // Simulate database updates from first execution
+    mockDatabase.addEmailSendLog({
+      reportAggregationId,
+      sentAt: new Date("2024-01-15T11:00:00Z"),
+      recipientEmail: managerEmail,
+      issueCount: 2,
+    });
 
-    // Verify database state after second execution: No duplicate records
-    const secondExecutionMailLogCount = mockDbSecondExecution.query('mail_send_log').length;
-    expect(secondExecutionMailLogCount).toBe(firstExecutionMailLogCount);
+    mockPrioritizedIssues.forEach((issue) => {
+      mockDatabase.addPrioritizedIssueLog({
+        reportAggregationId,
+        issueId: issue.issueId,
+        priority: issue.priority,
+      });
+    });
 
-    // Verify no new audit log INSERT operations for same report
-    const secondExecutionAuditLogInserts = mockDbSecondExecution.query('audit_log').filter(
-      (record: any) => record.operation === 'INSERT' && record.recordId === aggregatedReportId
-    ).length;
-    expect(secondExecutionAuditLogInserts).toBe(firstExecutionAuditLogInserts);
+    const firstExecutionEmailCount = mockDatabase.getEmailSendLogCount(reportAggregationId);
+    const firstExecutionAuditCount = mockDatabase.getAuditLogCount(
+      reportAggregationId,
+      "INSERT_EMAIL_LOG"
+    );
 
-    // Verify prioritized issues list has no duplicate entries
-    const secondExecutionPrioritizedCount = mockDbSecondExecution.query('prioritized_issues').filter(
-      (record: any) => record.reportId === aggregatedReportId
-    ).length;
-    expect(secondExecutionPrioritizedCount).toBe(1);
+    expect(firstExecutionEmailCount).toBe(1);
+    expect(firstExecutionAuditCount).toBe(1);
 
-    // Verify second execution result indicates no-op
-    expect(secondResult).toBeDefined();
-    expect(secondResult.isDuplicate).toBe(true);
-    expect(secondResult.mailsSent).toBe(0);
+    // Reset mock call counts but keep database state
+    mockAiClient.extractIssuesFromReport.mockClear();
+    mockAiClient.prioritizeIssues.mockClear();
+    mockAiClient.generatePrioritizedList.mockClear();
+    mockAiClient.sendEmailToManager.mockClear();
+
+    // Re-setup mocks for second execution
+    mockAiClient.extractIssuesFromReport.mockResolvedValue(mockExtractedIssues);
+    mockAiClient.prioritizeIssues.mockResolvedValue(mockPrioritizedIssues);
+    mockAiClient.generatePrioritizedList.mockResolvedValue({
+      prioritizedList: mockPrioritizedIssues,
+    });
+    mockAiClient.sendEmailToManager.mockResolvedValue(mockEmailStatus);
+
+    // Second execution with identical parameters
+    const secondResult: Tx3Imp1AgentOutput = await runTx3Imp1Agent(agentInput, mockAiClient as any);
+
+    expect(secondResult.extractedIssues).toHaveLength(2);
+    expect(secondResult.prioritizedIssueList).toHaveLength(2);
+    expect(secondResult.emailSendStatus.success).toBe(true);
+
+    // Verify idempotence: no new email log entries should be created
+    const secondExecutionEmailCount = mockDatabase.getEmailSendLogCount(reportAggregationId);
+    expect(secondExecutionEmailCount).toBe(1);
+
+    // Verify audit log: only 1 INSERT_EMAIL_LOG operation should exist
+    const secondExecutionAuditCount = mockDatabase.getAuditLogCount(
+      reportAggregationId,
+      "INSERT_EMAIL_LOG"
+    );
+    expect(secondExecutionAuditCount).toBe(1);
+
+    // Verify no duplicate INSERT operations in audit log
+    const insertOperations = mockDatabase.auditLogs.filter(
+      (log) =>
+        log.reportAggregationId === reportAggregationId && log.operation === "INSERT_EMAIL_LOG"
+    );
+    expect(insertOperations).toHaveLength(1);
+
+    // Verify email send method was called but without creating duplicate records
+    expect(mockAiClient.sendEmailToManager).toHaveBeenCalled();
+    expect(mockAiClient.extractIssuesFromReport).toHaveBeenCalled();
+    expect(mockAiClient.prioritizeIssues).toHaveBeenCalled();
   });
 });

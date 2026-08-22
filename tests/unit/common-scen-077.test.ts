@@ -1,197 +1,192 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import fetchMock from 'jest-fetch-mock';
+import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
+import { buildAction05Prompt, ACTION_05_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-05';
 
-describe('Notification Delivery - Unsubmitted Reminder', () => {
-  // SCEN-077: [normal] ダッシュボード分析から課題指示までの自動実行 AIエージェント
-  // - Action 5（推奨対応方針生成）が優先順位付けされた課題ごとに対応方針を生成する
-  test('should generate recommended response policies for prioritized issues and prepare dashboard material for morning meeting', async () => {
-    // Setup: テストデータの準備
-    const prioritized_issues = [
+describe('Tx4Imp1Agent - Action 5 Recommended Countermeasure Generation', () => {
+  beforeEach(() => {
+    fetchMock.enableMocks();
+    fetchMock.resetMocks();
+  });
+
+  afterEach(() => {
+    fetchMock.disableMocks();
+  });
+
+  // SCEN-077
+  test('should generate recommended countermeasure plans for prioritized issues with all required fields', async () => {
+    const executionTimestamp = new Date('2024-01-15T08:00:00Z');
+    const targetDate = '2024-01-15';
+    const executorUserId = 'user-director-001';
+    const teamId = 'team-engineering-001';
+
+    const mockPrioritizedIssues = [
       {
-        issue_id: 'ISS-001',
-        issue_title: 'Production Database Performance Degradation',
-        importance_level: 'high',
-        urgency_level: 'critical',
-        impact_range: 'entire_system',
-        affected_users_count: 500,
-        recurrence_risk_score: 0.85,
-        similar_past_issues: [
+        issueId: 'issue-001',
+        title: 'Database connection timeout in production',
+        severity: 'HIGH',
+        urgency: 'URGENT',
+        description: 'Production database experiencing intermittent connection timeouts',
+        impactScope: 'All services',
+        recurrenceProbability: 0.75,
+        similarPastIssues: [
           {
-            past_issue_id: 'PAST-042',
-            resolution_method: 'Added database indexes and optimized query',
-            resolution_duration_days: 2
-          }
-        ]
+            id: 'hist-001',
+            resolutionMethod: 'Increased connection pool size from 50 to 200',
+            resolutionDays: 2,
+          },
+        ],
       },
       {
-        issue_id: 'ISS-002',
-        issue_title: 'API Response Timeout in Batch Processing',
-        importance_level: 'medium',
-        urgency_level: 'high',
-        impact_range: 'specific_module',
-        affected_users_count: 50,
-        recurrence_risk_score: 0.62,
-        similar_past_issues: [
+        issueId: 'issue-002',
+        title: 'Memory leak in worker service',
+        severity: 'MEDIUM',
+        urgency: 'HIGH',
+        description: 'Worker service memory usage growing 50MB per hour',
+        impactScope: 'Background processing',
+        recurrenceProbability: 0.45,
+        similarPastIssues: [
           {
-            past_issue_id: 'PAST-018',
-            resolution_method: 'Implemented connection pooling',
-            resolution_duration_days: 1
-          }
-        ]
+            id: 'hist-002',
+            resolutionMethod: 'Identified unclosed stream handler; added proper cleanup',
+            resolutionDays: 1,
+          },
+        ],
       },
       {
-        issue_id: 'ISS-003',
-        issue_title: 'Documentation Update Required for API v3',
-        importance_level: 'low',
-        urgency_level: 'medium',
-        impact_range: 'documentation',
-        affected_users_count: 0,
-        recurrence_risk_score: 0.15,
-        similar_past_issues: []
-      }
+        issueId: 'issue-003',
+        title: 'API rate limiting inconsistency',
+        severity: 'MEDIUM',
+        urgency: 'MEDIUM',
+        description: 'Rate limiter returning 429 on valid requests',
+        impactScope: 'External API clients',
+        recurrenceProbability: 0.20,
+        similarPastIssues: [],
+      },
     ];
 
-    const context_metadata = {
-      execution_timestamp: '2024-01-15T08:00:00Z',
-      team_id: 'TEAM-ENG-001',
-      team_capacity_status: 'available_resources',
-      current_sprint_workload: 'medium',
-      previous_resolution_performance: {
-        average_resolution_days: 3,
-        high_priority_resolution_days: 1.5
-      }
+    const mockAiClient = {
+      callAction01: jest.fn().mockResolvedValue({
+        dashboard_data: {
+          submitted_count: 12,
+          pending_count: 1,
+          issues_extracted: 15,
+        },
+      }),
+      callAction02: jest.fn().mockResolvedValue({
+        issues: mockPrioritizedIssues,
+      }),
+      callAction03: jest.fn().mockResolvedValue({
+        recurrence_risk_scores: [
+          { issueId: 'issue-001', riskScore: 0.85 },
+          { issueId: 'issue-002', riskScore: 0.60 },
+          { issueId: 'issue-003', riskScore: 0.25 },
+        ],
+      }),
+      callAction04: jest.fn().mockResolvedValue({
+        prioritized_issues: mockPrioritizedIssues,
+      }),
+      callAction05: jest.fn().mockResolvedValue({
+        countermeasure_plans: [
+          {
+            issueId: 'issue-001',
+            planId: 'plan-001',
+            recommendedActions: [
+              'Increase connection pool size to 300',
+              'Add connection pool monitoring dashboard',
+              'Deploy connection timeout retry logic',
+            ],
+            estimatedResolutionDays: 1,
+            assignedOwner: 'backend-team',
+            rootCauseHypothesis: 'Insufficient connection pool capacity under peak load',
+            executionStartDate: '2024-01-15',
+            expectedKpi: 'Zero connection timeouts in production for 24 hours',
+          },
+          {
+            issueId: 'issue-002',
+            planId: 'plan-002',
+            recommendedActions: [
+              'Audit stream resource lifecycle in worker service',
+              'Add resource cleanup in finally blocks',
+              'Deploy memory monitoring alerts',
+            ],
+            estimatedResolutionDays: 1,
+            assignedOwner: 'infrastructure-team',
+            rootCauseHypothesis: 'Unclosed file or stream handles in async operations',
+            executionStartDate: '2024-01-15',
+            expectedKpi: 'Memory usage stable within 100MB variance',
+          },
+          {
+            issueId: 'issue-003',
+            planId: 'plan-003',
+            recommendedActions: [
+              'Review rate limiting algorithm logic',
+              'Add comprehensive logging to rate limiter',
+              'Test rate limiter against known edge cases',
+            ],
+            estimatedResolutionDays: 2,
+            assignedOwner: 'api-team',
+            rootCauseHypothesis: 'Rate limiter state inconsistency or clock drift',
+            executionStartDate: '2024-01-16',
+            expectedKpi: 'Rate limiter returns 200 for all valid requests',
+          },
+        ],
+      }),
+      callAction06: jest.fn().mockResolvedValue({
+        dashboard_report: {
+          generated_at: executionTimestamp.toISOString(),
+          status: 'completed',
+        },
+      }),
+      callAction07: jest.fn().mockResolvedValue({
+        email_sent: true,
+      }),
     };
 
-    // Act: sendUnsubmittedReminder の実行
-    // 注: この関数は未提出リマインダー送信を実行するが、
-    // シナリオ要件上、課題の推奨対応方針生成に先立つ課題抽出の後処理として
-    // 部長への通知を行う
-    const reminder_result = await sendUnsubmittedReminder({
-      unsubmitted_members: [
-        { member_id: 'MEM-005', member_name: 'Taro Yamada', email: 'taro@example.com' },
-        { member_id: 'MEM-012', member_name: 'Hanako Sato', email: 'hanako@example.com' }
-      ],
-      team_id: context_metadata.team_id,
-      deadline_timestamp: '2024-01-15T09:00:00Z',
-      reminder_sequence_number: 1,
-      max_reminder_attempts: 3
-    });
-
-    // Assert: リマインダー送信の成功を確認
-    expect(reminder_result).toBeDefined();
-    expect(reminder_result.sent_count).toBe(2);
-    expect(reminder_result.successful_member_ids).toContain('MEM-005');
-    expect(reminder_result.successful_member_ids).toContain('MEM-012');
-
-    // Action 5 の推奨対応方針生成の出力検証
-    // 高優先度課題（ISS-001）に対する対応方針
-    const policy_iss_001 = {
-      issue_id: 'ISS-001',
-      recommended_policy: 'Implement database optimization: add indexes on frequently queried columns and review query execution plans. Reference PAST-042 resolution (2 days). Execute resource allocation to senior DBA immediately.',
-      policy_rationale: 'Past recurrence risk score 0.85 indicates high likelihood of similar issues. PAST-042 provides proven resolution method. Critical urgency and full system impact require immediate action.',
-      recommended_start_datetime: '2024-01-15T09:30:00Z',
-      responsible_department: 'Infrastructure & Database Team',
-      responsible_members: ['MEM-001', 'MEM-003'],
-      expected_resolution_days: 1,
-      expected_kpi: {
-        target_response_time_ms: 200,
-        target_error_rate_percent: 0.1
-      }
+    const request = {
+      executionTimestamp,
+      targetDate,
+      executorUserId,
+      teamId,
     };
 
-    // 中優先度課題（ISS-002）に対する対応方針
-    const policy_iss_002 = {
-      issue_id: 'ISS-002',
-      recommended_policy: 'Implement connection pooling in batch API client. Reference PAST-018 resolution (1 day). Allocate developer from available resources.',
-      policy_rationale: 'Recurrence risk score 0.62 and high urgency warrant attention. Past successful resolution provides clear path forward. Module-level impact allows phased implementation.',
-      recommended_start_datetime: '2024-01-15T11:00:00Z',
-      responsible_department: 'API Development Team',
-      responsible_members: ['MEM-007'],
-      expected_resolution_days: 1,
-      expected_kpi: {
-        target_response_time_ms: 500,
-        target_error_rate_percent: 1.0
-      }
-    };
+    const result = await runTx4Imp1Agent(request, mockAiClient);
 
-    // 低優先度課題（ISS-003）に対する対応方針
-    const policy_iss_003 = {
-      issue_id: 'ISS-003',
-      recommended_policy: 'Schedule documentation update as backlog task for next sprint. Allocate 4 hours for comprehensive API v3 documentation review and update.',
-      policy_rationale: 'Low importance and recurrence risk score 0.15 indicate non-urgent category. No past similar issues. Documentation backlog is appropriate scheduling.',
-      recommended_start_datetime: '2024-01-22T10:00:00Z',
-      responsible_department: 'Documentation & Technical Writing',
-      responsible_members: ['MEM-010'],
-      expected_resolution_days: 1,
-      expected_kpi: {
-        documentation_completeness_percent: 100,
-        review_sign_off: true
-      }
-    };
+    expect(result).toBeDefined();
+    expect(result.executionId).toBeDefined();
+    expect(result.aggregatedReportCount).toBe(12);
+    expect(result.extractedIssueCount).toBe(15);
+    expect(result.prioritizedIssues).toHaveLength(3);
 
-    // 生成された対応方針が期待される構造と一致することを検証
-    expect(policy_iss_001.issue_id).toBe('ISS-001');
-    expect(policy_iss_001.recommended_policy).toMatch(/database optimization/i);
-    expect(policy_iss_001.responsible_department).toBeDefined();
-    expect(policy_iss_001.expected_resolution_days).toBe(1);
-    expect(policy_iss_001.expected_kpi.target_response_time_ms).toBe(200);
+    expect(result.countermeasurePlan).toBeDefined();
+    expect(result.countermeasurePlan.planId).toBeDefined();
+    expect(result.countermeasurePlan.recommendedActions).toEqual([
+      'Increase connection pool size to 300',
+      'Add connection pool monitoring dashboard',
+      'Deploy connection timeout retry logic',
+    ]);
+    expect(result.countermeasurePlan.estimatedResolutionDays).toBe(1);
+    expect(result.countermeasurePlan.assignedOwner).toBe('backend-team');
 
-    expect(policy_iss_002.issue_id).toBe('ISS-002');
-    expect(policy_iss_002.recommended_policy).toMatch(/connection pooling/i);
-    expect(policy_iss_002.responsible_department).toBeDefined();
-    expect(policy_iss_002.expected_resolution_days).toBe(1);
+    expect(result.summaryEmailSent).toBe(true);
+    expect(result.completionTimestamp).toBeDefined();
+    expect(new Date(result.completionTimestamp).getTime()).toBeGreaterThanOrEqual(
+      executionTimestamp.getTime()
+    );
 
-    expect(policy_iss_003.issue_id).toBe('ISS-003');
-    expect(policy_iss_003.recommended_policy).toMatch(/backlog/i);
-    expect(policy_iss_003.responsible_department).toBeDefined();
+    expect(mockAiClient.callAction05).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prioritized_issues: mockPrioritizedIssues,
+      })
+    );
 
-    // Action 5 の出力が Action 6（朝会報告用ダッシュボード資料作成）への入力形式として期待される構造と一致することを確認
-    const dashboard_material_input = {
-      prioritized_issues_with_policies: [
-        { ...prioritized_issues[0], response_policy: policy_iss_001 },
-        { ...prioritized_issues[1], response_policy: policy_iss_002 },
-        { ...prioritized_issues[2], response_policy: policy_iss_003 }
-      ],
-      unsubmitted_members_list: reminder_result.successful_member_ids,
-      execution_context: context_metadata,
-      generation_timestamp: '2024-01-15T08:15:00Z'
-    };
+    const action05Prompt = buildAction05Prompt(mockPrioritizedIssues);
+    expect(action05Prompt).toContain('issue-001');
+    expect(action05Prompt).toContain('HIGH');
+    expect(action05Prompt).toContain('URGENT');
+    expect(action05Prompt).toContain('推奨対応方針');
 
-    expect(dashboard_material_input.prioritized_issues_with_policies).toHaveLength(3);
-    expect(dashboard_material_input.prioritized_issues_with_policies[0].response_policy).toBeDefined();
-    expect(dashboard_material_input.prioritized_issues_with_policies[0].response_policy.issue_id).toBe('ISS-001');
-    expect(dashboard_material_input.unsubmitted_members_list).toHaveLength(2);
-
-    // エラーや曖昧性の検出
-    const escalation_check = {
-      low_confidence_policies: dashboard_material_input.prioritized_issues_with_policies.filter(
-        (issue) => !issue.response_policy.policy_rationale || issue.response_policy.policy_rationale.length < 20
-      ),
-      cross_department_issues: dashboard_material_input.prioritized_issues_with_policies.filter(
-        (issue) => (issue.similar_past_issues || []).length === 0 && issue.importance_level === 'high'
-      ),
-      resource_conflict_flags: []
-    };
-
-    expect(escalation_check.low_confidence_policies).toHaveLength(0);
-    expect(escalation_check.cross_department_issues).toHaveLength(0);
-
-    // 最終検証: Action 5 の出力が JSON スキーマに準拠し、ACTION_05_PROMPT_VERSION に対応していることを確認
-    const action_05_output = {
-      schema_version: '1.0',
-      prompt_version: 'ACTION_05_PROMPT_VERSION_1.0',
-      policies: [policy_iss_001, policy_iss_002, policy_iss_003],
-      metadata: {
-        generation_timestamp: '2024-01-15T08:15:00Z',
-        agent_contract_id: 'tx_4_imp_1',
-        action_sequence: 5
-      }
-    };
-
-    expect(action_05_output.schema_version).toBe('1.0');
-    expect(action_05_output.prompt_version).toMatch(/ACTION_05_PROMPT_VERSION/);
-    expect(action_05_output.policies).toHaveLength(3);
-    expect(action_05_output.metadata.agent_contract_id).toBe('tx_4_imp_1');
-    expect(action_05_output.metadata.action_sequence).toBe(5);
+    expect(ACTION_05_PROMPT_VERSION).toBeDefined();
+    expect(typeof ACTION_05_PROMPT_VERSION).toBe('string');
   });
 });

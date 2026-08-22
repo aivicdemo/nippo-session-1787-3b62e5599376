@@ -1,343 +1,540 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { extractAndRankIssues } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { runTx5Imp1Agent } from "../../src/agents/tx-5-imp-1/orchestrator";
+import {
+  buildAction01Prompt,
+  ACTION_01_PROMPT_VERSION,
+} from "../../src/agents/tx-5-imp-1/prompts/action-01";
+import {
+  buildAction02Prompt,
+  ACTION_02_PROMPT_VERSION,
+} from "../../src/agents/tx-5-imp-1/prompts/action-02";
+import {
+  buildAction03Prompt,
+  ACTION_03_PROMPT_VERSION,
+} from "../../src/agents/tx-5-imp-1/prompts/action-03";
+import {
+  buildAction04Prompt,
+  ACTION_04_PROMPT_VERSION,
+} from "../../src/agents/tx-5-imp-1/prompts/action-04";
+import {
+  buildAction05Prompt,
+  ACTION_05_PROMPT_VERSION,
+} from "../../src/agents/tx-5-imp-1/prompts/action-05";
+import type {
+  ExtractedIssue,
+  ValidatedIssue,
+  ToolIntegrationConfig,
+  PriorityRuleSet,
+  CategoryMapping,
+  Tx5Imp1AgentInput,
+  Tx5Imp1AgentOutput,
+  ToolIntegrationResult,
+  ExecutionSummary,
+} from "../../src/agents/tx-5-imp-1/types";
+import type { Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/types";
 
-describe('Issue Extraction and Prioritization - Normal Path Integration', () => {
-  // SCEN-090: [normal] 課題抽出から既存ツール連携・確認までの自律実行 AIエージェント
-  test('should execute autonomous workflow from issue extraction to tool integration without human approval for 5 normal cases', async () => {
-    // Prepare test dataset: 5 normal issue cases
-    const testIssues = [
+describe("tx-5-imp-1: 課題抽出から既存ツール連携・確認までの自律実行", () => {
+  let mockAiClient: jest.Mocked<Tx5Imp1AiClient>;
+  let auditEvents: Array<{
+    actionNumber: number;
+    timestamp: string;
+    status: string;
+    inputSummary: string;
+    outputSummary: string;
+    confidenceScore: number;
+    toolRegistrationIds: string[];
+  }>;
+
+  beforeEach(() => {
+    auditEvents = [];
+
+    const mockAction01Response = {
+      validationResults: [
+        {
+          issueId: "issue-001",
+          formatStatus: "normal",
+          contentStatus: "valid",
+          validationNotes: "形式正常・内容妥当",
+        },
+        {
+          issueId: "issue-002",
+          formatStatus: "normal",
+          contentStatus: "valid",
+          validationNotes: "形式正常・内容妥当",
+        },
+        {
+          issueId: "issue-003",
+          formatStatus: "normal",
+          contentStatus: "valid",
+          validationNotes: "形式正常・内容妥当",
+        },
+        {
+          issueId: "issue-004",
+          formatStatus: "normal",
+          contentStatus: "valid",
+          validationNotes: "形式正常・内容妥当",
+        },
+        {
+          issueId: "issue-005",
+          formatStatus: "normal",
+          contentStatus: "valid",
+          validationNotes: "形式正常・内容妥当",
+        },
+      ],
+      allValidationsPassed: true,
+      timestamp: "2024-01-15T09:00:00Z",
+    };
+
+    const mockAction02Response = {
+      classifiedIssues: [
+        {
+          issueId: "issue-001",
+          priorityScore: 85,
+          priorityRank: "high" as const,
+          category: "品質",
+          confidenceScore: 0.92,
+        },
+        {
+          issueId: "issue-002",
+          priorityScore: 65,
+          priorityRank: "medium" as const,
+          category: "納期",
+          confidenceScore: 0.88,
+        },
+        {
+          issueId: "issue-003",
+          priorityScore: 45,
+          priorityRank: "low" as const,
+          category: "安全",
+          confidenceScore: 0.81,
+        },
+        {
+          issueId: "issue-004",
+          priorityScore: 78,
+          priorityRank: "high" as const,
+          category: "品質",
+          confidenceScore: 0.90,
+        },
+        {
+          issueId: "issue-005",
+          priorityScore: 62,
+          priorityRank: "medium" as const,
+          category: "納期",
+          confidenceScore: 0.87,
+        },
+      ],
+      classificationTimestamp: "2024-01-15T09:05:00Z",
+    };
+
+    const mockAction03Response = {
+      integrationConfigs: [
+        {
+          issueId: "issue-001",
+          toolType: "jira",
+          projectKey: "PROJ-001",
+          templateId: "task-high-priority",
+          assigneeEmail: "team-lead@example.com",
+        },
+        {
+          issueId: "issue-002",
+          toolType: "asana",
+          projectKey: "PROJ-002",
+          templateId: "task-medium-priority",
+          assigneeEmail: "pm@example.com",
+        },
+        {
+          issueId: "issue-003",
+          toolType: "jira",
+          projectKey: "PROJ-001",
+          templateId: "task-low-priority",
+          assigneeEmail: "engineer@example.com",
+        },
+        {
+          issueId: "issue-004",
+          toolType: "asana",
+          projectKey: "PROJ-002",
+          templateId: "task-high-priority",
+          assigneeEmail: "team-lead@example.com",
+        },
+        {
+          issueId: "issue-005",
+          toolType: "jira",
+          projectKey: "PROJ-001",
+          templateId: "task-medium-priority",
+          assigneeEmail: "pm@example.com",
+        },
+      ],
+      configurationTimestamp: "2024-01-15T09:10:00Z",
+    };
+
+    const mockAction04Response = {
+      registrationResults: [
+        {
+          issueId: "issue-001",
+          toolRegistrationId: "JIRA-12345",
+          registrationStatus: "success",
+          url: "https://jira.example.com/browse/JIRA-12345",
+          responseTimestamp: "2024-01-15T09:12:00Z",
+        },
+        {
+          issueId: "issue-002",
+          toolRegistrationId: "ASANA-67890",
+          registrationStatus: "success",
+          url: "https://app.asana.com/0/1234567890/67890",
+          responseTimestamp: "2024-01-15T09:13:00Z",
+        },
+        {
+          issueId: "issue-003",
+          toolRegistrationId: "JIRA-12346",
+          registrationStatus: "success",
+          url: "https://jira.example.com/browse/JIRA-12346",
+          responseTimestamp: "2024-01-15T09:14:00Z",
+        },
+        {
+          issueId: "issue-004",
+          toolRegistrationId: "ASANA-67891",
+          registrationStatus: "success",
+          url: "https://app.asana.com/0/1234567890/67891",
+          responseTimestamp: "2024-01-15T09:15:00Z",
+        },
+        {
+          issueId: "issue-005",
+          toolRegistrationId: "JIRA-12347",
+          registrationStatus: "success",
+          url: "https://jira.example.com/browse/JIRA-12347",
+          responseTimestamp: "2024-01-15T09:16:00Z",
+        },
+      ],
+      totalRegistered: 5,
+      totalFailed: 0,
+      registrationTimestamp: "2024-01-15T09:16:30Z",
+    };
+
+    const mockAction05Response = {
+      statusRecords: [
+        {
+          issueId: "issue-001",
+          finalStatus: "integration_confirmed",
+          toolIssueId: "JIRA-12345",
+          notificationSent: true,
+          notificationTimestamp: "2024-01-15T09:17:00Z",
+        },
+        {
+          issueId: "issue-002",
+          finalStatus: "integration_confirmed",
+          toolIssueId: "ASANA-67890",
+          notificationSent: true,
+          notificationTimestamp: "2024-01-15T09:17:30Z",
+        },
+        {
+          issueId: "issue-003",
+          finalStatus: "integration_confirmed",
+          toolIssueId: "JIRA-12346",
+          notificationSent: true,
+          notificationTimestamp: "2024-01-15T09:18:00Z",
+        },
+        {
+          issueId: "issue-004",
+          finalStatus: "integration_confirmed",
+          toolIssueId: "ASANA-67891",
+          notificationSent: true,
+          notificationTimestamp: "2024-01-15T09:18:30Z",
+        },
+        {
+          issueId: "issue-005",
+          finalStatus: "integration_confirmed",
+          toolIssueId: "JIRA-12347",
+          notificationSent: true,
+          notificationTimestamp: "2024-01-15T09:19:00Z",
+        },
+      ],
+      allStatusRecorded: true,
+      executionCompletedAt: "2024-01-15T09:19:30Z",
+    };
+
+    mockAiClient = {
+      executeAction01: jest.fn().mockResolvedValue(mockAction01Response),
+      executeAction02: jest.fn().mockResolvedValue(mockAction02Response),
+      executeAction03: jest.fn().mockResolvedValue(mockAction03Response),
+      executeAction04: jest.fn().mockResolvedValue(mockAction04Response),
+      executeAction05: jest.fn().mockResolvedValue(mockAction05Response),
+      recordAuditEvent: jest.fn().mockImplementation((event) => {
+        auditEvents.push(event);
+      }),
+    };
+  });
+
+  test("SCEN-090: [normal] 通常案件5件が人の承認なしで最後まで自動実行される", async () => {
+    // Arrange: テスト用の抽出済み課題データセット（5件の通常案件）を準備
+    const extractedIssueData: ExtractedIssue[] = [
       {
-        id: 'issue-001',
-        title: 'Database connection timeout in production',
-        description: 'Users experiencing 30-second delays on login',
-        reportedAt: '2024-01-15T09:00:00Z',
-        reporterId: 'eng-team-001',
-        rawCategory: null,
-        extractedKeywords: ['database', 'timeout', 'production'],
-        severity: 'high',
+        issueId: "issue-001",
+        title: "Database connection timeout issue",
+        description:
+          "Database queries are timing out in production during peak hours",
+        extractedFrom: "daily-report-2024-01-15",
+        reportingMemberId: "member-001",
+        reportedAt: "2024-01-15T08:30:00Z",
       },
       {
-        id: 'issue-002',
-        title: 'UI rendering delay on dashboard',
-        description: 'Dashboard takes 5 seconds to load after login',
-        reportedAt: '2024-01-15T09:15:00Z',
-        reporterId: 'eng-team-002',
-        rawCategory: null,
-        extractedKeywords: ['ui', 'rendering', 'performance'],
-        severity: 'medium',
+        issueId: "issue-002",
+        title: "Feature release delay",
+        description: "Payment processing feature is 2 days behind schedule",
+        extractedFrom: "daily-report-2024-01-15",
+        reportingMemberId: "member-002",
+        reportedAt: "2024-01-15T08:45:00Z",
       },
       {
-        id: 'issue-003',
-        title: 'Email notification not sent to users',
-        description: 'Verification emails not delivered in 2 hours',
-        reportedAt: '2024-01-15T09:30:00Z',
-        reporterId: 'eng-team-003',
-        rawCategory: null,
-        extractedKeywords: ['email', 'notification', 'delivery'],
-        severity: 'high',
+        issueId: "issue-003",
+        title: "Documentation incomplete",
+        description: "API documentation needs update for v2 endpoints",
+        extractedFrom: "daily-report-2024-01-15",
+        reportingMemberId: "member-003",
+        reportedAt: "2024-01-15T09:00:00Z",
       },
       {
-        id: 'issue-004',
-        title: 'API rate limit exceeded',
-        description: 'Third-party integrations hitting 429 errors',
-        reportedAt: '2024-01-15T09:45:00Z',
-        reporterId: 'eng-team-004',
-        rawCategory: null,
-        extractedKeywords: ['api', 'rate-limit', 'integration'],
-        severity: 'medium',
+        issueId: "issue-004",
+        title: "Code review backlog",
+        description:
+          "Critical PR reviews are pending approval, blocking deployments",
+        extractedFrom: "daily-report-2024-01-15",
+        reportingMemberId: "member-004",
+        reportedAt: "2024-01-15T09:15:00Z",
       },
       {
-        id: 'issue-005',
-        title: 'Memory leak in worker process',
-        description: 'Worker process consuming 95% memory after 24 hours',
-        reportedAt: '2024-01-15T10:00:00Z',
-        reporterId: 'eng-team-005',
-        rawCategory: null,
-        extractedKeywords: ['memory', 'worker', 'performance'],
-        severity: 'critical',
+        issueId: "issue-005",
+        title: "CI/CD pipeline stability",
+        description: "Build pipeline failures increasing, success rate at 85%",
+        extractedFrom: "daily-report-2024-01-15",
+        reportingMemberId: "member-005",
+        reportedAt: "2024-01-15T09:30:00Z",
       },
     ];
 
-    // Mock tool API responses
-    const mockJiraResponses = {
-      'issue-001': { id: 'PROJ-1001', key: 'PROJ-1001', url: 'https://jira.example.com/browse/PROJ-1001' },
-      'issue-003': { id: 'PROJ-1002', key: 'PROJ-1002', url: 'https://jira.example.com/browse/PROJ-1002' },
-      'issue-005': { id: 'PROJ-1003', key: 'PROJ-1003', url: 'https://jira.example.com/browse/PROJ-1003' },
+    const toolIntegrationConfig: ToolIntegrationConfig = {
+      jiraApiUrl: "https://jira.example.com/api/v2",
+      jiraApiToken: "mock-jira-token",
+      asanaApiUrl: "https://api.asana.com/1.0",
+      asanaApiToken: "mock-asana-token",
+      defaultProjectKeyJira: "PROJ-001",
+      defaultProjectIdAsana: "1234567890",
+      toolPreference: "auto",
     };
 
-    const mockAsanaResponses = {
-      'issue-002': { gid: 'asana-task-2001', name: 'UI rendering delay on dashboard', url: 'https://app.asana.com/0/12345/67890' },
-      'issue-004': { gid: 'asana-task-2002', name: 'API rate limit exceeded', url: 'https://app.asana.com/0/12345/67891' },
+    const priorityRules: PriorityRuleSet = {
+      frequencyWeight: 0.4,
+      impactWeight: 0.4,
+      recurrenceWeight: 0.2,
+      thresholds: {
+        highPriority: 75,
+        mediumPriority: 50,
+        lowPriority: 0,
+      },
     };
 
-    // Track action executions and audit events
-    const auditLog: Array<{
-      timestamp: string;
-      actionNum: number;
-      actionName: string;
-      inputCount: number;
-      outputSummary: string;
-      confidenceScores: number[];
-    }> = [];
+    const categoryMappings: CategoryMapping[] = [
+      {
+        jiraCategory: "品質",
+        asanaCategory: "Quality",
+        keywords: [
+          "bug",
+          "defect",
+          "error",
+          "failure",
+          "timeout",
+          "crash",
+        ],
+      },
+      {
+        jiraCategory: "納期",
+        asanaCategory: "Timeline",
+        keywords: ["delay", "schedule", "deadline", "behind", "late"],
+      },
+      {
+        jiraCategory: "安全",
+        asanaCategory: "Safety",
+        keywords: ["security", "vulnerability", "risk", "compliance"],
+      },
+    ];
 
-    const toolApiCalls: Array<{
-      issueId: string;
-      tool: 'jira' | 'asana';
-      priority: string;
-      category: string;
-    }> = [];
-
-    // Mock Action 1: Validate format and content
-    const action1Result = {
-      validatedIssues: testIssues.map(issue => ({
-        ...issue,
-        validationStatus: 'valid',
-        formatCheck: true,
-        contentCheck: true,
-      })),
+    const agentInput: Tx5Imp1AgentInput = {
+      extractedIssueData,
+      toolIntegrationConfig,
+      priorityRules,
+      categoryMappings,
     };
-    auditLog.push({
-      timestamp: '2024-01-15T10:01:00Z',
-      actionNum: 1,
-      actionName: 'ValidateIssueFormat',
-      inputCount: 5,
-      outputSummary: '5 issues passed format and content validation',
-      confidenceScores: [0.99, 0.99, 0.99, 0.99, 0.99],
+
+    // Act: runTx5Imp1Agent関数を注入されたフェイクAIクライアントとともに起動
+    const result: Tx5Imp1AgentOutput = await runTx5Imp1Agent(
+      agentInput,
+      mockAiClient
+    );
+
+    // Assert: Action 1 - 抽出課題データ形式・内容検証が実行されたことを確認
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    const action01Call = mockAiClient.executeAction01.mock.calls[0];
+    expect(action01Call).toBeDefined();
+
+    // Action 1の結果として、5件すべてが『形式正常・内容妥当』と判定されることを確認
+    expect(result.validatedIssues).toHaveLength(5);
+    result.validatedIssues.forEach((issue) => {
+      expect(issue.validationStatus).toBe("valid");
     });
 
-    // Mock Action 2: Auto-assign priority and category
-    const action2Result = {
-      classifiedIssues: testIssues.map((issue, idx) => {
-        let priority: string;
-        let category: string;
+    // Assert: Action 2 - 優先度・カテゴリ自動判定が実行されたことを確認
+    expect(mockAiClient.executeAction02).toHaveBeenCalledTimes(1);
+    const action02Call = mockAiClient.executeAction02.mock.calls[0];
+    expect(action02Call).toBeDefined();
 
-        if (issue.severity === 'critical') {
-          priority = 'High';
-          category = 'Performance';
-        } else if (issue.severity === 'high') {
-          priority = 'High';
-          category = idx === 0 ? 'Infrastructure' : 'Integration';
-        } else {
-          priority = 'Medium';
-          category = idx === 1 ? 'Frontend' : 'API';
-        }
+    // Action 2の結果として、5件すべてに対して優先度とカテゴリが割り当てられることを確認
+    const issue001 = result.validatedIssues.find(
+      (i) => i.issueId === "issue-001"
+    );
+    expect(issue001?.priorityRank).toBe("high");
+    expect(issue001?.category).toBe("品質");
+    expect(issue001?.priorityScore).toBe(85);
 
-        return {
-          issueId: issue.id,
-          priority,
-          category,
-          confidenceScore: 0.85 + idx * 0.02,
-          singleCategoryConfirmed: true,
-        };
-      }),
-    };
-    auditLog.push({
-      timestamp: '2024-01-15T10:02:00Z',
-      actionNum: 2,
-      actionName: 'ClassifyPriorityAndCategory',
-      inputCount: 5,
-      outputSummary: '5 issues classified with priority and single category',
-      confidenceScores: [0.85, 0.87, 0.89, 0.91, 0.93],
+    const issue002 = result.validatedIssues.find(
+      (i) => i.issueId === "issue-002"
+    );
+    expect(issue002?.priorityRank).toBe("medium");
+    expect(issue002?.category).toBe("納期");
+    expect(issue002?.priorityScore).toBe(65);
+
+    const issue003 = result.validatedIssues.find(
+      (i) => i.issueId === "issue-003"
+    );
+    expect(issue003?.priorityRank).toBe("low");
+    expect(issue003?.category).toBe("安全");
+    expect(issue003?.priorityScore).toBe(45);
+
+    const issue004 = result.validatedIssues.find(
+      (i) => i.issueId === "issue-004"
+    );
+    expect(issue004?.priorityRank).toBe("high");
+    expect(issue004?.category).toBe("品質");
+    expect(issue004?.priorityScore).toBe(78);
+
+    const issue005 = result.validatedIssues.find(
+      (i) => i.issueId === "issue-005"
+    );
+    expect(issue005?.priorityRank).toBe("medium");
+    expect(issue005?.category).toBe("納期");
+    expect(issue005?.priorityScore).toBe(62);
+
+    // Assert: Action 3 - 既存ツール連携設定実行が実行されたことを確認
+    expect(mockAiClient.executeAction03).toHaveBeenCalledTimes(1);
+    const action03Call = mockAiClient.executeAction03.mock.calls[0];
+    expect(action03Call).toBeDefined();
+
+    // Action 3が各案件のツール連携設定を確定させることを確認
+    expect(issue001?.toolIssueId).toBeNull();
+    expect(issue002?.toolIssueId).toBeNull();
+    expect(issue003?.toolIssueId).toBeNull();
+    expect(issue004?.toolIssueId).toBeNull();
+    expect(issue005?.toolIssueId).toBeNull();
+
+    // Assert: Action 4 - Jira・Asana等への登録完了が実行されたことを確認
+    expect(mockAiClient.executeAction04).toHaveBeenCalledTimes(1);
+    const action04Call = mockAiClient.executeAction04.mock.calls[0];
+    expect(action04Call).toBeDefined();
+
+    // スタブ化されたツールAPI呼び出しが5件すべてに対して正常に実行されたことを確認
+    expect(result.integrationResult.successCount).toBe(5);
+    expect(result.integrationResult.failureCount).toBe(0);
+    expect(result.integrationResult.totalProcessed).toBe(5);
+
+    // 各呼び出しには案件ID・優先度・カテゴリ・割り当て情報が含まれることを確認
+    expect(result.validatedIssues[0].toolIssueId).toBe("JIRA-12345");
+    expect(result.validatedIssues[1].toolIssueId).toBe("ASANA-67890");
+    expect(result.validatedIssues[2].toolIssueId).toBe("JIRA-12346");
+    expect(result.validatedIssues[3].toolIssueId).toBe("ASANA-67891");
+    expect(result.validatedIssues[4].toolIssueId).toBe("JIRA-12347");
+
+    // Assert: Action 5 - 連携完了ステータス記録・通知が実行されたことを確認
+    expect(mockAiClient.executeAction05).toHaveBeenCalledTimes(1);
+    const action05Call = mockAiClient.executeAction05.mock.calls[0];
+    expect(action05Call).toBeDefined();
+
+    // すべてのアクションが人手の承認なしに順序通り実行されたことを確認
+    const action01CallOrder = mockAiClient.executeAction01.mock.invocationCallOrder[0];
+    const action02CallOrder = mockAiClient.executeAction02.mock.invocationCallOrder[0];
+    const action03CallOrder = mockAiClient.executeAction03.mock.invocationCallOrder[0];
+    const action04CallOrder = mockAiClient.executeAction04.mock.invocationCallOrder[0];
+    const action05CallOrder = mockAiClient.executeAction05.mock.invocationCallOrder[0];
+
+    expect(action01CallOrder).toBeLessThan(action02CallOrder);
+    expect(action02CallOrder).toBeLessThan(action03CallOrder);
+    expect(action03CallOrder).toBeLessThan(action04CallOrder);
+    expect(action04CallOrder).toBeLessThan(action05CallOrder);
+
+    // エージェント実行ログ（audit event）に各アクション実行時刻・入出力・判定根拠が記録されていることを確認
+    expect(auditEvents.length).toBeGreaterThanOrEqual(5);
+
+    const auditEvent01 = auditEvents.find((e) => e.actionNumber === 1);
+    expect(auditEvent01).toBeDefined();
+    expect(auditEvent01?.status).toBe("completed");
+    expect(auditEvent01?.inputSummary).toContain("validation");
+    expect(auditEvent01?.outputSummary).toContain("passed");
+
+    const auditEvent02 = auditEvents.find((e) => e.actionNumber === 2);
+    expect(auditEvent02).toBeDefined();
+    expect(auditEvent02?.status).toBe("completed");
+    expect(auditEvent02?.confidenceScore).toBeGreaterThanOrEqual(0.81);
+    expect(auditEvent02?.confidenceScore).toBeLessThanOrEqual(0.92);
+
+    const auditEvent04 = auditEvents.find((e) => e.actionNumber === 4);
+    expect(auditEvent04).toBeDefined();
+    expect(auditEvent04?.status).toBe("completed");
+    expect(auditEvent04?.toolRegistrationIds).toHaveLength(5);
+    expect(auditEvent04?.toolRegistrationIds).toContain("JIRA-12345");
+    expect(auditEvent04?.toolRegistrationIds).toContain("ASANA-67890");
+    expect(auditEvent04?.toolRegistrationIds).toContain("JIRA-12346");
+    expect(auditEvent04?.toolRegistrationIds).toContain("ASANA-67891");
+    expect(auditEvent04?.toolRegistrationIds).toContain("JIRA-12347");
+
+    // 期待結果: 5件の通常案件が自動実行され、すべてが『登録完了・連携確認済み』ステータスに到達する
+    expect(result.validatedIssues).toHaveLength(5);
+    result.validatedIssues.forEach((issue) => {
+      expect(issue.toolIssueId).toBeTruthy();
+      expect(
+        [
+          "JIRA-12345",
+          "ASANA-67890",
+          "JIRA-12346",
+          "ASANA-67891",
+          "JIRA-12347",
+        ]
+      ).toContain(issue.toolIssueId);
     });
 
-    // Mock Action 3: Configure tool integration
-    const action3Result = {
-      integratedIssues: action2Result.classifiedIssues.map((classified, idx) => {
-        const toolAssignment = idx < 3 ? 'jira' : 'asana';
-        return {
-          issueId: classified.issueId,
-          toolAssignment,
-          projectKey: toolAssignment === 'jira' ? 'PROJ' : 'workspace-12345',
-          templateId: toolAssignment === 'jira' ? 'bug-template' : 'task-template',
-        };
-      }),
-    };
-    auditLog.push({
-      timestamp: '2024-01-15T10:03:00Z',
-      actionNum: 3,
-      actionName: 'ConfigureToolIntegration',
-      inputCount: 5,
-      outputSummary: '3 issues assigned to Jira, 2 to Asana',
-      confidenceScores: [0.95, 0.95, 0.95, 0.95, 0.95],
+    // 各案件は優先度・カテゴリが確定している
+    result.validatedIssues.forEach((issue) => {
+      expect(["high", "medium", "low"]).toContain(issue.priorityRank);
+      expect(["品質", "納期", "安全"]).toContain(issue.category);
+      expect(issue.priorityScore).toBeGreaterThanOrEqual(0);
+      expect(issue.priorityScore).toBeLessThanOrEqual(100);
     });
 
-    // Mock Action 4: Register to Jira/Asana
-    const action4ApiCalls: typeof toolApiCalls = [];
-    const action4Result = {
-      registeredIssues: action3Result.integratedIssues.map((integrated, idx) => {
-        const classified = action2Result.classifiedIssues[idx];
-        const issueId = integrated.issueId;
-        const tool = integrated.toolAssignment as 'jira' | 'asana';
+    // エージェント実行ログには各アクションの実行時刻、入出力データ、判定の信頼度スコア、ツール登録IDが記録される
+    expect(result.executionSummary.totalDurationMs).toBeGreaterThan(0);
+    expect(result.executionSummary.finalStatus).toBe("success");
+    expect(result.executionSummary.exceptionOccurred).toBe(false);
 
-        const apiCall = {
-          issueId,
-          tool,
-          priority: classified.priority,
-          category: classified.category,
-        };
-        action4ApiCalls.push(apiCall);
-        toolApiCalls.push(apiCall);
+    // 人への通知・確認は発生しない
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction02).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction03).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction04).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction05).toHaveBeenCalledTimes(1);
 
-        const toolResponse = tool === 'jira' 
-          ? mockJiraResponses[issueId as keyof typeof mockJiraResponses]
-          : mockAsanaResponses[issueId as keyof typeof mockAsanaResponses];
-
-        return {
-          issueId,
-          toolId: tool === 'jira' ? toolResponse.key : toolResponse.gid,
-          tool,
-          registrationStatus: 'success',
-          toolUrl: tool === 'jira' ? toolResponse.url : toolResponse.url,
-        };
-      }),
-    };
-    auditLog.push({
-      timestamp: '2024-01-15T10:04:00Z',
-      actionNum: 4,
-      actionName: 'RegisterToExternalTools',
-      inputCount: 5,
-      outputSummary: '5 issues registered: 3 to Jira, 2 to Asana',
-      confidenceScores: [1.0, 1.0, 1.0, 1.0, 1.0],
-    });
-
-    // Mock Action 5: Record status and notify
-    const action5Result = {
-      finalStatus: 'all_completed',
-      completedCount: 5,
-      failedCount: 0,
-      registeredIssueIds: action4Result.registeredIssues.map(r => r.issueId),
-      notificationStatus: 'completed_no_human_approval_required',
-    };
-    auditLog.push({
-      timestamp: '2024-01-15T10:05:00Z',
-      actionNum: 5,
-      actionName: 'RecordStatusAndNotify',
-      inputCount: 5,
-      outputSummary: 'All 5 issues marked as integration-complete, no human intervention triggered',
-      confidenceScores: [1.0, 1.0, 1.0, 1.0, 1.0],
-    });
-
-    // Execute the logic function
-    const result = await extractAndRankIssues(testIssues);
-
-    // Verify that extractAndRankIssues processes all 5 issues
-    expect(result).toBeDefined();
-    expect(result).toHaveLength(5);
-
-    // Verify each issue has been ranked and prepared for tool integration
-    result.forEach((rankedIssue, idx) => {
-      expect(rankedIssue.id).toBe(testIssues[idx].id);
-      expect(rankedIssue.priority).toBeDefined();
-      expect(['High', 'Medium', 'Low']).toContain(rankedIssue.priority);
-      expect(rankedIssue.category).toBeDefined();
-      expect(typeof rankedIssue.category).toBe('string');
-      expect(rankedIssue.category.length).toBeGreaterThan(0);
-    });
-
-    // Verify Action 1: Format validation passed for all issues
-    expect(action1Result.validatedIssues).toHaveLength(5);
-    action1Result.validatedIssues.forEach(validated => {
-      expect(validated.validationStatus).toBe('valid');
-      expect(validated.formatCheck).toBe(true);
-      expect(validated.contentCheck).toBe(true);
-    });
-
-    // Verify Action 2: Priority and category assigned to all issues
-    expect(action2Result.classifiedIssues).toHaveLength(5);
-    action2Result.classifiedIssues.forEach(classified => {
-      expect(['High', 'Medium']).toContain(classified.priority);
-      expect(['Infrastructure', 'Integration', 'Performance', 'Frontend', 'API']).toContain(classified.category);
-      expect(classified.confidenceScore).toBeGreaterThanOrEqual(0.85);
-      expect(classified.singleCategoryConfirmed).toBe(true);
-    });
-
-    // Verify Action 3: Tool integration configured
-    expect(action3Result.integratedIssues).toHaveLength(5);
-    const jiraCount = action3Result.integratedIssues.filter(i => i.toolAssignment === 'jira').length;
-    const asanaCount = action3Result.integratedIssues.filter(i => i.toolAssignment === 'asana').length;
-    expect(jiraCount).toBe(3);
-    expect(asanaCount).toBe(2);
-
-    // Verify Action 4: Tool API calls executed for all issues
-    expect(action4Result.registeredIssues).toHaveLength(5);
-    action4Result.registeredIssues.forEach(registered => {
-      expect(registered.registrationStatus).toBe('success');
-      expect(registered.toolId).toBeDefined();
-      expect(registered.toolUrl).toMatch(/https:\/\//);
-    });
-
-    // Verify tool API calls contain required fields
-    expect(toolApiCalls).toHaveLength(5);
-    toolApiCalls.forEach(call => {
-      expect(call.issueId).toMatch(/^issue-\d{3}$/);
-      expect(['jira', 'asana']).toContain(call.tool);
-      expect(['High', 'Medium', 'Low']).toContain(call.priority);
-      expect(call.category.length).toBeGreaterThan(0);
-    });
-
-    // Verify Action 5: Final status indicates all completed
-    expect(action5Result.finalStatus).toBe('all_completed');
-    expect(action5Result.completedCount).toBe(5);
-    expect(action5Result.failedCount).toBe(0);
-    expect(action5Result.registeredIssueIds).toHaveLength(5);
-    expect(action5Result.notificationStatus).toBe('completed_no_human_approval_required');
-
-    // Verify audit log records all 5 actions
-    expect(auditLog).toHaveLength(5);
-    auditLog.forEach((logEntry, idx) => {
-      expect(logEntry.actionNum).toBe(idx + 1);
-      expect(logEntry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-      expect(logEntry.inputCount).toBeGreaterThan(0);
-      expect(logEntry.outputSummary.length).toBeGreaterThan(0);
-      expect(logEntry.confidenceScores).toHaveLength(5);
-      logEntry.confidenceScores.forEach(score => {
-        expect(score).toBeGreaterThanOrEqual(0.8);
-        expect(score).toBeLessThanOrEqual(1.0);
-      });
-    });
-
-    // Verify Action 1 audit log
-    expect(auditLog[0].actionName).toBe('ValidateIssueFormat');
-    expect(auditLog[0].outputSummary).toContain('5 issues');
-    expect(auditLog[0].outputSummary).toContain('valid');
-
-    // Verify Action 2 audit log
-    expect(auditLog[1].actionName).toBe('ClassifyPriorityAndCategory');
-    expect(auditLog[1].outputSummary).toContain('5 issues classified');
-
-    // Verify Action 3 audit log
-    expect(auditLog[2].actionName).toBe('ConfigureToolIntegration');
-    expect(auditLog[2].outputSummary).toContain('Jira');
-    expect(auditLog[2].outputSummary).toContain('Asana');
-
-    // Verify Action 4 audit log
-    expect(auditLog[3].actionName).toBe('RegisterToExternalTools');
-    expect(auditLog[3].outputSummary).toContain('registered');
-    expect(auditLog[3].confidenceScores.every(s => s === 1.0)).toBe(true);
-
-    // Verify Action 5 audit log
-    expect(auditLog[4].actionName).toBe('RecordStatusAndNotify');
-    expect(auditLog[4].outputSummary).toContain('integration-complete');
-    expect(auditLog[4].outputSummary).toContain('no human intervention');
-
-    // Verify no human approval was required
-    expect(action5Result.notificationStatus).not.toContain('awaiting');
-    expect(action5Result.notificationStatus).not.toContain('escalation');
-
-    // Verify sequential execution order
-    expect(auditLog[0].timestamp).toBeLessThan(auditLog[1].timestamp);
-    expect(auditLog[1].timestamp).toBeLessThan(auditLog[2].timestamp);
-    expect(auditLog[2].timestamp).toBeLessThan(auditLog[3].timestamp);
-    expect(auditLog[3].timestamp).toBeLessThan(auditLog[4].timestamp);
-
-    // Verify issue mapping between actions
-    const action1IssueIds = new Set(action1Result.validatedIssues.map(i => i.id));
-    const action2IssueIds = new Set(action2Result.classifiedIssues.map(i => i.issueId));
-    const action3IssueIds = new Set(action3Result.integratedIssues.map(i => i.issueId));
-    const action4IssueIds = new Set(action4Result.registeredIssues.map(i => i.issueId));
-
-    expect(action2IssueIds).toEqual(action1IssueIds);
-    expect(action3IssueIds).toEqual(action2IssueIds);
-    expect(action4IssueIds).toEqual(action3IssueIds);
+    // AIクライアントの呼び出し回数は各アクション1回ずつ、人の承認フローは発生していない
+    const totalAiClientCalls =
+      mockAiClient.executeAction01.mock.calls.length +
+      mockAiClient.executeAction02.mock.calls.length +
+      mockAiClient.executeAction03.mock.calls.length +
+      mockAiClient.executeAction04.mock.calls.length +
+      mockAiClient.executeAction05.mock.calls.length;
+    expect(totalAiClientCalls).toBe(5);
   });
 });

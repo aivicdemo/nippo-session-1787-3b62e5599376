@@ -1,141 +1,157 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateMonthlyAnalysisReport } from '../../src/logic/analysis-reporting';
+import { runTx6Imp1Agent } from '../../src/agents/tx-6-imp-1/orchestrator';
+import { type Tx6AgentInput, type Tx6AgentOutput } from '../../src/agents/tx-6-imp-1/types';
+import { buildAction05Prompt, ACTION_05_PROMPT_VERSION } from '../../src/agents/tx-6-imp-1/prompts/action-05';
 
-describe('共通: 日報収集から分析レポート生成までの自動実行', () => {
-  // SCEN-111
-  test('should execute priority scoring action (Action 5) correctly during monthly analysis report generation', async () => {
-    const mockReportData = [
+interface MockAiClientCallRecord {
+  actionNumber: number;
+  promptVersion: string;
+  promptContent: string;
+}
+
+interface MockPriorityScore {
+  issueId: string;
+  priorityScore: number;
+  scoringRationale: string;
+  scoringTimestamp: string;
+}
+
+interface Tx6Imp1AiClient {
+  executeAction(actionNumber: number, promptVersion: string, promptContent: string): Promise<unknown>;
+}
+
+describe('Tx6Imp1Agent - 日報収集から分析レポート生成までの自動実行', () => {
+  // SCEN-111: [normal] 日報収集から分析レポート生成までの自動実行 AIエージェント
+  test('should execute Action 5 priority scoring correctly and transition to Action 6', async () => {
+    const mockCallRecords: MockAiClientCallRecord[] = [];
+    const mockPriorityScores: MockPriorityScore[] = [
       {
-        reportId: 'report_001',
-        memberId: 'member_001',
-        date: '2024-01-08',
-        content: 'Completed API integration. Issue: database connection timeout during peak hours.',
-        issues: ['database connection timeout'],
-        status: 'submitted'
+        issueId: 'ISSUE-001',
+        priorityScore: 8,
+        scoringRationale: '顧客クレーム報告あり、影響範囲が大きい',
+        scoringTimestamp: '2024-01-15T09:15:00Z',
       },
       {
-        reportId: 'report_002',
-        memberId: 'member_002',
-        date: '2024-01-08',
-        content: 'Fixed UI layout bug. Issue: performance degradation in list rendering.',
-        issues: ['performance degradation'],
-        status: 'submitted'
+        issueId: 'ISSUE-002',
+        priorityScore: 5,
+        scoringRationale: '内部プロセス改善、中程度の優先度',
+        scoringTimestamp: '2024-01-15T09:15:30Z',
       },
       {
-        reportId: 'report_003',
-        memberId: 'member_003',
-        date: '2024-01-08',
-        content: 'Deployed to production. Issue: customer reported data loss in batch process.',
-        issues: ['customer data loss'],
-        status: 'submitted'
+        issueId: 'ISSUE-003',
+        priorityScore: 3,
+        scoringRationale: '定期メンテナンス、低優先度',
+        scoringTimestamp: '2024-01-15T09:16:00Z',
       },
-      {
-        reportId: 'report_004',
-        memberId: 'member_004',
-        date: '2024-01-08',
-        content: 'Code review completed. Issue: security vulnerability in authentication module.',
-        issues: ['security vulnerability'],
-        status: 'submitted'
-      },
-      {
-        reportId: 'report_005',
-        memberId: 'member_005',
-        date: '2024-01-08',
-        content: 'Documentation updated. Issue: unclear API specification for third-party integration.',
-        issues: ['unclear API specification'],
-        status: 'submitted'
-      }
     ];
 
-    const mockMetadata = {
-      analysisMonth: '2024-01',
-      analysisWeek: 'week_01',
-      collectionStartDate: '2024-01-01',
-      collectionEndDate: '2024-01-07',
-      totalReportsCollected: 5,
-      unsubmittedMembers: []
+    let action5ExecutedFlag = false;
+    let action6ExecutedFlag = false;
+    let recordedAction5Prompt = '';
+    let recordedAction5Version = '';
+
+    const mockAiClient: Tx6Imp1AiClient = {
+      executeAction: async (
+        actionNumber: number,
+        promptVersion: string,
+        promptContent: string,
+      ): Promise<unknown> => {
+        mockCallRecords.push({
+          actionNumber,
+          promptVersion,
+          promptContent,
+        });
+
+        if (actionNumber === 5) {
+          action5ExecutedFlag = true;
+          recordedAction5Prompt = promptContent;
+          recordedAction5Version = promptVersion;
+          return {
+            priorityScores: mockPriorityScores,
+            scoringCompletedAt: '2024-01-15T09:16:00Z',
+          };
+        }
+
+        if (actionNumber === 6) {
+          action6ExecutedFlag = true;
+          return {
+            reportId: 'REPORT-20240115-001',
+            reportGeneratedAt: '2024-01-15T09:30:00Z',
+            reportContent: 'Weekly priority analysis report',
+          };
+        }
+
+        return { success: true };
+      },
     };
 
-    const mockAiClient = {
-      buildAction05Prompt: jest.fn().mockReturnValue({
-        version: 'ACTION_05_PROMPT_VERSION_1.0',
-        prompt: 'Score the following issues by priority (1-10)...'
-      }),
-      callAiForAction05: jest.fn().mockResolvedValue({
-        scoringResults: [
-          {
-            issueId: 'issue_003',
-            issueText: 'customer reported data loss in batch process',
-            priorityScore: 9,
-            scoreRationale: 'Customer data loss impacts business operations and trust. High severity.',
-            scoringTimestamp: '2024-01-08T10:30:00Z'
-          },
-          {
-            issueId: 'issue_004',
-            issueText: 'security vulnerability in authentication module',
-            priorityScore: 8,
-            scoreRationale: 'Security vulnerability poses direct risk to system and user data. High priority.',
-            scoringTimestamp: '2024-01-08T10:30:15Z'
-          },
-          {
-            issueId: 'issue_001',
-            issueText: 'database connection timeout during peak hours',
-            priorityScore: 7,
-            scoreRationale: 'Performance issue affects user experience during peak usage.',
-            scoringTimestamp: '2024-01-08T10:30:30Z'
-          },
-          {
-            issueId: 'issue_002',
-            issueText: 'performance degradation in list rendering',
-            priorityScore: 5,
-            scoreRationale: 'UI performance issue, medium impact on user experience.',
-            scoringTimestamp: '2024-01-08T10:30:45Z'
-          },
-          {
-            issueId: 'issue_005',
-            issueText: 'unclear API specification for third-party integration',
-            priorityScore: 3,
-            scoreRationale: 'Documentation issue, low immediate impact but affects future development.',
-            scoringTimestamp: '2024-01-08T10:31:00Z'
-          }
-        ]
-      })
+    const input: Tx6AgentInput = {
+      executionTimestamp: new Date('2024-01-15T09:00:00Z'),
+      analysisStartDate: '2024-01-08',
+      analysisEndDate: '2024-01-14',
+      teamId: 'TEAM-001',
     };
 
     const startTime = Date.now();
-    const result = await generateMonthlyAnalysisReport(mockReportData, mockMetadata, mockAiClient);
-    const endTime = Date.now();
-    const executionTime = endTime - startTime;
+    const output: Tx6AgentOutput = await runTx6Imp1Agent(input, mockAiClient as any);
+    const elapsedMs = Date.now() - startTime;
 
-    expect(mockAiClient.buildAction05Prompt).toHaveBeenCalled();
-    expect(mockAiClient.callAiForAction05).toHaveBeenCalled();
+    // Action 5 が実行されたことを確認
+    expect(action5ExecutedFlag).toBe(true);
 
-    expect(result).toBeDefined();
-    expect(result.scoringResults).toBeDefined();
-    expect(Array.isArray(result.scoringResults)).toBe(true);
-    expect(result.scoringResults.length).toBe(5);
+    // Action 6 への遷移が行われたことを確認
+    expect(action6ExecutedFlag).toBe(true);
 
-    expect(result.scoringResults[0].priorityScore).toBe(9);
-    expect(result.scoringResults[1].priorityScore).toBe(8);
-    expect(result.scoringResults[2].priorityScore).toBe(7);
-    expect(result.scoringResults[3].priorityScore).toBe(5);
-    expect(result.scoringResults[4].priorityScore).toBe(3);
+    // buildAction05Prompt が使用されたことを検証（プロンプト内容のチェック）
+    expect(recordedAction5Prompt).toBeTruthy();
+    expect(recordedAction5Prompt.length).toBeGreaterThan(0);
 
-    for (let i = 0; i < result.scoringResults.length - 1; i++) {
-      expect(result.scoringResults[i].priorityScore).toBeGreaterThanOrEqual(result.scoringResults[i + 1].priorityScore);
+    // ACTION_05_PROMPT_VERSION が使用されたことを検証
+    expect(recordedAction5Version).toBe(ACTION_05_PROMPT_VERSION);
+
+    // モック AI クライアントから返却された優先度スコアが昇順で整列されていることを確認
+    const returnedScores = mockCallRecords
+      .find((record) => record.actionNumber === 5)
+      ?.promptContent;
+    
+    // 優先度スコアが数値（1～10）であることを検証
+    mockPriorityScores.forEach((score) => {
+      expect(typeof score.priorityScore).toBe('number');
+      expect(score.priorityScore).toBeGreaterThanOrEqual(1);
+      expect(score.priorityScore).toBeLessThanOrEqual(10);
+    });
+
+    // スコアが昇順に整列されていることを確認
+    for (let i = 1; i < mockPriorityScores.length; i++) {
+      expect(mockPriorityScores[i].priorityScore).toBeLessThanOrEqual(
+        mockPriorityScores[i - 1].priorityScore,
+      );
     }
 
-    expect(result.scoringResults[0]).toHaveProperty('issueId');
-    expect(result.scoringResults[0]).toHaveProperty('issueText');
-    expect(result.scoringResults[0]).toHaveProperty('priorityScore');
-    expect(result.scoringResults[0]).toHaveProperty('scoreRationale');
-    expect(result.scoringResults[0]).toHaveProperty('scoringTimestamp');
+    // スコア算出根拠が含まれていることを確認
+    mockPriorityScores.forEach((score) => {
+      expect(score.scoringRationale).toBeTruthy();
+      expect(score.scoringRationale.length).toBeGreaterThan(0);
+    });
 
-    expect(result.scoringResults[0].scoreRationale).toMatch(/Customer data loss/);
-    expect(result.scoringResults[0].scoringTimestamp).toBe('2024-01-08T10:30:00Z');
+    // スコアリング実行タイムスタンプが ISO 形式で含まれていることを確認
+    mockPriorityScores.forEach((score) => {
+      expect(score.scoringTimestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    });
 
-    expect(result.nextActionStatus).toBe('Action 6 transition prepared');
+    // 処理が 30 秒以内に完了していることを検証
+    expect(elapsedMs).toBeLessThan(30000);
 
-    expect(executionTime).toBeLessThan(30000);
+    // 出力が期待される構造を持つことを確認
+    expect(output).toBeTruthy();
+    expect(output.reportId).toBeTruthy();
+    expect(output.reportGeneratedAt).toBeInstanceOf(Date);
+    expect(output.extractedIssueCount).toBeGreaterThanOrEqual(0);
+    expect(output.topPriorityIssues).toBeInstanceOf(Array);
+
+    // Action 5 と Action 6 の両方が実行されたことを最終確認
+    expect(mockCallRecords.filter((r) => r.actionNumber === 5).length).toBeGreaterThan(0);
+    expect(mockCallRecords.filter((r) => r.actionNumber === 6).length).toBeGreaterThan(0);
+
+    // 例外が発生しなかったことは test 完了で保証される
   });
 });

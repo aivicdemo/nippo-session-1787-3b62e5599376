@@ -1,155 +1,230 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { runTx9Imp1Agent } from '../../src/agents/tx-9-imp-1/orchestrator';
+import type { Tx9Imp1AiClient } from '../../src/agents/tx-9-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  test('SCEN-169: sendUnsubmittedReminder escalates when executive decision required on proposed measures', async () => {
-    // Setup: Test data for scenario requiring executive judgment
-    const aggregated_report_data = {
-      week_start: '2024-01-08',
-      week_end: '2024-01-14',
-      total_members: 15,
-      submitted_members: 13,
-      unsubmitted_members: 2,
+describe('tx-9-imp-1 orchestrator', () => {
+  let mockAiClient: jest.Mocked<Tx9Imp1AiClient>;
+  let mockAuditLog: jest.Mock;
+  let mockDatabase: jest.Mock;
+  let mockEmailService: jest.Mock;
+
+  beforeEach(() => {
+    mockAiClient = {
+      action01_aggregateReportData: jest.fn(),
+      action02_quantifyProductivityMetrics: jest.fn(),
+      action03_classifyIssuesByPriority: jest.fn(),
+      action04_detectRecurrencePatterns: jest.fn(),
+      action05_proposeCountermeasures: jest.fn(),
+      action06_validateAndEscalate: jest.fn(),
+      action07_presentAnalysisReport: jest.fn(),
+    } as any;
+
+    mockAuditLog = jest.fn();
+    mockDatabase = jest.fn();
+    mockEmailService = jest.fn();
+
+    global.auditLog = mockAuditLog;
+    global.database = mockDatabase;
+    global.emailService = mockEmailService;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // SCEN-169
+  it('should escalate with hand-off context when proposed countermeasures require executive judgment', async () => {
+    const aggregationStartDate = '2024-01-08';
+    const aggregationEndDate = '2024-01-14';
+    const targetTeamIds = ['team-001', 'team-002'];
+    const requestedByUserId = 'user-director-001';
+
+    const aggregatedReportData = {
+      totalReportsSubmitted: 18,
+      totalReportsExpected: 20,
+      submissionRate: 0.9,
+      reportDetails: [
+        {
+          reportId: 'report-001',
+          teamId: 'team-001',
+          submittedAt: '2024-01-08T09:00:00Z',
+          issues: ['Issue-A', 'Issue-B'],
+        },
+        {
+          reportId: 'report-002',
+          teamId: 'team-002',
+          submittedAt: '2024-01-09T08:30:00Z',
+          issues: ['Issue-C'],
+        },
+      ],
     };
 
-    const unsubmitted_member_list = [
-      {
-        member_id: 'M001',
-        member_name: 'Yamada Taro',
-        team_id: 'T001',
-        submission_status: 'unsubmitted',
-        notification_count: 1,
-        last_notification_at: '2024-01-14T08:00:00Z',
-      },
-      {
-        member_id: 'M002',
-        member_name: 'Suzuki Hanako',
-        team_id: 'T002',
-        submission_status: 'unsubmitted',
-        notification_count: 2,
-        last_notification_at: '2024-01-14T09:30:00Z',
-      },
-    ];
-
-    const productivity_metrics = {
-      issue_resolution_count: 42,
-      average_resolution_days: 4.2,
-      issue_recurrence_rate: 0.18,
-      submission_rate: 0.867,
+    const productivityMetrics = {
+      issueResolutionSpeed: 3.5,
+      reportSubmissionRate: 90,
+      issueRecurrenceRate: 18,
     };
 
-    const priority_classified_issues = [
+    const classifiedIssues = [
       {
-        issue_id: 'ISS001',
-        issue_title: 'Database performance degradation',
+        issueId: 'issue-priority-001',
         priority: 'HIGH',
-        impact_scope: 'system_wide',
-        recurrence_pattern: 'recurring',
+        description: 'System downtime affecting production',
+        resolutionDaysAverage: 2,
       },
       {
-        issue_id: 'ISS002',
-        issue_title: 'API response timeout',
+        issueId: 'issue-priority-002',
         priority: 'MEDIUM',
-        impact_scope: 'api_service',
-        recurrence_pattern: 'new',
+        description: 'Code review process delay',
+        resolutionDaysAverage: 5,
       },
     ];
 
-    const recurrence_pattern_analysis = {
-      total_issues_analyzed: 52,
-      recurring_issues: 12,
-      new_issues: 40,
-      top_recurrence_category: 'infrastructure',
-      recurrence_rate: 0.23,
-    };
+    const recurrencePatterns = [
+      {
+        patternId: 'pattern-001',
+        issueType: 'Database connection timeout',
+        occurrences: 3,
+        lastOccurrenceDate: '2024-01-12',
+        rootCauseHypothesis: 'Connection pool exhaustion',
+      },
+    ];
 
-    // Action 6 output: Proposed measures with executive judgment requirement
-    const proposed_measures_with_escalation = {
-      measures: [
-        {
-          measure_id: 'MEAS001',
-          measure_title: 'Introduce monitoring tool for infrastructure',
-          measure_type: 'tool_introduction',
-          estimated_cost_monthly: 500000,
-          expected_reduction_recurrence: 0.15,
-          required_approval: 'executive_decision',
+    const proposedCountermeasures = [
+      {
+        measureId: 'measure-001',
+        title: 'Implement new monitoring tool',
+        description: 'Deploy advanced APM solution for real-time visibility',
+        estimatedCost: 500000,
+        requiresExecutiveJudgment: true,
+        executiveJudgmentReason: 'Monthly cost increase of 500,000 yen requires budget approval from CFO',
+        expectedImpact: {
+          issueResolutionSpeedImprovement: 1.2,
+          issueRecurrenceRateReduction: 0.08,
         },
-        {
-          measure_id: 'MEAS002',
-          measure_title: 'Reorganize team for cross-department coordination',
-          measure_type: 'organizational_change',
-          budget_impact: 'headcount_allocation',
-          expected_reduction_recurrence: 0.08,
-          required_approval: 'executive_decision',
+      },
+      {
+        measureId: 'measure-002',
+        title: 'Cross-team coordination protocol',
+        description: 'Establish weekly sync meetings between teams',
+        requiresExecutiveJudgment: true,
+        executiveJudgmentReason: 'Organizational restructuring and resource reallocation required',
+        expectedImpact: {
+          issueResolutionSpeedImprovement: 0.8,
+          issueRecurrenceRateReduction: 0.05,
         },
-      ],
-      executive_decision_required: true,
-      executive_judgment_reasons: [
-        'Budget approval required: monthly cost increase of 500000 yen',
-        'Cross-departmental coordination necessary',
-        'Headcount reallocation affects multiple teams',
-      ],
-      escalation_status: 'awaiting_executive_review',
-    };
+      },
+    ];
 
-    // Create mock AI client injected into orchestrator
-    const mock_ai_client = {
-      action_01_aggregateData: async () => aggregated_report_data,
-      action_02_extractUnsubmittedMembers: async () => unsubmitted_member_list,
-      action_03_quantifyProductivityMetrics: async () => productivity_metrics,
-      action_04_classifyIssuesByPriority: async () => priority_classified_issues,
-      action_05_analyzeRecurrencePattern: async () => recurrence_pattern_analysis,
-      action_06_proposeMeasures: async () => proposed_measures_with_escalation,
-    };
+    mockAiClient.action01_aggregateReportData.mockResolvedValue(aggregatedReportData);
+    mockAiClient.action02_quantifyProductivityMetrics.mockResolvedValue(productivityMetrics);
+    mockAiClient.action03_classifyIssuesByPriority.mockResolvedValue(classifiedIssues);
+    mockAiClient.action04_detectRecurrencePatterns.mockResolvedValue(recurrencePatterns);
+    mockAiClient.action05_proposeCountermeasures.mockResolvedValue(proposedCountermeasures);
 
-    // Execute function with injected mock client
-    // sendUnsubmittedReminder delegates to orchestrator logic which should detect escalation
-    const result = await sendUnsubmittedReminder({
-      ai_client: mock_ai_client,
-      analysis_period_start: '2024-01-08',
-      analysis_period_end: '2024-01-14',
-      manager_id: 'MGR001',
-      timestamp_utc: '2024-01-14T10:00:00Z',
+    mockAiClient.action06_validateAndEscalate.mockResolvedValue({
+      escalationDetected: true,
+      escalationCondition: 'proposed_countermeasures_require_executive_judgment',
+      escalationReason: 'Measures require executive judgment: budget approval and organizational restructuring',
+      handOffContext: {
+        intermediateResults: {
+          aggregatedData: aggregatedReportData,
+          productivityMetrics: productivityMetrics,
+          classifiedIssues: classifiedIssues,
+          recurrencePatterns: recurrencePatterns,
+        },
+        proposedCountermeasures: proposedCountermeasures,
+        executiveJudgmentRequiredItems: [
+          {
+            item: 'Budget approval for monitoring tool',
+            reason: 'Monthly cost increase of 500,000 yen',
+            decisionMaker: 'CFO',
+          },
+          {
+            item: 'Organizational restructuring approval',
+            reason: 'Cross-team coordination requires resource reallocation',
+            decisionMaker: 'Executive committee',
+          },
+        ],
+        escalationTimestamp: '2024-01-15T11:30:00Z',
+        escalationToUserId: requestedByUserId,
+        status: 'AWAITING_EXECUTIVE_CONFIRMATION',
+      },
     });
 
-    // Verify escalation condition detected
-    expect(result.escalation_detected).toBe(true);
-    expect(result.escalation_condition).toBe('executive_decision_required');
+    const request = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      requestedByUserId,
+    };
 
-    // Verify side effects not executed
-    expect(result.side_effects_executed).toBe(false);
-    expect(result.report_database_registered).toBe(false);
-    expect(result.notification_email_sent).toBe(false);
+    mockDatabase.mockImplementation((operation) => {
+      if (operation.type === 'saveAnalysisReport') {
+        return Promise.reject(new Error('Database operation should not be executed during escalation'));
+      }
+      return Promise.resolve();
+    });
 
-    // Verify handoff context preserved for manager
-    expect(result.handoff_context).toBeDefined();
-    expect(result.handoff_context.aggregated_data).toEqual(aggregated_report_data);
-    expect(result.handoff_context.unsubmitted_members).toEqual(unsubmitted_member_list);
-    expect(result.handoff_context.productivity_metrics).toEqual(productivity_metrics);
-    expect(result.handoff_context.prioritized_issues).toEqual(priority_classified_issues);
-    expect(result.handoff_context.recurrence_analysis).toEqual(recurrence_pattern_analysis);
-    expect(result.handoff_context.proposed_measures).toEqual(proposed_measures_with_escalation.measures);
+    mockEmailService.mockImplementation((operation) => {
+      if (operation.type === 'sendNotification') {
+        return Promise.reject(new Error('Email service should not be executed during escalation'));
+      }
+      return Promise.resolve();
+    });
 
-    // Verify executive judgment reasons documented
-    expect(result.handoff_context.executive_judgment_required).toBe(true);
-    expect(result.handoff_context.executive_judgment_reasons).toEqual(
-      proposed_measures_with_escalation.executive_judgment_reasons,
+    const result = await runTx9Imp1Agent(request, mockAiClient);
+
+    expect(mockAiClient.action01_aggregateReportData).toHaveBeenCalledWith({
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+    });
+
+    expect(mockAiClient.action02_quantifyProductivityMetrics).toHaveBeenCalledWith(aggregatedReportData);
+
+    expect(mockAiClient.action03_classifyIssuesByPriority).toHaveBeenCalled();
+
+    expect(mockAiClient.action04_detectRecurrencePatterns).toHaveBeenCalled();
+
+    expect(mockAiClient.action05_proposeCountermeasures).toHaveBeenCalled();
+
+    expect(mockAiClient.action06_validateAndEscalate).toHaveBeenCalled();
+
+    expect(result.escalationDetected).toBe(true);
+    expect(result.escalationCondition).toBe('proposed_countermeasures_require_executive_judgment');
+
+    expect(result.handOffContext).toBeDefined();
+    expect(result.handOffContext.intermediateResults.aggregatedData.totalReportsSubmitted).toBe(18);
+    expect(result.handOffContext.intermediateResults.productivityMetrics.issueResolutionSpeed).toBe(3.5);
+    expect(result.handOffContext.intermediateResults.classifiedIssues).toHaveLength(2);
+    expect(result.handOffContext.intermediateResults.recurrencePatterns).toHaveLength(1);
+
+    expect(result.handOffContext.proposedCountermeasures).toHaveLength(2);
+    expect(result.handOffContext.proposedCountermeasures[0].requiresExecutiveJudgment).toBe(true);
+    expect(result.handOffContext.proposedCountermeasures[0].estimatedCost).toBe(500000);
+
+    expect(result.handOffContext.executiveJudgmentRequiredItems).toHaveLength(2);
+    expect(result.handOffContext.executiveJudgmentRequiredItems[0].item).toBe('Budget approval for monitoring tool');
+    expect(result.handOffContext.executiveJudgmentRequiredItems[0].decisionMaker).toBe('CFO');
+
+    expect(result.handOffContext.escalationTimestamp).toBe('2024-01-15T11:30:00Z');
+    expect(result.handOffContext.escalationToUserId).toBe(requestedByUserId);
+    expect(result.handOffContext.status).toBe('AWAITING_EXECUTIVE_CONFIRMATION');
+
+    expect(mockAiClient.action07_presentAnalysisReport).not.toHaveBeenCalled();
+
+    expect(mockDatabase).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'saveAnalysisReport' }));
+    expect(mockEmailService).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sendNotification' }));
+
+    expect(mockAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ESCALATION_DETECTED',
+        escalationCondition: 'proposed_countermeasures_require_executive_judgment',
+        timestamp: '2024-01-15T11:30:00Z',
+        escalationToUserId: requestedByUserId,
+        intermediateResultsSnapshot: expect.any(Object),
+      })
     );
-    expect(result.handoff_context.executive_judgment_reasons.length).toBe(3);
-    expect(result.handoff_context.executive_judgment_reasons[0]).toMatch(/Budget approval/);
-    expect(result.handoff_context.executive_judgment_reasons[1]).toMatch(/Cross-departmental/);
-    expect(result.handoff_context.executive_judgment_reasons[2]).toMatch(/Headcount reallocation/);
-
-    // Verify manager awaiting review status
-    expect(result.handoff_context.status).toBe('awaiting_manager_review');
-    expect(result.handoff_context.awaiting_review_since).toBe('2024-01-14T10:00:00Z');
-
-    // Verify audit log entry
-    expect(result.audit_log_entry).toBeDefined();
-    expect(result.audit_log_entry.event_type).toBe('escalation_triggered');
-    expect(result.audit_log_entry.escalation_condition).toBe('executive_decision_required');
-    expect(result.audit_log_entry.timestamp_utc).toBe('2024-01-14T10:00:00Z');
-    expect(result.audit_log_entry.escalation_target_manager_id).toBe('MGR001');
-    expect(result.audit_log_entry.intermediate_results_preserved).toBe(true);
   });
 });

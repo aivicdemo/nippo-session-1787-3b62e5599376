@@ -1,172 +1,229 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { runTx2Imp1Agent } from '../../src/agents/tx-2-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  let mockDb: Map<string, any>;
-  let mockMailLog: Array<{ recipient: string; subject: string; body: string; timestamp: string }>;
-  let mockAuditLog: Array<{ action: string; reportId: string; timestamp: string; flags: string[] }>;
-  let mockDateNow: Date;
+// Mock types for test
+interface MockReportData {
+  reportId: string;
+  content: string;
+  status: 'unprocessed' | 'processed';
+}
+
+interface MockEmailLog {
+  recipient: string;
+  subject: string;
+  body: string;
+  timestamp: Date;
+}
+
+interface MockAuditLog {
+  eventId: string;
+  action: string;
+  reportId: string;
+  timestamp: Date;
+  flags: string[];
+}
+
+interface MockDatabase {
+  reports: Map<string, MockReportData>;
+  emailLogs: MockEmailLog[];
+  auditLogs: MockAuditLog[];
+}
+
+interface MockAiClientResponse {
+  aggregationStatus: string;
+  extractedIssuesCount: number;
+  prioritizedIssuesList: Array<{ issue: string; priority: string }>;
+  emailSendStatus: string;
+}
+
+describe('runTx2Imp1Agent - Idempotent Retry (SCEN-054)', () => {
+  let mockDb: MockDatabase;
+  let mockAiClient: {
+    callExtractAndClassify: jest.Mock;
+    callPrioritize: jest.Mock;
+  };
 
   beforeEach(() => {
-    mockDb = new Map();
-    mockMailLog = [];
-    mockAuditLog = [];
-    mockDateNow = new Date('2024-01-15T09:00:00Z');
+    // Initialize mock database
+    mockDb = {
+      reports: new Map([
+        [
+          'report-001',
+          {
+            reportId: 'report-001',
+            content:
+              '昨日：機能A実装 / 今日：機能B実装 / 課題：API応答遅延',
+            status: 'unprocessed',
+          },
+        ],
+      ]),
+      emailLogs: [],
+      auditLogs: [],
+    };
 
-    // Initialize test DB with initial state
-    mockDb.set('report-001', {
-      id: 'report-001',
-      content: '昨日：機能A実装 / 今日：機能B実装 / 課題：API応答遅延',
-      status: 'unprocessed',
-      createdAt: '2024-01-15T08:00:00Z',
-    });
+    // Initialize mock AI client
+    mockAiClient = {
+      callExtractAndClassify: jest.fn().mockResolvedValue({
+        extractedIssues: [
+          {
+            issue: 'API応答遅延',
+            category: 'performance',
+          },
+        ],
+      }),
+      callPrioritize: jest.fn().mockResolvedValue({
+        prioritizedIssuesList: [
+          {
+            issue: 'API応答遅延',
+            priority: '高',
+          },
+        ],
+      }),
+    };
   });
 
   afterEach(() => {
-    mockDb.clear();
-    mockMailLog = [];
-    mockAuditLog = [];
+    jest.clearAllMocks();
   });
 
-  // SCEN-054
-  test('should prevent duplicate notifications and DB writes on idempotent retry of sendUnsubmittedReminder', async () => {
-    const fakeAiClient = {
-      extractIssues: async (content: string) => {
-        return [
-          {
-            issue: 'API応答遅延',
-            priority: 'high',
-            category: 'performance',
-          },
-        ];
-      },
-      classifyIssue: async (issue: string) => {
-        return { priority: 'high', category: 'performance' };
-      },
-      generateMailBody: async (
-        issues: Array<{ issue: string; priority: string; category: string }>
-      ) => {
-        return `優先度：${issues[0].priority}\n課題：${issues[0].issue}`;
-      },
-    };
+  test('SCEN-054: 同一の日報に対する複数回実行時に重複書き込みと重複通知が発生しないこと', async () => {
+    // Mock implementations
+    const mockSendEmail = jest.fn(async (recipient: string, subject: string, body: string) => {
+      mockDb.emailLogs.push({
+        recipient,
+        subject,
+        body,
+        timestamp: new Date('2024-01-15T11:00:00Z'),
+      });
+    });
 
-    const mockNotificationSystem = {
-      sendMail: async (recipient: string, subject: string, body: string) => {
-        mockMailLog.push({
-          recipient,
-          subject,
-          body,
-          timestamp: mockDateNow.toISOString(),
-        });
-        return { success: true, id: `mail-${mockMailLog.length}` };
-      },
-    };
+    const mockLogAuditEvent = jest.fn((action: string, reportId: string, flags: string[]) => {
+      const eventId = `event-${mockDb.auditLogs.length + 1}`;
+      mockDb.auditLogs.push({
+        eventId,
+        action,
+        reportId,
+        timestamp: new Date('2024-01-15T11:00:00Z'),
+        flags,
+      });
+    });
 
-    const mockAuditSystem = {
-      log: async (action: string, reportId: string, flags: string[] = []) => {
-        mockAuditLog.push({
-          action,
-          reportId,
-          timestamp: mockDateNow.toISOString(),
-          flags,
-        });
-      },
-    };
-
-    const updateReportStatus = async (reportId: string, status: string) => {
-      const report = mockDb.get(reportId);
+    const mockUpdateReportStatus = jest.fn((reportId: string, status: 'processed') => {
+      const report = mockDb.reports.get(reportId);
       if (report) {
-        mockDb.set(reportId, { ...report, status });
-        return true;
+        report.status = status;
       }
-      return false;
-    };
+    });
 
-    const getReportById = async (reportId: string) => {
-      return mockDb.get(reportId);
-    };
+    const mockGetReportById = jest.fn((reportId: string) => {
+      return mockDb.reports.get(reportId);
+    });
 
-    const getDuplicateCheckKey = (reportId: string, action: string) => {
-      return `${reportId}:${action}`;
-    };
-
-    // Idempotency tracking
-    const processedKeys = new Set<string>();
-
-    // First execution
-    const reportId = 'report-001';
-    const idempotencyKey = getDuplicateCheckKey(reportId, 'sendUnsubmittedReminder');
-
-    const initialReport = await getReportById(reportId);
-    expect(initialReport.status).toBe('unprocessed');
-
-    // First run
-    if (!processedKeys.has(idempotencyKey)) {
-      processedKeys.add(idempotencyKey);
-
-      const extractedIssues = await fakeAiClient.extractIssues(initialReport.content);
-      expect(extractedIssues).toHaveLength(1);
-      expect(extractedIssues[0].issue).toBe('API応答遅延');
-      expect(extractedIssues[0].priority).toBe('high');
-
-      const mailBody = await fakeAiClient.generateMailBody(extractedIssues);
-      expect(mailBody).toContain('優先度：high');
-      expect(mailBody).toContain('課題：API応答遅延');
-
-      await mockNotificationSystem.sendMail(
-        'manager@company.com',
-        'Unsubmitted Report Summary',
-        mailBody
+    const mockRecordExtractedIssue = jest.fn((reportId: string, issue: string) => {
+      // Simulate recording extracted issue - this should be idempotent
+      // Check if already recorded in audit logs
+      const alreadyRecorded = mockDb.auditLogs.some(
+        (log) => log.action === 'extract_issue' && log.reportId === reportId
       );
+      if (!alreadyRecorded) {
+        mockLogAuditEvent('extract_issue', reportId, []);
+      }
+    });
 
-      await updateReportStatus(reportId, 'processed');
-      await mockAuditSystem.log('sendUnsubmittedReminder', reportId, []);
+    // Create mock AI client that matches Tx2Imp1AiClient interface
+    const mockTx2Imp1AiClient = {
+      callAiForExtraction: mockAiClient.callExtractAndClassify,
+      callAiForPrioritization: mockAiClient.callPrioritize,
+    };
 
-      // Verify first execution results
-      const reportAfterFirstRun = await getReportById(reportId);
-      expect(reportAfterFirstRun.status).toBe('processed');
-      expect(mockMailLog).toHaveLength(1);
-      expect(mockMailLog[0].recipient).toBe('manager@company.com');
-      expect(mockMailLog[0].body).toContain('優先度：high');
-      expect(mockMailLog[0].body).toContain('課題：API応答遅延');
-      expect(mockAuditLog).toHaveLength(1);
-      expect(mockAuditLog[0].action).toBe('sendUnsubmittedReminder');
-      expect(mockAuditLog[0].reportId).toBe('report-001');
-    }
+    // Execute first run
+    const input1 = {
+      executionTimestamp: new Date('2024-01-15T11:00:00Z'),
+      teamId: 'team-001',
+      reportingDeadline: new Date('2024-01-15T09:30:00Z'),
+      managerEmail: 'manager@example.com',
+    };
 
-    const mailCountAfterFirstRun = mockMailLog.length;
-    const auditCountAfterFirstRun = mockAuditLog.length;
+    const result1 = await runTx2Imp1Agent(input1, {
+      ...mockTx2Imp1AiClient,
+      sendEmail: mockSendEmail,
+      logAuditEvent: mockLogAuditEvent,
+      updateReportStatus: mockUpdateReportStatus,
+      getReportById: mockGetReportById,
+      recordExtractedIssue: mockRecordExtractedIssue,
+      getAllReports: jest.fn().mockResolvedValue(Array.from(mockDb.reports.values())),
+      getUnsubmittedMembers: jest.fn().mockResolvedValue([]),
+    });
 
-    // Second execution (idempotent retry)
-    const idempotencyKeySecond = getDuplicateCheckKey(reportId, 'sendUnsubmittedReminder');
+    // Verify first run results
+    expect(result1.aggregationStatus).toBe('success');
+    expect(result1.extractedIssuesCount).toBe(1);
+    expect(result1.emailSendStatus).toBe('sent');
+    expect(result1.prioritizedIssuesList).toEqual([
+      {
+        issue: 'API応答遅延',
+        priority: '高',
+      },
+    ]);
 
-    // Mark this as a retry with idempotent flag
-    if (processedKeys.has(idempotencyKeySecond)) {
-      // Already processed - skip side effects but log the retry
-      await mockAuditSystem.log('sendUnsubmittedReminder', reportId, ['idempotent_retry']);
-    } else {
-      // Should not reach here in this test
-      throw new Error('Idempotency key not found in set');
-    }
+    // Verify database state after first run
+    const reportAfterFirstRun = mockDb.reports.get('report-001');
+    expect(reportAfterFirstRun?.status).toBe('processed');
 
-    // Verify second execution (idempotent, no duplicate side effects)
-    const reportAfterSecondRun = await getReportById(reportId);
-    expect(reportAfterSecondRun.status).toBe('processed');
-    expect(mockMailLog).toHaveLength(mailCountAfterFirstRun); // No new mail sent
-    expect(mockMailLog.length).toBe(1); // Still only 1 mail total
+    // Verify email was sent exactly once
+    expect(mockDb.emailLogs).toHaveLength(1);
+    expect(mockDb.emailLogs[0].recipient).toBe('manager@example.com');
+    expect(mockDb.emailLogs[0].body).toContain('優先度：高');
+    expect(mockDb.emailLogs[0].body).toContain('課題：API応答遅延');
 
-    // Verify no duplicate issues in DB (implicit - no new records added)
-    const secondRunReport = await getReportById(reportId);
-    expect(secondRunReport.content).toBe('昨日：機能A実装 / 今日：機能B実装 / 課題：API応答遅延');
+    // Verify audit log has first execution record
+    expect(mockDb.auditLogs.length).toBeGreaterThan(0);
+    const firstExecutionLog = mockDb.auditLogs[mockDb.auditLogs.length - 1];
+    expect(firstExecutionLog.reportId).toBe('report-001');
 
-    // Verify audit log records both executions
-    expect(mockAuditLog).toHaveLength(auditCountAfterFirstRun + 1);
-    expect(mockAuditLog[0].action).toBe('sendUnsubmittedReminder');
-    expect(mockAuditLog[0].reportId).toBe('report-001');
-    expect(mockAuditLog[0].flags).toEqual([]);
+    // Store counts after first run
+    const emailCountAfterFirstRun = mockDb.emailLogs.length;
+    const auditCountAfterFirstRun = mockDb.auditLogs.length;
+    const extractedIssueCountAfterFirstRun = mockDb.auditLogs.filter(
+      (log) => log.action === 'extract_issue' && log.reportId === 'report-001'
+    ).length;
 
-    expect(mockAuditLog[1].action).toBe('sendUnsubmittedReminder');
-    expect(mockAuditLog[1].reportId).toBe('report-001');
-    expect(mockAuditLog[1].flags).toContain('idempotent_retry');
+    // Execute second run (idempotent retry)
+    const result2 = await runTx2Imp1Agent(input1, {
+      ...mockTx2Imp1AiClient,
+      sendEmail: mockSendEmail,
+      logAuditEvent: mockLogAuditEvent,
+      updateReportStatus: mockUpdateReportStatus,
+      getReportById: mockGetReportById,
+      recordExtractedIssue: mockRecordExtractedIssue,
+      getAllReports: jest.fn().mockResolvedValue(Array.from(mockDb.reports.values())),
+      getUnsubmittedMembers: jest.fn().mockResolvedValue([]),
+    });
+
+    // Verify second run completes
+    expect(result2.aggregationStatus).toBe('success');
+
+    // Verify database state unchanged after second run
+    const reportAfterSecondRun = mockDb.reports.get('report-001');
+    expect(reportAfterSecondRun?.status).toBe('processed');
+
+    // Verify no duplicate email was sent
+    expect(mockDb.emailLogs).toHaveLength(emailCountAfterFirstRun);
+
+    // Verify no duplicate issue records
+    const extractedIssueCountAfterSecondRun = mockDb.auditLogs.filter(
+      (log) => log.action === 'extract_issue' && log.reportId === 'report-001'
+    ).length;
+    expect(extractedIssueCountAfterSecondRun).toBe(extractedIssueCountAfterFirstRun);
+
+    // Verify audit log has new execution record with idempotent_retry flag
+    expect(mockDb.auditLogs.length).toBe(auditCountAfterFirstRun + 1);
+    const secondExecutionLog = mockDb.auditLogs[mockDb.auditLogs.length - 1];
+    expect(secondExecutionLog.reportId).toBe('report-001');
+    expect(secondExecutionLog.flags).toContain('idempotent_retry');
+
+    // Verify total email count remains 1 (no duplicates)
+    expect(mockDb.emailLogs).toHaveLength(1);
+    expect(mockDb.emailLogs[0].recipient).toBe('manager@example.com');
   });
 });

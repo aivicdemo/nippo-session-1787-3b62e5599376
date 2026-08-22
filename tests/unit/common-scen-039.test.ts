@@ -1,278 +1,183 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx1Imp1Agent, type Tx1Imp1AiClient } from '../../src/agents/tx-1-imp-1/orchestrator';
 
-// Mock types and interfaces
-interface MockUnsubmittedReminderInput {
-  agentExecutionId: string;
-  targetDate: string;
-  unsubmittedMembers: Array<{
-    memberId: string;
-    memberName: string;
-    email: string;
-  }>;
-  deadlineTime: string;
-}
-
-interface MockRollbackContext {
-  sentNotificationIds: string[];
-  createdTempIssueRecordIds: string[];
-  acquiredLockIds: string[];
-  transactionState: 'active' | 'committed' | 'rolled_back';
-}
-
-interface MockEmailSystemStub {
-  sentMessages: Array<{
-    id: string;
-    recipientEmail: string;
-    messageBody: string;
-    timestamp: string;
-    status: 'sent' | 'reverted';
-  }>;
-  deleteMessage: (messageId: string) => void;
-  getMessageStatus: (messageId: string) => 'sent' | 'reverted' | null;
-}
-
-interface MockDbTransaction {
-  tempIssueRecords: Array<{
-    id: string;
-    content: string;
-    createdAt: string;
-  }>;
-  lockStates: Map<string, boolean>;
-  rollback: () => void;
-  commit: () => void;
-  isActive: () => boolean;
-}
-
-// Global mock instances
-let mockEmailSystem: MockEmailSystemStub;
-let mockDbTransaction: MockDbTransaction;
-let rollbackContext: MockRollbackContext;
-
-beforeEach(() => {
-  // Initialize mock email system
-  mockEmailSystem = {
-    sentMessages: [],
-    deleteMessage: (messageId: string) => {
-      const message = mockEmailSystem.sentMessages.find((m) => m.id === messageId);
-      if (message) {
-        message.status = 'reverted';
-      }
-    },
-    getMessageStatus: (messageId: string) => {
-      const message = mockEmailSystem.sentMessages.find((m) => m.id === messageId);
-      return message ? message.status : null;
-    },
-  };
-
-  // Initialize mock database transaction
-  mockDbTransaction = {
-    tempIssueRecords: [],
-    lockStates: new Map(),
-    rollback: () => {
-      mockDbTransaction.tempIssueRecords = [];
-      mockDbTransaction.lockStates.forEach((_, key) => {
-        mockDbTransaction.lockStates.set(key, false);
-      });
-      mockDbTransaction.isActive = () => false;
-    },
-    commit: () => {
-      // no-op for test
-    },
-    isActive: () => true,
-  };
-
-  // Initialize rollback context
-  rollbackContext = {
-    sentNotificationIds: [],
-    createdTempIssueRecordIds: [],
-    acquiredLockIds: [],
-    transactionState: 'active',
-  };
-});
-
-afterEach(() => {
-  jest.clearAllMocks();
-});
-
-describe('Notification Delivery - Rollback on Partial Failure', () => {
+describe('Tx1Imp1 Agent Orchestrator - Rollback on Partial Failure', () => {
   // SCEN-039
-  test('should rollback side effects and restore system state when Action 4 fails during tx-1-imp-1 agent execution', async () => {
-    // Arrange: Setup initial state and mock dependencies
-    const agentExecutionId = 'agent-exec-20250115-001';
-    const targetDate = '2025-01-15';
-    const deadlineTime = '09:00:00Z';
-
-    const unsubmittedMembers: MockUnsubmittedReminderInput['unsubmittedMembers'] = [
-      {
-        memberId: 'member-001',
-        memberName: 'John Doe',
-        email: 'john.doe@example.com',
-      },
-      {
-        memberId: 'member-002',
-        memberName: 'Jane Smith',
-        email: 'jane.smith@example.com',
-      },
+  test('should rollback completed side effects when Action 4 fails during execution', async () => {
+    // Setup: Mock AI client with all action prompts
+    const mockReportedIssues = [
+      { issueId: 'ISSUE-001', description: 'Database connection timeout', severity: 'high' },
+      { issueId: 'ISSUE-002', description: 'API response delay', severity: 'medium' },
     ];
 
-    const input: MockUnsubmittedReminderInput = {
-      agentExecutionId,
-      targetDate,
-      unsubmittedMembers,
-      deadlineTime,
+    const mockUnsubmittedMembers = ['user-003', 'user-007', 'user-009'];
+
+    const mockExtractedIssues = [
+      { id: 'EXTRACTED-001', text: 'Database connection timeout', category: 'infrastructure' },
+      { id: 'EXTRACTED-002', text: 'API response delay', category: 'performance' },
+    ];
+
+    // Track side effects for rollback verification
+    const sentNotifications: Array<{ userId: string; timestamp: Date }> = [];
+    const acquiredLocks: Array<{ reportId: string; lockId: string }> = [];
+    const createdTempRecords: Array<{ recordId: string; issueId: string }> = [];
+
+    // Mock AI client implementation
+    const mockAiClient: Tx1Imp1AiClient = {
+      // Action 1: Fetch reports (success)
+      async executeAction01FetchReports(prompt: string) {
+        acquiredLocks.push({ reportId: 'REPORT-BATCH-001', lockId: 'LOCK-12345' });
+        return {
+          status: 'success',
+          reports: [
+            { userId: 'user-001', reportContent: 'Completed feature X, found performance issue' },
+            { userId: 'user-002', reportContent: 'Finished testing, no blockers' },
+            { userId: 'user-004', reportContent: 'Implemented API v2, lag detected' },
+          ],
+        };
+      },
+
+      // Action 2: Send unsubmitted notifications (success)
+      async executeAction02SendNotifications(prompt: string) {
+        mockUnsubmittedMembers.forEach((userId) => {
+          sentNotifications.push({ userId, timestamp: new Date('2024-01-15T09:00:00Z') });
+        });
+        return {
+          status: 'success',
+          notificationsSent: mockUnsubmittedMembers.length,
+          recipients: mockUnsubmittedMembers,
+        };
+      },
+
+      // Action 3: Extract issues (success)
+      async executeAction03ExtractIssues(prompt: string) {
+        mockExtractedIssues.forEach((issue) => {
+          createdTempRecords.push({ recordId: `TEMP-${Date.now()}`, issueId: issue.id });
+        });
+        return {
+          status: 'success',
+          extractedIssueCount: mockExtractedIssues.length,
+          issues: mockExtractedIssues,
+        };
+      },
+
+      // Action 4: Assign priorities (intentional failure)
+      async executeAction04AssignPriorities(prompt: string) {
+        throw new Error('Action 4 execution failed: Invalid priority rule configuration');
+      },
+
+      // Action 5: Generate report (should not be called)
+      async executeAction05GenerateReport(prompt: string) {
+        throw new Error('Action 5 should not have been executed');
+      },
+
+      // Action 6: Send completion notification (should not be called)
+      async executeAction06SendCompletion(prompt: string) {
+        throw new Error('Action 6 should not have been executed');
+      },
     };
 
-    // Mock: Simulate Action 1 (日報取得) - Acquire locks
-    const action1Locks = unsubmittedMembers.map((member) => `lock-${member.memberId}`);
-    action1Locks.forEach((lockId) => {
-      mockDbTransaction.lockStates.set(lockId, true);
-      rollbackContext.acquiredLockIds.push(lockId);
-    });
-
-    // Mock: Simulate Action 2 (未提出通知送信) - Send reminder notifications
-    const sentNotificationIds: string[] = [];
-    unsubmittedMembers.forEach((member) => {
-      const messageId = `msg-${agentExecutionId}-${member.memberId}`;
-      sentNotificationIds.push(messageId);
-      mockEmailSystem.sentMessages.push({
-        id: messageId,
-        recipientEmail: member.email,
-        messageBody: `Reminder: Your daily report for ${targetDate} is due by ${deadlineTime}`,
-        timestamp: new Date('2025-01-15T08:00:00Z').toISOString(),
-        status: 'sent',
-      });
-      rollbackContext.sentNotificationIds.push(messageId);
-    });
-
-    // Mock: Simulate Action 3 (課題抽出) - Create temporary issue records
-    const createdTempRecordIds: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const recordId = `temp-issue-${agentExecutionId}-${i}`;
-      createdTempRecordIds.push(recordId);
-      mockDbTransaction.tempIssueRecords.push({
-        id: recordId,
-        content: `Extracted issue ${i + 1} from pending reports`,
-        createdAt: new Date('2025-01-15T08:30:00Z').toISOString(),
-      });
-      rollbackContext.createdTempIssueRecordIds.push(recordId);
-    }
-
-    // Verify state before simulating Action 4 failure
-    expect(mockEmailSystem.sentMessages.length).toBe(2);
-    expect(mockEmailSystem.sentMessages.every((m) => m.status === 'sent')).toBe(true);
-    expect(mockDbTransaction.tempIssueRecords.length).toBe(3);
-    expect(mockDbTransaction.lockStates.size).toBe(2);
-    expect(Array.from(mockDbTransaction.lockStates.values()).every((v) => v === true)).toBe(
-      true
-    );
-    expect(rollbackContext.transactionState).toBe('active');
-
-    // Simulate Action 4 failure (優先度付与) by throwing exception
-    const action4ErrorMessage = 'Priority scoring engine failed: unable to access rule engine';
-    let compensationExecuted = false;
-    let compensationLog: string[] = [];
-
-    try {
-      // Simulate the action 4 failure
-      throw new Error(action4ErrorMessage);
-    } catch (error) {
-      // Compensate for completed side effects
-      compensationExecuted = true;
-
-      // Compensation: Revert Action 2 side effects (sent notifications)
-      rollbackContext.sentNotificationIds.forEach((messageId) => {
-        mockEmailSystem.deleteMessage(messageId);
-        compensationLog.push(`Reverted notification message: ${messageId}`);
-      });
-
-      // Compensation: Revert Action 3 side effects (temporary issue records)
-      mockDbTransaction.rollback();
-      rollbackContext.createdTempIssueRecordIds.forEach((recordId) => {
-        compensationLog.push(`Rolled back temp issue record: ${recordId}`);
-      });
-
-      // Compensation: Release locks acquired in Action 1
-      rollbackContext.acquiredLockIds.forEach((lockId) => {
-        mockDbTransaction.lockStates.set(lockId, false);
-        compensationLog.push(`Released lock: ${lockId}`);
-      });
-
-      // Update transaction state
-      rollbackContext.transactionState = 'rolled_back';
-      compensationLog.push('Rollback completed: Actions 2,3 reverted');
-    }
-
-    // Assert: Verify compensation was executed
-    expect(compensationExecuted).toBe(true);
-
-    // Assert: Verify all sent notifications were reverted
-    expect(rollbackContext.sentNotificationIds.length).toBe(2);
-    rollbackContext.sentNotificationIds.forEach((messageId) => {
-      const status = mockEmailSystem.getMessageStatus(messageId);
-      expect(status).toBe('reverted');
-    });
-
-    // Assert: Verify temporary issue records were rolled back
-    expect(mockDbTransaction.tempIssueRecords.length).toBe(0);
-    expect(mockDbTransaction.isActive()).toBe(false);
-
-    // Assert: Verify all locks were released
-    expect(Array.from(mockDbTransaction.lockStates.values()).every((v) => v === false)).toBe(
-      true
-    );
-
-    // Assert: Verify transaction state was set to rolled back
-    expect(rollbackContext.transactionState).toBe('rolled_back');
-
-    // Assert: Verify compensation log contains expected rollback messages
-    expect(compensationLog.length).toBeGreaterThan(0);
-    expect(compensationLog.some((log) => log.includes('Rollback completed'))).toBe(true);
-    expect(compensationLog.filter((log) => log.includes('Reverted notification')).length).toBe(2);
-    expect(compensationLog.filter((log) => log.includes('Rolled back temp issue')).length).toBe(3);
-    expect(compensationLog.filter((log) => log.includes('Released lock')).length).toBe(2);
-
-    // Assert: Verify no completion notification was sent (Action 6 was skipped)
-    // This assumes Action 6 would have sent a message only if all prior actions succeeded
-    const finalNotificationMessages = mockEmailSystem.sentMessages.filter(
-      (m) => m.status === 'sent' && m.messageBody.includes('Morning meeting report')
-    );
-    expect(finalNotificationMessages.length).toBe(0);
-
-    // Verify idempotent retry: simulate calling the agent again with same input
-    // Reset context but preserve the rolled back state
-    const secondAttemptEmailCount = mockEmailSystem.sentMessages.length;
-    const secondAttemptIssueCount = mockDbTransaction.tempIssueRecords.length;
-    const secondAttemptLockCount = Array.from(mockDbTransaction.lockStates.values()).filter(
-      (v) => v === true
-    ).length;
-
-    // Re-run would start from clean state (no residual side effects)
-    expect(secondAttemptEmailCount).toBe(2); // Only the reverted messages exist
-    expect(secondAttemptIssueCount).toBe(0); // No temp records remain
-    expect(secondAttemptLockCount).toBe(0); // No locks held
-    expect(
-      mockEmailSystem.sentMessages.every((m) => m.status === 'reverted' || m.status === 'sent')
-    ).toBe(true);
-
-    // Assert: Verify system is restored to initial state (idempotence)
-    const finalSystemState = {
-      emailSystemMessages: mockEmailSystem.sentMessages.filter((m) => m.status === 'sent'),
-      dbTempRecords: mockDbTransaction.tempIssueRecords,
-      activeLocks: Array.from(mockDbTransaction.lockStates.entries())
-        .filter(([, isActive]) => isActive)
-        .map(([lockId]) => lockId),
+    const testInput = {
+      executionTimestamp: new Date('2024-01-15T08:45:00Z'),
+      reportDeadlineTime: '09:00',
+      morningMeetingStartTime: '09:30',
+      teamMemberIds: ['user-001', 'user-002', 'user-003', 'user-004', 'user-005'],
+      managerEmail: 'manager@example.com',
     };
 
-    expect(finalSystemState.emailSystemMessages.length).toBe(0);
-    expect(finalSystemState.dbTempRecords.length).toBe(0);
-    expect(finalSystemState.activeLocks.length).toBe(0);
+    // Execute agent - expect failure
+    const result = await runTx1Imp1Agent(testInput, mockAiClient);
 
-    // Call sendUnsubmittedReminder to verify it integrates with the mock infrastructure
-    const result = await sendUnsubmittedReminder(input);
+    // Verify execution failure status
+    expect(result.executionStatus).toBe('failure');
 
-    // Assert: sendUnsubmittedReminder processed the input
-    expect(result).toBeDefined();
-    expect(typeof result).toBe('object');
+    // Verify side effects were created during execution
+    expect(sentNotifications.length).toBe(3);
+    expect(acquiredLocks.length).toBe(1);
+    expect(createdTempRecords.length).toBe(2);
+
+    // Verify rollback occurred: notifications should be cleared
+    expect(sentNotifications).toHaveLength(0);
+
+    // Verify rollback occurred: locks should be released
+    expect(acquiredLocks).toHaveLength(0);
+
+    // Verify rollback occurred: temp records should be deleted
+    expect(createdTempRecords).toHaveLength(0);
+
+    // Verify no completion notification was sent
+    expect(result.summaryEmailSent).toBe(false);
+
+    // Verify no aggregated reports or issues in output after rollback
+    expect(result.aggregatedReportCount).toBe(0);
+    expect(result.extractedIssueCount).toBe(0);
+    expect(result.prioritizedIssueList).toHaveLength(0);
+    expect(result.unsubmittedMemberCount).toBe(0);
+
+    // Verify completion timestamp indicates failure moment
+    expect(result.completionTimestamp).toBeInstanceOf(Date);
+
+    // Test idempotency: Re-execute with same input should start clean
+    const mockAiClientClean: Tx1Imp1AiClient = {
+      async executeAction01FetchReports(prompt: string) {
+        acquiredLocks.push({ reportId: 'REPORT-BATCH-002', lockId: 'LOCK-67890' });
+        return {
+          status: 'success',
+          reports: [
+            { userId: 'user-001', reportContent: 'Completed feature X, found performance issue' },
+            { userId: 'user-002', reportContent: 'Finished testing, no blockers' },
+            { userId: 'user-004', reportContent: 'Implemented API v2, lag detected' },
+          ],
+        };
+      },
+
+      async executeAction02SendNotifications(prompt: string) {
+        mockUnsubmittedMembers.forEach((userId) => {
+          sentNotifications.push({ userId, timestamp: new Date('2024-01-15T09:00:00Z') });
+        });
+        return {
+          status: 'success',
+          notificationsSent: mockUnsubmittedMembers.length,
+          recipients: mockUnsubmittedMembers,
+        };
+      },
+
+      async executeAction03ExtractIssues(prompt: string) {
+        mockExtractedIssues.forEach((issue) => {
+          createdTempRecords.push({ recordId: `TEMP-${Date.now()}`, issueId: issue.id });
+        });
+        return {
+          status: 'success',
+          extractedIssueCount: mockExtractedIssues.length,
+          issues: mockExtractedIssues,
+        };
+      },
+
+      async executeAction04AssignPriorities(prompt: string) {
+        throw new Error('Action 4 execution failed: Invalid priority rule configuration');
+      },
+
+      async executeAction05GenerateReport(prompt: string) {
+        throw new Error('Action 5 should not have been executed');
+      },
+
+      async executeAction06SendCompletion(prompt: string) {
+        throw new Error('Action 6 should not have been executed');
+      },
+    };
+
+    const retryResult = await runTx1Imp1Agent(testInput, mockAiClientClean);
+
+    // Verify state is clean: no lingering side effects from first execution
+    // Side effects should be isolated to each execution attempt
+    expect(retryResult.executionStatus).toBe('failure');
+
+    // Verify retry follows same rollback pattern
+    expect(retryResult.summaryEmailSent).toBe(false);
+    expect(retryResult.aggregatedReportCount).toBe(0);
+
+    // Verify both execution attempts show idempotent behavior
+    // (Restart attempt does not carry artifacts from previous failure)
+    expect(result.completionTimestamp).not.toEqual(retryResult.completionTimestamp);
   });
 });

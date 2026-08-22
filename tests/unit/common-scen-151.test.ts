@@ -1,245 +1,248 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx8Imp1Agent, type Tx8Imp1AiClient } from '../../src/agents/tx-8-imp-1/orchestrator';
 
-describe("notification-delivery", () => {
-  test("SCEN-151: escalation condition detected before side effect commit triggers human handoff with audit log", async () => {
-    // Setup: Create mock AI client that simulates tx8_imp_1 escalation scenario
-    const mockAiClient = {
-      action01_searchAndExtractIssueData: jest.fn().mockResolvedValue({
-        issues: [
+describe('Tx8Imp1Agent - Emergency Escalation on Critical Issue Detection', () => {
+  // SCEN-151
+  test('should escalate to human review when critical issue is detected before committing side effects', async () => {
+    const analysisStartDate = '2024-01-15';
+    const analysisEndDate = '2024-01-22';
+    const managerEmail = 'manager@example.com';
+    const minimumDataThreshold = 10;
+
+    const mockAiClient: Tx8Imp1AiClient = {
+      action01SearchExtractIssueData: jest.fn().mockResolvedValue({
+        issueDataList: [
           {
-            id: "issue_001",
-            title: "Production database connection timeout",
-            severity: "critical",
-            reportedDate: "2024-01-15T09:00:00Z",
+            issueId: 'ISS-001',
+            title: 'Database connection timeout',
+            reportedDate: '2024-01-20T09:30:00Z',
+            severity: 'high',
+            affectedTeams: ['backend', 'infrastructure'],
           },
           {
-            id: "issue_002",
-            title: "API response delay",
-            severity: "high",
-            reportedDate: "2024-01-15T09:30:00Z",
+            issueId: 'ISS-002',
+            title: 'API response delay',
+            reportedDate: '2024-01-21T10:15:00Z',
+            severity: 'medium',
+            affectedTeams: ['backend'],
+          },
+          {
+            issueId: 'ISS-003',
+            title: 'Authentication service outage',
+            reportedDate: '2024-01-22T08:45:00Z',
+            severity: 'critical',
+            affectedTeams: ['auth', 'backend', 'frontend'],
           },
         ],
-        extractedAt: "2024-01-15T10:00:00Z",
+        extractedCount: 3,
+        extractionTimestamp: '2024-01-22T11:00:00Z',
       }),
-      action02_analyzeRecurrencePatterns: jest.fn().mockResolvedValue({
+
+      action02AnalyzeRecurrencePattern: jest.fn().mockResolvedValue({
         patterns: [
           {
-            patternId: "pattern_001",
-            baseIssueId: "issue_001",
-            recurrenceCount: 3,
-            timeSeriesData: [
-              {
-                date: "2024-01-10",
-                occurrences: 1,
-              },
-              {
-                date: "2024-01-12",
-                occurrences: 1,
-              },
-              {
-                date: "2024-01-15",
-                occurrences: 1,
-              },
+            patternId: 'PAT-001',
+            issueTitle: 'Database connectivity',
+            occurrenceCount: 5,
+            timeSeriesAnalysis: [
+              { date: '2024-01-10', count: 1 },
+              { date: '2024-01-15', count: 2 },
+              { date: '2024-01-20', count: 2 },
             ],
+            riskScore: 0.72,
+          },
+          {
+            patternId: 'PAT-002',
+            issueTitle: 'API performance',
+            occurrenceCount: 8,
+            timeSeriesAnalysis: [
+              { date: '2024-01-08', count: 1 },
+              { date: '2024-01-14', count: 2 },
+              { date: '2024-01-21', count: 5 },
+            ],
+            riskScore: 0.85,
           },
         ],
-        analysisTimestamp: "2024-01-15T10:05:00Z",
+        analysisCompletedAt: '2024-01-22T11:05:00Z',
       }),
-      action03_identifyBottleneckPatterns: jest.fn().mockResolvedValue({
+
+      action03IdentifyBottleneck: jest.fn().mockResolvedValue({
         bottlenecks: [
           {
-            bottleneckId: "bn_001",
-            description: "Database connection pooling exhaustion",
-            impactLevel: "critical",
-            affectedIssues: ["issue_001"],
+            bottleneckId: 'BN-001',
+            category: 'infrastructure',
+            description: 'Load balancer misconfiguration causing cascading failures',
+            impactedIssueIds: ['ISS-001', 'ISS-003'],
+            temporalTrend: 'accelerating',
+            estimatedResolutionDays: 3,
+          },
+          {
+            bottleneckId: 'BN-002',
+            category: 'deployment',
+            description: 'Insufficient capacity during peak hours',
+            impactedIssueIds: ['ISS-002', 'ISS-003'],
+            temporalTrend: 'steady',
+            estimatedResolutionDays: 5,
           },
         ],
-        identifiedAt: "2024-01-15T10:10:00Z",
+        identificationCompletedAt: '2024-01-22T11:10:00Z',
       }),
-      action04_generateVisualizationReport: jest.fn().mockResolvedValue({
-        reportId: "report_20240115_001",
-        reportContent: {
-          title: "Issue Pattern Analysis Report",
-          generatedAt: "2024-01-15T10:15:00Z",
-          sections: [
-            {
-              sectionType: "timeline",
-              data: "timeline_chart_data",
-            },
-            {
-              sectionType: "bottleneck",
-              data: "bottleneck_visualization",
-            },
-          ],
+
+      action04GenerateVisualizationReport: jest.fn().mockResolvedValue({
+        reportId: 'RPT-8IMP1-20240122-001',
+        title: 'Critical Issue Pattern Analysis Report',
+        generatedAt: '2024-01-22T11:15:00Z',
+        chartUrls: [
+          'https://reports.internal/chart-001-recurrence-trend.png',
+          'https://reports.internal/chart-002-bottleneck-impact.png',
+        ],
+        summaryMetrics: {
+          totalIssuesAnalyzed: 3,
+          criticalIssuesFound: 1,
+          averageRecurrenceRiskScore: 0.78,
+          predictedResolutionDays: 4,
         },
-        reportStatus: "pending_distribution",
       }),
-      action05_prepareEscalationHandoff: jest.fn().mockResolvedValue({
+
+      action05DetectEscalationCondition: jest.fn().mockResolvedValue({
         escalationDetected: true,
-        escalationCondition: "urgent_issue_identified",
+        escalationReason: 'critical_issue_identified',
         escalationDetails: {
-          criticalIssueCount: 1,
-          highPriorityIssueCount: 1,
-          requiresImmediateAction: true,
-          recommendedActions: [
-            "Immediate database team notification",
-            "Incident severity escalation",
-          ],
+          criticalIssueId: 'ISS-003',
+          criticalIssueTitle: 'Authentication service outage',
+          severity: 'critical',
+          affectedSystems: ['auth', 'backend', 'frontend'],
+          userImpactCount: 5000,
+          estimatedRecoveryTime: '2024-01-22T14:00:00Z',
+          requiresImmediateAttention: true,
         },
-        handoffStatus: "pending_human_review",
-        handoffTimestamp: "2024-01-15T10:20:00Z",
+        timestamp: '2024-01-22T11:18:00Z',
       }),
     };
 
-    // Setup: Mock audit log collection
-    const auditLogEntries: Array<{
+    const escalationNotifications: Array<{
       timestamp: string;
-      eventType: string;
-      escalationReason?: string;
-      handoffTarget?: string;
+      recipient: string;
+      escalationReason: string;
+      status: string;
     }> = [];
-
-    const mockAuditLogger = {
-      recordEscalationDetection: jest.fn((timestamp, reason, target) => {
-        auditLogEntries.push({
-          timestamp,
-          eventType: "escalation_detected",
-          escalationReason: reason,
-          handoffTarget: target,
-        });
-      }),
-    };
-
-    // Setup: Mock notification service for handoff notification
-    const handoffNotifications: Array<{
-      recipientId: string;
-      messageType: string;
-      content: string;
+    const auditLog: Array<{
       timestamp: string;
+      action: string;
+      reason: string;
+      recipient: string;
     }> = [];
 
     const mockNotificationService = {
-      sendHandoffNotification: jest.fn(
-        (recipientId, messageType, content, timestamp) => {
-          handoffNotifications.push({
-            recipientId,
-            messageType,
-            content,
-            timestamp,
+      sendEscalationNotification: jest
+        .fn()
+        .mockImplementation((recipient: string, details: unknown) => {
+          escalationNotifications.push({
+            timestamp: new Date().toISOString(),
+            recipient,
+            escalationReason:
+              typeof details === 'object' && details !== null
+                ? (details as Record<string, unknown>).escalationReason ||
+                  'unknown'
+                : 'unknown',
+            status: 'pending_human_review',
           });
-          return Promise.resolve({ notificationId: "notif_001", sent: true });
-        }
-      ),
+          return Promise.resolve({ sent: true, messageId: 'MSG-ESC-001' });
+        }),
     };
 
-    // Setup: Mock side effect tracking
-    const sideEffectCommitLog: Array<{
-      type: string;
-      status: string;
-      timestamp: string;
-    }> = [];
-
-    const mockSideEffectTracker = {
-      recordAttempt: jest.fn((type, status, timestamp) => {
-        sideEffectCommitLog.push({
-          type,
-          status,
-          timestamp,
-        });
-      }),
+    const mockAuditService = {
+      recordEscalation: jest
+        .fn()
+        .mockImplementation(
+          (
+            timestamp: string,
+            reason: string,
+            recipient: string,
+            details: unknown,
+          ) => {
+            auditLog.push({
+              timestamp,
+              action: 'escalation_detected',
+              reason,
+              recipient,
+            });
+            return Promise.resolve({ recorded: true, auditId: 'AUD-ESC-001' });
+          },
+        ),
     };
 
-    // Test parameter: Unsubmitted member reminder input with escalation scenario context
-    const reminderInput = {
-      unsubmittedMemberIds: ["member_001", "member_002"],
-      reportingDeadline: "2024-01-15T11:00:00Z",
-      escalationContext: {
-        agentExecutionId: "tx8_imp_1_exec_20240115",
-        currentActionNumber: 5,
-        hasEscalationDetected: true,
-        escalationConditionType: "urgent_issue_identified",
-      },
-      departmentManagerId: "manager_dept_001",
-      auditLogger: mockAuditLogger,
+    const input = {
+      analysisPeriodStartDate: analysisStartDate,
+      analysisPeriodEndDate: analysisEndDate,
+      managerEmail,
+      minimumDataThreshold,
+    };
+
+    const result = await runTx8Imp1Agent(input, mockAiClient, {
       notificationService: mockNotificationService,
-      sideEffectTracker: mockSideEffectTracker,
-    };
+      auditService: mockAuditService,
+    });
 
-    // Execution: Call sendUnsubmittedReminder which should detect escalation
-    // and trigger handoff before side effect commitment
-    const result = await sendUnsubmittedReminder(reminderInput);
+    expect(mockAiClient.action01SearchExtractIssueData).toHaveBeenCalledWith({
+      startDate: analysisStartDate,
+      endDate: analysisEndDate,
+    });
 
-    // Assertion 1: Escalation condition was detected and handoff status is set to pending_human_review
-    expect(result.status).toBe("escalation_handoff_initiated");
-    expect(result.handoffStatus).toBe("pending_human_review");
-    expect(result.escalationDetected).toBe(true);
+    expect(mockAiClient.action02AnalyzeRecurrencePattern).toHaveBeenCalled();
+    expect(mockAiClient.action03IdentifyBottleneck).toHaveBeenCalled();
+    expect(mockAiClient.action04GenerateVisualizationReport).toHaveBeenCalled();
+    expect(mockAiClient.action05DetectEscalationCondition).toHaveBeenCalled();
 
-    // Assertion 2: Side effect (reminder distribution) was not committed
-    // Verify that reminder notifications to unsubmitted members were NOT sent
-    const reminderDistributionAttempts = sideEffectCommitLog.filter(
-      (log) => log.type === "reminder_distribution"
-    );
-    expect(reminderDistributionAttempts.length).toBe(0);
+    expect(result.analysisStatus).toBe('escalation_detected');
+    expect(result.escalationState).toEqual({
+      escalationDetected: true,
+      escalationReason: 'critical_issue_identified',
+      status: 'pending_human_review',
+      escalationTimestamp: expect.any(String),
+    });
 
-    // Assertion 3: Handoff notification to department manager WAS sent
-    expect(handoffNotifications.length).toBeGreaterThan(0);
-    const managerHandoffNotif = handoffNotifications.find(
-      (notif) => notif.recipientId === "manager_dept_001"
-    );
-    expect(managerHandoffNotif).toBeDefined();
-    expect(managerHandoffNotif?.messageType).toBe("escalation_handoff");
-    expect(managerHandoffNotif?.content).toContain("urgent_issue_identified");
-    expect(managerHandoffNotif?.content).toContain("pending_human_review");
+    expect(result.sideEffectsCommitted).toBe(false);
 
-    // Assertion 4: Audit log recorded escalation detection with correct metadata
-    expect(auditLogEntries.length).toBeGreaterThan(0);
-    const escalationAuditEntry = auditLogEntries.find(
-      (entry) => entry.eventType === "escalation_detected"
-    );
-    expect(escalationAuditEntry).toBeDefined();
-    expect(escalationAuditEntry?.escalationReason).toBe(
-      "urgent_issue_identified"
-    );
-    expect(escalationAuditEntry?.handoffTarget).toBe("manager_dept_001");
-    expect(escalationAuditEntry?.timestamp).toBeDefined();
-
-    // Assertion 5: Escalation timestamp is ISO 8601 format and recent
-    const auditTimestamp = new Date(escalationAuditEntry!.timestamp);
-    expect(auditTimestamp.getTime()).toBeGreaterThan(
-      new Date("2024-01-15T10:00:00Z").getTime()
-    );
-    expect(auditTimestamp.getTime()).toBeLessThanOrEqual(
-      new Date("2024-01-15T11:00:00Z").getTime()
+    expect(mockNotificationService.sendEscalationNotification).toHaveBeenCalledWith(
+      managerEmail,
+      expect.objectContaining({
+        escalationReason: 'critical_issue_identified',
+        criticalIssueTitle: 'Authentication service outage',
+        requiresImmediateAttention: true,
+        status: 'pending_human_review',
+      }),
     );
 
-    // Assertion 6: Handoff context is properly maintained for human review
-    expect(result.handoffContext).toBeDefined();
-    expect(result.handoffContext?.criticalIssueDetails).toBeDefined();
-    expect(result.handoffContext?.analysisDetails).toBeDefined();
-    expect(result.handoffContext?.confirmationRequired).toBe(true);
+    expect(mockAuditService.recordEscalation).toHaveBeenCalledWith(
+      expect.stringMatching(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+      'critical_issue_identified',
+      managerEmail,
+      expect.objectContaining({
+        criticalIssueId: 'ISS-003',
+        userImpactCount: 5000,
+      }),
+    );
 
-    // Assertion 7: Verify that auto-proposal and auto-distribution side effects
-    // are marked as "pending_commit" and not executed
-    const autoProposalAttempts = sideEffectCommitLog.filter(
-      (log) =>
-        log.type === "auto_proposal" && log.status === "pending_commit"
-    );
-    expect(autoProposalAttempts.length).toBeGreaterThan(0);
+    expect(escalationNotifications).toHaveLength(1);
+    expect(escalationNotifications[0]).toEqual({
+      timestamp: expect.any(String),
+      recipient: managerEmail,
+      escalationReason: 'critical_issue_identified',
+      status: 'pending_human_review',
+    });
 
-    const autoDistributionAttempts = sideEffectCommitLog.filter(
-      (log) =>
-        log.type === "auto_report_distribution" &&
-        log.status === "pending_commit"
-    );
-    expect(autoDistributionAttempts.length).toBeGreaterThan(0);
+    expect(auditLog).toHaveLength(1);
+    expect(auditLog[0]).toEqual({
+      timestamp: expect.any(String),
+      action: 'escalation_detected',
+      reason: 'critical_issue_identified',
+      recipient: managerEmail,
+    });
 
-    // Assertion 8: Handoff notification contains escalation analysis details
-    expect(managerHandoffNotif?.content).toContain(
-      "critical"
-    );
-    expect(managerHandoffNotif?.content).toMatch(
-      /requires immediate action|recommendation/i
-    );
+    expect(result.reportAutoDistributionCommitted).toBe(false);
+    expect(result.autoResponseProposalCommitted).toBe(false);
+
+    expect(result.reportId).toBeDefined();
+    expect(result.reportId).not.toBe('');
   });
 });

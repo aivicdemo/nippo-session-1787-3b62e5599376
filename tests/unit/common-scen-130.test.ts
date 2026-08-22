@@ -1,219 +1,231 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { generateMonthlyAnalysisReport } from "../../src/logic/analysis-reporting";
-import type {
-  Tx7Imp1AiClient,
-  MonthlyAnalysisReportInput,
-  MonthlyAnalysisReportOutput,
-  TeamPerformanceMetric,
-} from "../../src/agents/tx-7-imp-1/types";
-import { buildAction06Prompt, ACTION_06_PROMPT_VERSION } from "../../src/agents/tx-7-imp-1/prompts/action-06";
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
+import { type Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/orchestrator';
+import { buildAction06Prompt, ACTION_06_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-06';
 
-describe("generateMonthlyAnalysisReport", () => {
-  let mockAiClient: Tx7Imp1AiClient;
-  let auditLog: Array<{
-    action: string;
-    timestamp: string;
-    inputHash: string;
-    outputMetrics: TeamPerformanceMetric[];
-  }>;
+describe('tx-7-imp-1: 月次レポート生成から分析完了までの自動実行', () => {
+  let mockAiClient: jest.Mocked<Tx7Imp1AiClient>;
 
   beforeEach(() => {
-    auditLog = [];
     mockAiClient = {
-      executeAction06: jest.fn(async (prompt: string) => {
-        const inputHash = Buffer.from(prompt).toString("base64").substring(0, 16);
-        const mockMetrics: TeamPerformanceMetric[] = [
-          {
-            teamName: "Team A",
-            completionRate: 0.92,
-            issueResolutionRate: 0.88,
-            responseTimeMinutes: 45,
-            previousMonthCompletionRate: 0.85,
-            anomalyFlag: false,
-            statusJudgment: "normal",
-          },
-          {
-            teamName: "Team B",
-            completionRate: 0.78,
-            issueResolutionRate: 0.72,
-            responseTimeMinutes: 62,
-            previousMonthCompletionRate: 0.88,
-            anomalyFlag: true,
-            statusJudgment: "attention_required",
-          },
-          {
-            teamName: "Team C",
-            completionRate: 0.85,
-            issueResolutionRate: 0.80,
-            responseTimeMinutes: 58,
-            previousMonthCompletionRate: 0.84,
-            anomalyFlag: false,
-            statusJudgment: "normal",
-          },
-        ];
-        auditLog.push({
-          action: "action-06",
-          timestamp: new Date("2024-01-08T10:00:00Z").toISOString(),
-          inputHash,
-          outputMetrics: mockMetrics,
-        });
-        return {
-          version: ACTION_06_PROMPT_VERSION,
-          metrics: mockMetrics,
-        };
-      }),
+      callAction01: jest.fn(),
+      callAction02: jest.fn(),
+      callAction03: jest.fn(),
+      callAction04: jest.fn(),
+      callAction05: jest.fn(),
+      callAction06: jest.fn(),
+      callAction07: jest.fn(),
+      callAction08: jest.fn(),
     };
   });
 
-  afterEach(() => {
-    auditLog = [];
-  });
+  // SCEN-130: 月次レポート生成から分析完了までの自動実行 - チーム別パフォーマンス指標算出
+  test('should execute team performance metrics calculation action (action-06) and embed results in monthly analysis report', async () => {
+    const targetMonth = '2024-01';
+    const teamId = 'team-engineering-001';
+    const triggeredBy = 'schedule' as const;
 
-  // SCEN-130
-  test("should execute action-06 for team performance metrics calculation and embed results in monthly analysis report", async () => {
-    const reportingDataRecordCount = 248;
-    const reportingPeriod = {
-      year: 2024,
-      month: 1,
+    const mockTeamPerformanceMetrics = {
+      teamId: 'team-engineering-001',
+      teamName: 'Engineering Team',
+      metrics: [
+        {
+          metricName: 'issue_completion_rate',
+          currentValue: 87.5,
+          previousValue: 82.3,
+          unit: 'percent',
+          status: 'normal' as const,
+          anomalyFlag: false,
+        },
+        {
+          metricName: 'issue_response_time_hours',
+          currentValue: 4.2,
+          previousValue: 5.1,
+          unit: 'hours',
+          status: 'normal' as const,
+          anomalyFlag: false,
+        },
+        {
+          metricName: 'recurrence_rate',
+          currentValue: 12.5,
+          previousValue: 18.3,
+          unit: 'percent',
+          status: 'normal' as const,
+          anomalyFlag: false,
+        },
+        {
+          metricName: 'report_submission_rate',
+          currentValue: 95.0,
+          previousValue: 88.0,
+          unit: 'percent',
+          status: 'normal' as const,
+          anomalyFlag: false,
+        },
+      ],
+      calculationTimestamp: new Date('2024-02-01T09:00:00Z'),
+      reportDataCount: 156,
+      teamAssignmentValidated: true,
     };
 
-    const input: MonthlyAnalysisReportInput = {
-      aggregatedReports: [
+    const mockMonthlyAnalysisReport = {
+      reportId: 'report-2024-01-001',
+      generatedAt: new Date('2024-02-01T09:15:00Z'),
+      targetMonth: '2024-01',
+      teamId: 'team-engineering-001',
+      topPriorityChallenges: [
         {
-          reportId: "rep-001",
-          reportDate: "2024-01-08",
-          teamId: "team-a",
-          teamName: "Team A",
-          completedTasks: 23,
-          reportedIssues: 3,
-          resolutionTimeHours: 2.5,
-          submittedAt: "2024-01-08T09:15:00Z",
+          issueId: 'issue-001',
+          title: 'Database performance degradation',
+          priority: 1,
+          priorityScore: 9.5,
+          affectedTeams: ['team-engineering-001'],
         },
         {
-          reportId: "rep-002",
-          reportDate: "2024-01-08",
-          teamId: "team-b",
-          teamName: "Team B",
-          completedTasks: 18,
-          reportedIssues: 5,
-          resolutionTimeHours: 4.1,
-          submittedAt: "2024-01-08T08:45:00Z",
+          issueId: 'issue-002',
+          title: 'API response timeout under load',
+          priority: 2,
+          priorityScore: 8.7,
+          affectedTeams: ['team-engineering-001'],
         },
         {
-          reportId: "rep-003",
-          reportDate: "2024-01-08",
-          teamId: "team-c",
-          teamName: "Team C",
-          completedTasks: 21,
-          reportedIssues: 4,
-          resolutionTimeHours: 3.2,
-          submittedAt: "2024-01-08T09:30:00Z",
+          issueId: 'issue-003',
+          title: 'Memory leak in background service',
+          priority: 3,
+          priorityScore: 8.2,
+          affectedTeams: ['team-engineering-001'],
         },
       ],
-      extractedIssues: [
-        {
-          issueId: "iss-001",
-          teamId: "team-a",
-          category: "quality",
-          priority: "high",
-          detectedDate: "2024-01-08",
-        },
-        {
-          issueId: "iss-002",
-          teamId: "team-b",
-          category: "schedule",
-          priority: "critical",
-          detectedDate: "2024-01-08",
-        },
-      ],
-      bottleneckTransitions: [
-        {
-          weekNumber: 1,
-          bottleneckType: "resource_constraint",
-          affectedTeamIds: ["team-b"],
-          severity: "high",
-        },
-        {
-          weekNumber: 2,
-          bottleneckType: "process_delay",
-          affectedTeamIds: ["team-a", "team-c"],
-          severity: "medium",
-        },
-      ],
-      previousMonthMetrics: [
-        { teamName: "Team A", completionRate: 0.85, issueResolutionRate: 0.80, responseTimeMinutes: 50 },
-        { teamName: "Team B", completionRate: 0.88, issueResolutionRate: 0.82, responseTimeMinutes: 55 },
-        { teamName: "Team C", completionRate: 0.84, issueResolutionRate: 0.78, responseTimeMinutes: 60 },
-      ],
-      reportingDataRecordCount,
-      reportingPeriod,
+      bottleneckTrend: {
+        timeSeriesData: [
+          {
+            date: '2024-01-01',
+            bottleneckSeverity: 6.2,
+            affectedIssueCount: 8,
+          },
+          {
+            date: '2024-01-08',
+            bottleneckSeverity: 5.8,
+            affectedIssueCount: 6,
+          },
+          {
+            date: '2024-01-15',
+            bottleneckSeverity: 5.1,
+            affectedIssueCount: 5,
+          },
+          {
+            date: '2024-01-22',
+            bottleneckSeverity: 4.3,
+            affectedIssueCount: 3,
+          },
+          {
+            date: '2024-01-29',
+            bottleneckSeverity: 3.9,
+            affectedIssueCount: 2,
+          },
+        ],
+        improvementTrend: 'improving' as const,
+        recurringIssuePattern: ['database-perf', 'api-timeout', 'memory-leak'],
+      },
+      teamPerformanceMetrics: mockTeamPerformanceMetrics,
+      emailSentTo: ['director@company.com', 'team-lead@company.com'],
+      status: 'success' as const,
+      auditLog: {
+        action06ExecutedAt: new Date('2024-02-01T09:05:00Z'),
+        inputDataHash: 'hash-monthly-report-data-2024-01',
+        outputMetricSet: mockTeamPerformanceMetrics,
+        reportDataCount: 156,
+        teamAssignmentValidated: true,
+      },
     };
 
-    const output: MonthlyAnalysisReportOutput = await generateMonthlyAnalysisReport(
-      input,
-      mockAiClient
+    mockAiClient.callAction06.mockResolvedValue(mockTeamPerformanceMetrics);
+
+    const request = {
+      targetMonth,
+      teamId,
+      triggeredBy,
+      includeDetailedAnalysis: true,
+    };
+
+    const result = await runTx7Imp1Agent(request, mockAiClient);
+
+    expect(mockAiClient.callAction06).toHaveBeenCalledTimes(1);
+
+    const action06CallArgs = mockAiClient.callAction06.mock.calls[0];
+    expect(action06CallArgs).toBeDefined();
+    expect(action06CallArgs[0]).toMatchObject({
+      targetMonth: '2024-01',
+      teamId: 'team-engineering-001',
+    });
+
+    const generatedPrompt = buildAction06Prompt({
+      targetMonth: '2024-01',
+      teamId: 'team-engineering-001',
+    });
+    expect(generatedPrompt).toBeDefined();
+    expect(generatedPrompt).toContain('team-engineering-001');
+
+    const promptVersion = ACTION_06_PROMPT_VERSION;
+    expect(promptVersion).toBeDefined();
+    expect(typeof promptVersion).toBe('string');
+
+    expect(result.teamPerformanceMetrics).toEqual(mockTeamPerformanceMetrics);
+    expect(result.teamPerformanceMetrics.teamId).toBe('team-engineering-001');
+    expect(result.teamPerformanceMetrics.teamName).toBe('Engineering Team');
+    expect(result.teamPerformanceMetrics.metrics).toHaveLength(4);
+
+    const completionRateMetric = result.teamPerformanceMetrics.metrics.find(
+      (m) => m.metricName === 'issue_completion_rate'
     );
+    expect(completionRateMetric).toBeDefined();
+    expect(completionRateMetric?.currentValue).toBe(87.5);
+    expect(completionRateMetric?.previousValue).toBe(82.3);
+    expect(completionRateMetric?.status).toBe('normal');
+    expect(completionRateMetric?.anomalyFlag).toBe(false);
 
-    expect(mockAiClient.executeAction06).toHaveBeenCalledTimes(1);
+    const responseTimeMetric = result.teamPerformanceMetrics.metrics.find(
+      (m) => m.metricName === 'issue_response_time_hours'
+    );
+    expect(responseTimeMetric).toBeDefined();
+    expect(responseTimeMetric?.currentValue).toBe(4.2);
+    expect(responseTimeMetric?.previousValue).toBe(5.1);
+    expect(responseTimeMetric?.status).toBe('normal');
 
-    const callArgs = (mockAiClient.executeAction06 as jest.Mock).mock.calls[0][0];
-    expect(callArgs).toContain("Team A");
-    expect(callArgs).toContain("Team B");
-    expect(callArgs).toContain("Team C");
+    const recurrenceRateMetric = result.teamPerformanceMetrics.metrics.find(
+      (m) => m.metricName === 'recurrence_rate'
+    );
+    expect(recurrenceRateMetric).toBeDefined();
+    expect(recurrenceRateMetric?.currentValue).toBe(12.5);
+    expect(recurrenceRateMetric?.previousValue).toBe(18.3);
 
-    expect(output).toBeDefined();
-    expect(output.reportVersion).toBe("1.0");
-    expect(output.reportPeriod).toEqual({ year: 2024, month: 1 });
-    expect(output.reportedDataRecordCount).toBe(248);
+    const submissionRateMetric = result.teamPerformanceMetrics.metrics.find(
+      (m) => m.metricName === 'report_submission_rate'
+    );
+    expect(submissionRateMetric).toBeDefined();
+    expect(submissionRateMetric?.currentValue).toBe(95.0);
 
-    expect(output.teamPerformanceMetrics).toHaveLength(3);
+    expect(result.teamPerformanceMetrics.calculationTimestamp).toEqual(
+      new Date('2024-02-01T09:00:00Z')
+    );
+    expect(result.teamPerformanceMetrics.reportDataCount).toBe(156);
+    expect(result.teamPerformanceMetrics.teamAssignmentValidated).toBe(true);
 
-    const teamAMetric = output.teamPerformanceMetrics.find((m) => m.teamName === "Team A");
-    expect(teamAMetric).toBeDefined();
-    expect(teamAMetric!.completionRate).toBe(0.92);
-    expect(teamAMetric!.issueResolutionRate).toBe(0.88);
-    expect(teamAMetric!.responseTimeMinutes).toBe(45);
-    expect(teamAMetric!.previousMonthCompletionRate).toBe(0.85);
-    expect(teamAMetric!.anomalyFlag).toBe(false);
-    expect(teamAMetric!.statusJudgment).toBe("normal");
+    expect(result.auditLog).toBeDefined();
+    expect(result.auditLog?.action06ExecutedAt).toBeDefined();
+    expect(result.auditLog?.inputDataHash).toBeDefined();
+    expect(result.auditLog?.outputMetricSet).toEqual(mockTeamPerformanceMetrics);
+    expect(result.auditLog?.reportDataCount).toBe(156);
+    expect(result.auditLog?.teamAssignmentValidated).toBe(true);
 
-    const teamBMetric = output.teamPerformanceMetrics.find((m) => m.teamName === "Team B");
-    expect(teamBMetric).toBeDefined();
-    expect(teamBMetric!.completionRate).toBe(0.78);
-    expect(teamBMetric!.issueResolutionRate).toBe(0.72);
-    expect(teamBMetric!.responseTimeMinutes).toBe(62);
-    expect(teamBMetric!.previousMonthCompletionRate).toBe(0.88);
-    expect(teamBMetric!.anomalyFlag).toBe(true);
-    expect(teamBMetric!.statusJudgment).toBe("attention_required");
+    expect(result.reportId).toBeDefined();
+    expect(result.generatedAt).toBeDefined();
+    expect(result.status).toBe('success');
 
-    const teamCMetric = output.teamPerformanceMetrics.find((m) => m.teamName === "Team C");
-    expect(teamCMetric).toBeDefined();
-    expect(teamCMetric!.completionRate).toBe(0.85);
-    expect(teamCMetric!.issueResolutionRate).toBe(0.80);
-    expect(teamCMetric!.responseTimeMinutes).toBe(58);
-    expect(teamCMetric!.statusJudgment).toBe("normal");
-
-    expect(auditLog).toHaveLength(1);
-    const logEntry = auditLog[0];
-    expect(logEntry.action).toBe("action-06");
-    expect(logEntry.timestamp).toBe("2024-01-08T10:00:00Z");
-    expect(logEntry.inputHash).toBeTruthy();
-    expect(logEntry.inputHash.length).toBe(16);
-    expect(logEntry.outputMetrics).toHaveLength(3);
-    expect(logEntry.outputMetrics[0].teamName).toBe("Team A");
-    expect(logEntry.outputMetrics[1].teamName).toBe("Team B");
-    expect(logEntry.outputMetrics[2].teamName).toBe("Team C");
-
-    const teamBVariationRate =
-      ((teamBMetric!.completionRate - teamBMetric!.previousMonthCompletionRate) /
-        teamBMetric!.previousMonthCompletionRate) *
-      100;
-    expect(Math.abs(teamBVariationRate)).toBeGreaterThanOrEqual(10);
-    expect(teamBMetric!.anomalyFlag).toBe(true);
-
-    expect(output.analysisMetadata).toBeDefined();
-    expect(output.analysisMetadata.action06ExecutedAt).toBe("2024-01-08T10:00:00Z");
-    expect(output.analysisMetadata.promptVersion).toBe(ACTION_06_PROMPT_VERSION);
-    expect(output.analysisMetadata.calculationBasis).toContain("team_assignment_validation");
+    expect(result.bottleneckTrend).toBeDefined();
+    expect(result.bottleneckTrend?.improvementTrend).toBe('improving');
+    expect(result.bottleneckTrend?.timeSeriesData).toHaveLength(5);
+    expect(result.bottleneckTrend?.recurringIssuePattern).toContain('database-perf');
+    expect(result.bottleneckTrend?.recurringIssuePattern).toContain('api-timeout');
+    expect(result.bottleneckTrend?.recurringIssuePattern).toContain('memory-leak');
   });
 });

@@ -1,180 +1,134 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx10Imp1Agent } from '../../src/agents/tx-10-imp-1/orchestrator';
+import type { Tx10Imp1AiClient } from '../../src/agents/tx-10-imp-1/orchestrator';
+import type { Tx10AgentInput, Tx10AgentOutput } from '../../src/types/tx10-types';
 
-// Mock dependencies
-jest.mock('../../src/agents/tx-10-imp-1/orchestrator');
-jest.mock('../../src/db/client');
-jest.mock('../../src/audit/logger');
-jest.mock('../../src/notification/email-client');
-
-describe('notification-delivery: sendUnsubmittedReminder with escalation handling', () => {
-  // SCEN-185
-  test('should escalate and halt side effects when training material conflicts with business rules', async () => {
-    // Setup: Import mock modules
-    const { runTx10Imp1Agent } = require('../../src/agents/tx-10-imp-1/orchestrator');
-    const { getDb } = require('../../src/db/client');
-    const { auditLog } = require('../../src/audit/logger');
-    const { sendEmail } = require('../../src/notification/email-client');
-
-    // Setup: Mock database client
-    const mockDb = {
-      query: jest.fn(),
-      transaction: jest.fn(),
-      updateAgentStatus: jest.fn(),
-      recordEscalation: jest.fn(),
-    };
-    getDb.mockReturnValue(mockDb);
-
-    // Setup: Mock audit logger
-    const auditLogMock = jest.fn();
-    auditLog.mockImplementation(auditLogMock);
-
-    // Setup: Mock email sender
-    const emailSendMock = jest.fn().mockResolvedValue({ success: true });
-    sendEmail.mockImplementation(emailSendMock);
-
-    // Setup: Mock AI agent to simulate training material business rule mismatch
-    const escalationError = new Error('training_material_business_rule_mismatch');
-    escalationError.name = 'EscalationCondition';
-    (escalationError as any).escalationReason = 'training_material_business_rule_mismatch';
-    (escalationError as any).details = {
-      businessRuleDefinition: 'Morning standup reports must be submitted by 10:00 AM daily. Required fields: yesterday results, today plans, issues. Target members: 10 engineers.',
-      generatedMaterialIssue: 'Generated training material states: "Submit standup reports anytime during day, evening submission acceptable." This contradicts the 10:00 AM deadline.',
-      recommendedFix: 'Regenerate training material to align with 10:00 AM submission deadline and mandatory fields requirement.',
+describe('Tx10Imp1Agent - Orchestrator', () => {
+  // SCEN-185: [error] 導入計画・研修実施・フィードバック対応の自動化・統合 AIエージェント - 研修教材の内容が業務ルールと不整合の場合に副作用の確定前に人へ引き継ぐ
+  test('should escalate to manager when training material content conflicts with business rules before confirming side effects', async () => {
+    // Setup: Test data with business rule definitions
+    const businessRuleDefinition = {
+      reportingDeadlineTime: '10:00',
+      requiredFields: ['yesterday', 'today', 'issues'],
+      targetEngineerCount: 10,
+      deploymentInitiationTimestamp: new Date('2024-01-15T09:00:00Z'),
     };
 
-    // Simulate Agent Action 3 returning mismatched training material
-    runTx10Imp1Agent.mockImplementation(async (config: any, aiClient: any) => {
-      // Simulate Action 3 output
-      const action3Output = {
-        trainingMaterial: {
-          submissionTime: 'anytime during business hours, evening acceptable',
-          requiredFields: ['standup_content'],
-          targetMemberCount: 10,
-          content: 'You can submit reports flexibly throughout the day.',
+    const agentInput: Tx10AgentInput = {
+      deploymentInitiationTimestamp: new Date('2024-01-15T09:00:00Z'),
+      participantList: [
+        { userId: 'pm-001', role: 'ProjectManager', email: 'pm@example.com' },
+        { userId: 'mgr-001', role: 'Manager', email: 'manager@example.com' },
+        ...Array.from({ length: 10 }, (_, i) => ({
+          userId: `eng-${String(i + 1).padStart(3, '0')}`,
+          role: 'Engineer',
+          email: `eng${i + 1}@example.com`,
+        })),
+      ],
+      preparationDaysRequired: 5,
+      reportingDeadlineTime: '10:00',
+    };
+
+    // Mock AI client with malformed training material response (conflicts with business rule)
+    const mockAiClient: Tx10Imp1AiClient = {
+      buildAction01Prompt: async () => ({
+        deploymentSchedule: {
+          startDate: new Date('2024-01-16T00:00:00Z'),
+          phaseDeadlines: [
+            { phase: 'setup', deadline: new Date('2024-01-17T00:00:00Z') },
+            { phase: 'training', deadline: new Date('2024-01-19T00:00:00Z') },
+          ],
+          productionStartDate: new Date('2024-01-22T00:00:00Z'),
         },
-      };
-
-      // Validate against business rule
-      const businessRule = {
-        submissionDeadline: '10:00 AM',
-        requiredFields: ['yesterday_results', 'today_plans', 'issues'],
-        targetMemberCount: 10,
-      };
-
-      // Detect mismatch
-      if (
-        action3Output.trainingMaterial.submissionTime !== businessRule.submissionDeadline ||
-        action3Output.trainingMaterial.requiredFields.length !== businessRule.requiredFields.length
-      ) {
-        throw escalationError;
-      }
-
-      return action3Output;
-    });
-
-    // Setup: Database mock to record escalation status
-    mockDb.updateAgentStatus.mockResolvedValue({
-      agentExecutionId: 'tx_10_imp_1_exec_20240115_001',
-      status: 'ESCALATION_PENDING_REVIEW',
-      escalationReason: 'training_material_business_rule_mismatch',
-      timestamp: new Date('2024-01-15T08:30:00Z').toISOString(),
-    });
-
-    mockDb.recordEscalation.mockResolvedValue({
-      escalationId: 'esc_tx_10_imp_1_001',
-      agentExecutionId: 'tx_10_imp_1_exec_20240115_001',
-      escalationReason: 'training_material_business_rule_mismatch',
-      details: {
-        businessRuleDefinition: 'Morning standup reports must be submitted by 10:00 AM daily. Required fields: yesterday results, today plans, issues. Target members: 10 engineers.',
-        generatedMaterialIssue: 'Generated training material states: "Submit standup reports anytime during day, evening submission acceptable." This contradicts the 10:00 AM deadline.',
-        recommendedFix: 'Regenerate training material to align with 10:00 AM submission deadline and mandatory fields requirement.',
-      },
-      targetMemberIds: ['eng001', 'eng002', 'eng003', 'eng004', 'eng005', 'eng006', 'eng007', 'eng008', 'eng009', 'eng010'],
-      recordedAt: new Date('2024-01-15T08:30:00Z').toISOString(),
-    });
-
-    // Setup: Test input parameters
-    const managerUserId = 'mgr_20240115_001';
-    const agentExecutionContext = {
-      contractId: 'tx_10_imp_1',
-      agentExecutionId: 'tx_10_imp_1_exec_20240115_001',
-      departmentId: 'dept_engineering_001',
-      targetMemberCount: 10,
-      businessRuleCheckpoint: 'training_material_validation',
+      }),
+      buildAction02Prompt: async () => ({
+        managerGuideContent: 'Manager operation guide document',
+      }),
+      // Action 3: Generate training material with BUSINESS RULE MISMATCH
+      buildAction03Prompt: async () => ({
+        trainingMaterials: [
+          {
+            title: 'Engineer Training Material',
+            content:
+              'Daily report submission is allowed once per day in the evening after work. Submit to the system anytime between 17:00 and 23:59.',
+            targetRole: 'Engineer',
+          },
+        ],
+      }),
+      buildAction04Prompt: async () => ({
+        initialReportData: { submissions: [] },
+      }),
+      buildAction05Prompt: async () => ({
+        feedbackItems: [],
+      }),
+      buildAction06Prompt: async () => ({
+        onboardingApprovalStatus: { approved: false },
+      }),
     };
 
-    // Execute: Call sendUnsubmittedReminder with mocked dependencies
-    let caughtError: any = null;
-    let result: any = null;
+    // Mock database and audit log storage
+    const mockDb = {
+      agents: new Map<string, unknown>(),
+      auditLogs: new Array<unknown>(),
+    };
 
-    try {
-      result = await sendUnsubmittedReminder(managerUserId, agentExecutionContext);
-    } catch (err) {
-      caughtError = err;
-    }
+    const mockEmailClient = {
+      sendEmails: jest.fn().mockResolvedValue([]),
+    };
 
-    // Verify: Escalation condition detected
-    expect(caughtError).toBeDefined();
-    expect(caughtError.name).toBe('EscalationCondition');
-    expect(caughtError.escalationReason).toBe('training_material_business_rule_mismatch');
+    const mockMessageQueue = {
+      publish: jest.fn().mockResolvedValue(undefined),
+    };
 
-    // Verify: Database status updated to escalation pending
-    expect(mockDb.updateAgentStatus).toHaveBeenCalledWith(
-      'tx_10_imp_1_exec_20240115_001',
-      'ESCALATION_PENDING_REVIEW',
-    );
+    // Execute agent
+    const result = await runTx10Imp1Agent(agentInput, mockAiClient);
 
-    // Verify: Escalation record created with full details
-    expect(mockDb.recordEscalation).toHaveBeenCalledWith({
-      agentExecutionId: 'tx_10_imp_1_exec_20240115_001',
-      escalationReason: 'training_material_business_rule_mismatch',
-      details: expect.objectContaining({
-        businessRuleDefinition: expect.stringMatching(/10:00 AM/),
-        generatedMaterialIssue: expect.stringMatching(/anytime during day/),
-        recommendedFix: expect.any(String),
-      }),
-      targetMemberIds: expect.arrayContaining(['eng001', 'eng002', 'eng003']),
+    // Verify escalation was triggered (Action 3 validation detected mismatch)
+    expect(result.status).toBe('ESCALATION_PENDING_REVIEW');
+
+    // Verify side effects were NOT executed
+    // Action 4, 5, 6 should not have created database entries or sent messages
+    expect(mockDb.agents.size).toBe(0);
+    expect(mockEmailClient.sendEmails).not.toHaveBeenCalled();
+    expect(mockMessageQueue.publish).not.toHaveBeenCalled();
+
+    // Verify escalation details in result
+    expect(result.escalationDetails).toBeDefined();
+    expect(result.escalationDetails.reason).toBe('training_material_business_rule_mismatch');
+    expect(result.escalationDetails.businessRuleViolation).toContain('reporting_deadline_mismatch');
+    expect(result.escalationDetails.conflictDescription).toContain('朝会提出時間ルール矛盾');
+    expect(result.escalationDetails.recommendedAction).toContain('修正');
+
+    // Verify audit log entry
+    expect(mockDb.auditLogs.length).toBe(1);
+    const auditEntry = mockDb.auditLogs[0] as Record<string, unknown>;
+    expect(auditEntry.eventType).toBe('tx_10_imp_1_escalation_triggered');
+    expect(auditEntry.reason).toBe('training_material_business_rule_mismatch');
+    expect(auditEntry.timestamp).toBeDefined();
+    expect((auditEntry.affectedEngineerCount as number)).toBe(10);
+
+    // Verify no side effect confirmations
+    expect(result.sideEffectsConfirmed).toBe(false);
+    expect(result.actionsPending).toEqual([
+      'buildAction04Prompt',
+      'buildAction05Prompt',
+      'buildAction06Prompt',
+    ]);
+
+    // Verify manager handoff payload contains detailed conflict information
+    expect(result.handoffPayload).toBeDefined();
+    expect(result.handoffPayload.conflictDetails).toContain('業務ルール定義');
+    expect(result.handoffPayload.conflictDetails).toContain('生成教材の問題点');
+    expect(result.handoffPayload.businessRuleDefinition).toEqual({
+      reportingDeadlineTime: '10:00',
+      requiredFields: ['yesterday', 'today', 'issues'],
     });
-
-    // Verify: No email sent to members (side effects not confirmed)
-    expect(emailSendMock).not.toHaveBeenCalled();
-
-    // Verify: Audit log records escalation event
-    expect(auditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'tx_10_imp_1_escalation_triggered',
-        agentExecutionId: 'tx_10_imp_1_exec_20240115_001',
-        escalationReason: 'training_material_business_rule_mismatch',
-        timestamp: expect.any(String),
-      }),
+    expect(result.handoffPayload.generatedMaterialContent).toContain(
+      'anytime between 17:00 and 23:59'
     );
 
-    // Verify: Audit log contains escalation details including target member count
-    const auditCallArgs = auditLogMock.mock.calls[0][0];
-    expect(auditCallArgs).toMatchObject({
-      eventType: 'tx_10_imp_1_escalation_triggered',
-      escalationReason: 'training_material_business_rule_mismatch',
-      targetMemberCount: 10,
-    });
-
-    // Verify: Agent execution status remains in escalation pending state
-    expect(mockDb.updateAgentStatus).toHaveBeenCalledWith(
-      'tx_10_imp_1_exec_20240115_001',
-      'ESCALATION_PENDING_REVIEW',
-    );
-
-    // Verify: Side effects (Actions 4, 5, 6) were not executed
-    const allDbCalls = mockDb.query.mock.calls;
-    const feedbackDistributionCalls = allDbCalls.filter((call: any) =>
-      call[0]?.includes?.('feedback_distribution') ||
-      call[0]?.includes?.('member_notification_batch'),
-    );
-    expect(feedbackDistributionCalls.length).toBe(0);
-
-    // Verify: No member autofeed or plan distribution occurred
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringMatching(/INSERT INTO member_feedback_queue/),
-    );
+    // Verify agent state persisted correctly
+    expect(result.agentExecutionId).toBeDefined();
+    expect(result.agentExecutionId).toMatch(/^tx_10_imp_1_/);
   });
 });

@@ -1,108 +1,306 @@
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
-import type { UnsubmittedReminderRequest, UnsubmittedReminderResponse } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { runTx1Imp1Agent } from "../../src/agents/tx-1-imp-1/orchestrator";
+import type {
+  Tx1Imp1AgentInput,
+  Tx1Imp1AgentOutput,
+  Tx1Imp1AiClient,
+  PrioritizedIssue,
+} from "../../src/agents/tx-1-imp-1/orchestrator";
 
-describe('notification-delivery: sendUnsubmittedReminder', () => {
-  // SCEN-032: [error] 日報集約から課題優先順位付けと未提出通知までの自律実行 AIエージェント - 「日報集約から課題優先順位付けと未提出通知までの自律実行」が「優先度判定ルールに該当しない新規課題タイプ」の場合に副作用の確定前に人へ引き継ぐ
-  test('should escalate to manager when unclassified issue type is detected and halt side effects', async () => {
-    const request: UnsubmittedReminderRequest = {
-      agentExecutionId: 'agent_exec_20240115_001',
-      reportingCycleDate: new Date('2024-01-15T09:00:00Z'),
-      unsubmittedMemberIds: ['member_001', 'member_002'],
-      extractedIssues: [
-        {
-          issueId: 'issue_20240115_001',
-          title: 'データベース接続タイムアウト',
-          description: '本番環境でのDB接続が間欠的に失敗している状態',
-          detectedCategoryType: 'infrastructure_networking',
-          severity: 'high',
-          urgency: 'critical',
-          knownRuleMatches: [],
-          isNewUnknownType: true,
-          timestamp: new Date('2024-01-15T08:45:00Z'),
-        },
-      ],
-      priorityRules: [
-        {
-          ruleId: 'rule_priority_high_critical',
-          severityRange: ['high', 'critical'],
-          urgencyRange: ['critical', 'emergency'],
-          assignedPriority: 1,
-          description: 'High severity + Critical/Emergency urgency = Priority 1',
-        },
-        {
-          ruleId: 'rule_priority_medium_high',
-          severityRange: ['medium'],
-          urgencyRange: ['high'],
-          assignedPriority: 2,
-          description: 'Medium severity + High urgency = Priority 2',
-        },
-      ],
-      escalationCallbacks: {
-        onUnclassifiedType: async (issue, rules) => ({
-          escalationNotificationId: 'esc_notif_20240115_001',
-          targetManagerId: 'manager_001',
-          issueContent: issue.title,
-          unclassifiedCategory: issue.detectedCategoryType,
-          ruleGap: `Detected category "${issue.detectedCategoryType}" not covered by existing ${rules.length} rules`,
-          requiresManualReview: true,
-          timestamp: new Date('2024-01-15T08:50:00Z'),
-          issueId: issue.issueId,
+describe("Tx1Imp1Agent Escalation: Unknown Priority Rule Type", () => {
+  let mockAiClient: jest.Mocked<Tx1Imp1AiClient>;
+  let mockLogger: jest.Mock;
+  let mockEmailService: jest.Mock;
+
+  beforeEach(() => {
+    mockLogger = jest.fn();
+    mockEmailService = jest.fn().mockResolvedValue({ success: true });
+
+    mockAiClient = {
+      action01_CollectSubmissionStatus: jest
+        .fn()
+        .mockResolvedValue({
+          submittedCount: 8,
+          unsubmittedMemberIds: ["M003", "M007"],
         }),
-        onMorningMaterialGeneration: async () => {
-          throw new Error('Should not be called when escalation is triggered');
-        },
-        onCompletionNotification: async () => {
-          throw new Error('Should not be called when escalation is triggered');
-        },
-      },
-      auditLogger: {
-        logEscalation: async (event) => {
-          return {
-            auditId: 'audit_20240115_001',
-            eventType: event.eventType,
-            escalationReason: event.escalationReason,
-            targetIssueId: event.targetIssueId,
-            detectedIssueType: event.detectedIssueType,
-            timestamp: new Date('2024-01-15T08:52:00Z'),
-            status: 'recorded',
-          };
-        },
-      },
+
+      action02_SendUnsubmittedNotification: jest
+        .fn()
+        .mockResolvedValue({
+          notificationsSent: 2,
+          failedMemberIds: [],
+        }),
+
+      action03_ExtractAndClassifyIssues: jest.fn().mockResolvedValue({
+        extractedIssues: [
+          {
+            issueId: "ISS-001",
+            title: "Database connection timeout",
+            category: "performance",
+            description:
+              "Connection pool exhausted during peak hours, response time exceeded SLA",
+          },
+          {
+            issueId: "ISS-002",
+            title: "Novel stakeholder escalation protocol required",
+            category: "unknown_governance_type",
+            description:
+              "New governance framework needed for cross-organizational decisions - type not in known rules",
+          },
+          {
+            issueId: "ISS-003",
+            title: "API rate limiting",
+            category: "reliability",
+            description: "Third-party API rate limit exceeded",
+          },
+        ],
+      }),
+
+      action04_AssignPriorityScore: jest.fn().mockImplementation(async (input) => {
+        const issuesWithUndefinedType = input.issues.filter(
+          (issue: { category?: string }) =>
+            issue.category === "unknown_governance_type"
+        );
+
+        if (issuesWithUndefinedType.length > 0) {
+          const escalationError = new Error(
+            "ESCALATION_UNKNOWN_PRIORITY_RULE_TYPE"
+          );
+          Object.assign(escalationError, {
+            escalationCondition: "unknown_priority_rule_type",
+            unknownIssueTypes: issuesWithUndefinedType.map(
+              (issue: { issueId?: string; category?: string; title?: string }) => ({
+                issueId: issue.issueId,
+                category: issue.category,
+                title: issue.title,
+              })
+            ),
+            knownRuleCategories: [
+              "performance",
+              "reliability",
+              "security",
+              "documentation",
+            ],
+            timestamp: new Date("2024-01-15T09:00:00Z").toISOString(),
+          });
+          throw escalationError;
+        }
+
+        return {
+          prioritizedIssues: input.issues.map(
+            (
+              issue: { issueId?: string; title?: string; description?: string },
+              index: number
+            ) => ({
+              issueId: issue.issueId,
+              title: issue.title,
+              priority: index === 0 ? "high" : index === 1 ? "medium" : "low",
+              priorityScore: 8.5 - index * 2,
+              reasoning: `Standard prioritization applied for ${issue.title}`,
+            })
+          ),
+        };
+      }),
+
+      action05_GenerateMorningMeetingMaterial: jest
+        .fn()
+        .mockResolvedValue({
+          reportId: "REPORT-001",
+          generatedAt: new Date("2024-01-15T09:15:00Z").toISOString(),
+          materialUrl: "/reports/morning-meeting-001.html",
+        }),
+
+      action06_SendCompletionNotification: jest
+        .fn()
+        .mockResolvedValue({
+          notificationSent: true,
+          deliveryTimestamp: new Date("2024-01-15T09:20:00Z").toISOString(),
+        }),
+    };
+  });
+
+  test("SCEN-032: escalation triggered when unknown priority rule type detected in action 4", async () => {
+    const executionInput: Tx1Imp1AgentInput = {
+      executionTimestamp: new Date("2024-01-15T09:00:00Z"),
+      reportDeadlineTime: "09:00",
+      morningMeetingStartTime: "09:30",
+      teamMemberIds: [
+        "M001",
+        "M002",
+        "M003",
+        "M004",
+        "M005",
+        "M006",
+        "M007",
+        "M008",
+        "M009",
+        "M010",
+      ],
+      managerEmail: "manager@example.com",
     };
 
-    const response: UnsubmittedReminderResponse = await sendUnsubmittedReminder(request);
+    const escalationNotifications: Array<{
+      condition: string;
+      unknownTypes: Array<{ issueId: string; category: string; title: string }>;
+      timestamp: string;
+      requiresManualReview: boolean;
+    }> = [];
 
-    expect(response.success).toBe(false);
-    expect(response.escalationTriggered).toBe(true);
-    expect(response.escalationReason).toBe('unclassified_issue_type');
-    expect(response.haltedAt).toBe('action_4_priority_judgment');
-    expect(response.escalationNotification).toBeDefined();
-    expect(response.escalationNotification?.targetManagerId).toBe('manager_001');
-    expect(response.escalationNotification?.issueContent).toBe('データベース接続タイムアウト');
-    expect(response.escalationNotification?.unclassifiedCategory).toBe('infrastructure_networking');
-    expect(response.escalationNotification?.requiresManualReview).toBe(true);
-    expect(response.escalationNotification?.issueId).toBe('issue_20240115_001');
+    const executionLog: Array<{
+      step: string;
+      status: string;
+      timestamp: string;
+      details?: object;
+    }> = [];
 
-    expect(response.auditLog).toBeDefined();
-    expect(response.auditLog?.eventType).toBe('escalation');
-    expect(response.auditLog?.escalationReason).toBe('unclassified_issue_type_detected');
-    expect(response.auditLog?.detectedIssueType).toBe('infrastructure_networking');
-    expect(response.auditLog?.status).toBe('pending_manager_review');
+    mockAiClient.action04_AssignPriorityScore = jest
+      .fn()
+      .mockImplementation(async (input) => {
+        const issuesWithUndefinedType = input.issues.filter(
+          (issue: { category?: string }) =>
+            issue.category === "unknown_governance_type"
+        );
 
-    expect(response.actionExecutionTrace).toContain('action_1_fetch_submission_status');
-    expect(response.actionExecutionTrace).toContain('action_2_detect_unsubmitted');
-    expect(response.actionExecutionTrace).toContain('action_3_extract_issues');
-    expect(response.actionExecutionTrace).toContain('action_4_priority_judgment');
-    expect(response.actionExecutionTrace).not.toContain('action_5_generate_morning_material');
-    expect(response.actionExecutionTrace).not.toContain('action_6_completion_notification');
+        if (issuesWithUndefinedType.length > 0) {
+          const unknownCategoriesDetected = issuesWithUndefinedType.map(
+            (issue: {
+              issueId?: string;
+              category?: string;
+              title?: string;
+            }) => ({
+              issueId: issue.issueId,
+              category: issue.category,
+              title: issue.title,
+            })
+          );
 
-    expect(response.sideEffectsCommitted).toBe(false);
-    expect(response.pendingState).toMatchObject({
-      isHalted: true,
-      haltReason: 'escalation_condition_triggered_before_side_effect_commit',
-      awaitingApprovalFrom: 'manager_001',
-      escalationId: 'esc_notif_20240115_001',
-      resumeCheckInterval: 60000,
+          executionLog.push({
+            step: "action04_assign_priority_score",
+            status: "escalation_detected",
+            timestamp: new Date("2024-01-15T09:05:00Z").toISOString(),
+            details: {
+              escalationCondition: "unknown_priority_rule_type",
+              unknownIssueCount: unknownCategoriesDetected.length,
+            },
+          });
+
+          escalationNotifications.push({
+            condition: "unknown_priority_rule_type",
+            unknownTypes: unknownCategoriesDetected,
+            timestamp: new Date("2024-01-15T09:05:00Z").toISOString(),
+            requiresManualReview: true,
+          });
+
+          const escalationError = new Error(
+            "ESCALATION_UNKNOWN_PRIORITY_RULE_TYPE"
+          );
+          Object.assign(escalationError, {
+            escalationCondition: "unknown_priority_rule_type",
+            unknownIssueTypes: unknownCategoriesDetected,
+            knownRuleCategories: [
+              "performance",
+              "reliability",
+              "security",
+              "documentation",
+            ],
+            timestamp: new Date("2024-01-15T09:05:00Z").toISOString(),
+          });
+          throw escalationError;
+        }
+
+        return {
+          prioritizedIssues: input.issues.map(
+            (
+              issue: { issueId?: string; title?: string },
+              index: number
+            ) => ({
+              issueId: issue.issueId,
+              title: issue.title,
+              priority: index === 0 ? "high" : "medium",
+              priorityScore: 8.5 - index * 2,
+              reasoning: `Prioritization for ${issue.title}`,
+            })
+          ),
+        };
+      });
+
+    let thrownError: Error | null = null;
+    let agentOutput: Tx1Imp1AgentOutput | null = null;
+
+    try {
+      agentOutput = await runTx1Imp1Agent(executionInput, mockAiClient);
+    } catch (error) {
+      thrownError = error as Error;
+    }
+
+    expect(thrownError).not.toBeNull();
+    expect(thrownError?.message).toMatch(/ESCALATION_UNKNOWN_PRIORITY_RULE_TYPE/);
+
+    const escalationErrorDetails = thrownError as any;
+    expect(escalationErrorDetails.escalationCondition).toBe(
+      "unknown_priority_rule_type"
+    );
+    expect(escalationErrorDetails.unknownIssueTypes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "ISS-002",
+          category: "unknown_governance_type",
+        }),
+      ])
+    );
+
+    expect(escalationErrorDetails.unknownIssueTypes).toHaveLength(1);
+    expect(escalationErrorDetails.unknownIssueTypes[0]).toEqual({
+      issueId: "ISS-002",
+      category: "unknown_governance_type",
+      title: "Novel stakeholder escalation protocol required",
     });
+
+    expect(escalationErrorDetails.knownRuleCategories).toEqual([
+      "performance",
+      "reliability",
+      "security",
+      "documentation",
+    ]);
+
+    expect(escalationErrorDetails.timestamp).toBe(
+      "2024-01-15T09:05:00Z"
+    );
+
+    expect(escalationNotifications).toHaveLength(1);
+    expect(escalationNotifications[0].condition).toBe(
+      "unknown_priority_rule_type"
+    );
+    expect(escalationNotifications[0].unknownTypes).toHaveLength(1);
+    expect(escalationNotifications[0].unknownTypes[0].issueId).toBe("ISS-002");
+    expect(escalationNotifications[0].requiresManualReview).toBe(true);
+
+    expect(mockAiClient.action05_GenerateMorningMeetingMaterial).not.toHaveBeenCalled();
+    expect(mockAiClient.action06_SendCompletionNotification).not.toHaveBeenCalled();
+
+    expect(executionLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          step: "action04_assign_priority_score",
+          status: "escalation_detected",
+        }),
+      ])
+    );
+
+    const escalationLogEntry = executionLog.find(
+      (entry) => entry.status === "escalation_detected"
+    );
+    expect(escalationLogEntry).toBeDefined();
+    expect(escalationLogEntry?.details).toEqual({
+      escalationCondition: "unknown_priority_rule_type",
+      unknownIssueCount: 1,
+    });
+
+    expect(agentOutput).toBeNull();
+
+    expect(mockAiClient.action01_CollectSubmissionStatus).toHaveBeenCalled();
+    expect(mockAiClient.action02_SendUnsubmittedNotification).toHaveBeenCalled();
+    expect(mockAiClient.action03_ExtractAndClassifyIssues).toHaveBeenCalled();
+    expect(mockAiClient.action04_AssignPriorityScore).toHaveBeenCalled();
   });
 });

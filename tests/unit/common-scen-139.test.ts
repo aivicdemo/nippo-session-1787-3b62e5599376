@@ -1,104 +1,189 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { getDashboardData } from "../../src/logic/dashboard-display";
+import { runTx7Imp1Agent, type Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/orchestrator';
 
-const mockAuditLog: Array<{
-  user_id: string;
-  action: string;
-  timestamp: string;
-  resource: string;
-  status: string;
-}> = [];
+describe('MonthlyReportGeneration - Authorization Control', () => {
+  test('SCEN-139: runTx7Imp1Agent rejects unauthorized data access and logs denial', async () => {
+    const unauthorizedUserId = 'user_unauthorized';
+    const mockTimestamp = '2024-01-15T09:00:00Z';
+    const auditLogs: Array<{
+      user_id: string;
+      action: string;
+      timestamp: string;
+      resource: string;
+      reason?: string;
+    }> = [];
 
-const mockAuthorizationContext = {
-  user_id: "",
-  has_monthly_report_trigger_permission: false,
-  has_report_data_access_permission: false,
-  has_analysis_tool_operation_permission: false,
-};
-
-const createUnauthorizedContext = () => ({
-  user_id: "unauthorized_user",
-  has_monthly_report_trigger_permission: false,
-  has_report_data_access_permission: false,
-  has_analysis_tool_operation_permission: false,
-});
-
-const recordAuditLog = (
-  user_id: string,
-  action: string,
-  resource: string,
-  status: string
-) => {
-  mockAuditLog.push({
-    user_id,
-    action,
-    timestamp: new Date("2024-01-15T11:00:00Z").toISOString(),
-    resource,
-    status,
-  });
-};
-
-describe("getDashboardData", () => {
-  beforeEach(() => {
-    mockAuditLog.length = 0;
-  });
-
-  afterEach(() => {
-    mockAuditLog.length = 0;
-  });
-
-  // SCEN-139
-  test("should reject unauthorized user access to monthly report data and record denial in audit log", () => {
-    const unauthorized_context = createUnauthorizedContext();
-
-    const authorization_check_result = {
-      has_monthly_report_trigger_permission:
-        unauthorized_context.has_monthly_report_trigger_permission,
-      has_report_data_access_permission:
-        unauthorized_context.has_report_data_access_permission,
-      has_analysis_tool_operation_permission:
-        unauthorized_context.has_analysis_tool_operation_permission,
+    const mockAuthorizationCheck = (
+      userId: string,
+      action: string,
+      resource: string
+    ): boolean => {
+      if (userId === unauthorizedUserId) {
+        auditLogs.push({
+          user_id: userId,
+          action: 'unauthorized_data_access_attempt',
+          timestamp: mockTimestamp,
+          resource: resource,
+          reason: `User lacks permission for ${action} on ${resource}`,
+        });
+        return false;
+      }
+      return true;
     };
 
-    const is_authorized =
-      authorization_check_result.has_monthly_report_trigger_permission &&
-      authorization_check_result.has_report_data_access_permission &&
-      authorization_check_result.has_analysis_tool_operation_permission;
+    const mockAiClient: Tx7Imp1AiClient = {
+      async generateAction01Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'trigger_confirmation',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return { confirmed: true };
+      },
+      async generateAction02Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'data_extraction',
+          'accumulated_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'accumulated_report_data';
+          throw error;
+        }
+        return { data: [] };
+      },
+      async generateAction03Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'report_generation',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return { reportId: 'rpt_001' };
+      },
+      async generateAction04Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'analysis_timeseries',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return { timeSeriesData: [] };
+      },
+      async generateAction05Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'analysis_bottleneck',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return { improvementTrend: 'stable' as const, recurringIssuePattern: [] };
+      },
+      async generateAction06Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'performance_metrics',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return {
+          avgResolutionDays: 0,
+          reportSubmissionRate: 0,
+          issueRecurrenceRate: 0,
+        };
+      },
+      async generateAction07Response() {
+        const isAuthorized = mockAuthorizationCheck(
+          unauthorizedUserId,
+          'result_presentation',
+          'monthly_report_data'
+        );
+        if (!isAuthorized) {
+          const error = new Error('AUTHORIZATION_DENIED');
+          (error as any).code = 'AUTHORIZATION_DENIED';
+          (error as any).userId = unauthorizedUserId;
+          (error as any).resource = 'monthly_report_data';
+          throw error;
+        }
+        return { presented: true };
+      },
+      async generateAction08Response() {
+        return { archived: true };
+      },
+    };
 
-    if (!is_authorized) {
-      recordAuditLog(
-        unauthorized_context.user_id,
-        "unauthorized_data_access_attempt",
-        "monthly_report_data",
-        "denied"
-      );
+    const request = {
+      targetMonth: '2024-01',
+      teamId: 'team_001',
+      triggeredBy: 'manual' as const,
+      includeDetailedAnalysis: true,
+    };
+
+    const contextUserId = unauthorizedUserId;
+
+    let thrownError: any = null;
+
+    try {
+      await runTx7Imp1Agent(request, mockAiClient, { userId: contextUserId });
+    } catch (error) {
+      thrownError = error;
     }
 
-    expect(() => {
-      if (!is_authorized) {
-        throw new Error("AUTHORIZATION_DENIED");
-      }
+    expect(thrownError).toBeDefined();
+    expect(thrownError?.code || thrownError?.message).toMatch(/AUTHORIZATION_DENIED/);
 
-      return getDashboardData({
-        user_id: unauthorized_context.user_id,
-        month: "2024-01",
-        include_monthly_report: true,
-      });
-    }).toThrow(/AUTHORIZATION_DENIED/);
+    const authorizationDenialLog = auditLogs.find(
+      (log) =>
+        log.user_id === unauthorizedUserId &&
+        log.action === 'unauthorized_data_access_attempt'
+    );
 
-    expect(mockAuditLog).toHaveLength(1);
-    expect(mockAuditLog[0]).toEqual({
-      user_id: "unauthorized_user",
-      action: "unauthorized_data_access_attempt",
-      timestamp: "2024-01-15T11:00:00.000Z",
-      resource: "monthly_report_data",
-      status: "denied",
+    expect(authorizationDenialLog).toBeDefined();
+    expect(authorizationDenialLog?.resource).toBe('monthly_report_data');
+    expect(authorizationDenialLog?.timestamp).toBe(mockTimestamp);
+
+    const allDenialLogs = auditLogs.filter(
+      (log) => log.action === 'unauthorized_data_access_attempt'
+    );
+    expect(allDenialLogs.length).toBeGreaterThan(0);
+
+    allDenialLogs.forEach((log) => {
+      expect(log.user_id).toBe(unauthorizedUserId);
+      expect(log.timestamp).toBe(mockTimestamp);
+      expect(log.reason).toMatch(/permission/);
     });
-
-    const audit_entry = mockAuditLog[0];
-    expect(audit_entry.user_id).toBe("unauthorized_user");
-    expect(audit_entry.action).toBe("unauthorized_data_access_attempt");
-    expect(audit_entry.resource).toBe("monthly_report_data");
-    expect(audit_entry.status).toBe("denied");
   });
 });

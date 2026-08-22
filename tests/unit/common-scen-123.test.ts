@@ -1,209 +1,242 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx6Imp1Agent, type Tx6Imp1AiClient } from '../../src/agents/tx-6-imp-1/orchestrator';
 
-describe('sendUnsubmittedReminder', () => {
-  // SCEN-123: [error] 日報収集から分析レポート生成までの自動実行 AIエージェント - 
-  // 「日報収集から分析レポート生成までの自動実行」が途中失敗時に完了済みの副作用を巻き戻すか補償する
-  test('should rollback all side effects when Action 4 fails with invalid analysis result', async () => {
-    const mock_db_daily_reports = jest.fn();
-    const mock_db_issues = jest.fn();
-    const mock_db_audit_logs = jest.fn();
-    const mock_email_queue = jest.fn();
-    const mock_memory_cache = jest.fn();
+describe('tx-6-imp-1 orchestrator', () => {
+  // SCEN-123
+  test('should rollback completed side effects and restore clean state when Action 4 fails with invalid analysis result', async () => {
+    fetchMock.resetMocks();
 
-    const mock_daily_report_records = [
-      { id: 'dr001', content: 'Report 1', submitted_at: '2024-01-08T09:00:00Z' },
-      { id: 'dr002', content: 'Report 2', submitted_at: '2024-01-08T09:15:00Z' },
-      { id: 'dr003', content: 'Report 3', submitted_at: '2024-01-08T09:30:00Z' },
-      { id: 'dr004', content: 'Report 4', submitted_at: '2024-01-08T09:45:00Z' },
-      { id: 'dr005', content: 'Report 5', submitted_at: '2024-01-08T10:00:00Z' },
-      { id: 'dr006', content: 'Report 6', submitted_at: '2024-01-08T10:15:00Z' },
-      { id: 'dr007', content: 'Report 7', submitted_at: '2024-01-08T10:30:00Z' },
-      { id: 'dr008', content: 'Report 8', submitted_at: '2024-01-08T10:45:00Z' },
-      { id: 'dr009', content: 'Report 9', submitted_at: '2024-01-08T11:00:00Z' },
-      { id: 'dr010', content: 'Report 10', submitted_at: '2024-01-08T11:15:00Z' },
-    ];
-
-    const mock_unsubmitted_members = [
-      { member_id: 'mem001', email: 'member1@example.com' },
-      { member_id: 'mem002', email: 'member2@example.com' },
-      { member_id: 'mem003', email: 'member3@example.com' },
-    ];
-
-    const mock_issue_records = Array.from({ length: 15 }, (_, i) => ({
-      id: `issue_${String(i + 1).padStart(3, '0')}`,
-      title: `Issue ${i + 1}`,
-      priority: 'HIGH' as const,
-      category: 'QUALITY' as const,
+    const mockReportRecords = Array.from({ length: 10 }, (_, i) => ({
+      reportId: `report-${i + 1}`,
+      teamId: 'team-001',
+      content: `Report content ${i + 1}`,
+      submittedAt: new Date('2024-01-08T09:00:00Z'),
     }));
 
-    const mock_reminder_email_records = [
-      { id: 'email001', member_id: 'mem001', sent_at: '2024-01-15T07:00:00Z', status: 'QUEUED' as const },
-      { id: 'email002', member_id: 'mem002', sent_at: '2024-01-15T07:00:00Z', status: 'QUEUED' as const },
-      { id: 'email003', member_id: 'mem003', sent_at: '2024-01-15T07:00:00Z', status: 'QUEUED' as const },
+    const mockUnsubmittedMembers = [
+      { memberId: 'member-001', email: 'member1@example.com' },
+      { memberId: 'member-002', email: 'member2@example.com' },
+      { memberId: 'member-003', email: 'member3@example.com' },
     ];
 
-    const mock_analysis_result_invalid = {
-      priority_score: 9999,
-      category: 'INVALID_CATEGORY' as const,
-      timestamp: '2024-01-15T08:00:00Z',
+    const mockExtractedIssues = Array.from({ length: 15 }, (_, i) => ({
+      issueId: `issue-${i + 1}`,
+      keyword: `Issue keyword ${i + 1}`,
+      occurrenceCount: Math.floor(Math.random() * 5) + 1,
+      category: ['quality', 'schedule', 'safety', 'other'][Math.floor(Math.random() * 4)],
+    }));
+
+    const mockInvalidAnalysisResult = {
+      priorityScores: [-50, 150, 'invalid_score', null],
+      categoryDistribution: { quality: 8, schedule: 4, invalid_category: 3 },
+      trend: 'corrupted',
     };
 
-    const mock_audit_log_entries: Array<{
-      event_type: string;
-      action_id: string;
+    const mockAuditLogs: Array<{
+      timestamp: Date;
+      eventType: string;
+      actionId: number;
       status: string;
-      timestamp: string;
       details?: string;
     }> = [];
 
-    const mock_state = {
-      daily_reports_in_memory: [...mock_daily_report_records],
-      issues_inserted_count: 15,
-      reminders_queued_count: 3,
-      rollback_started: false,
-      rollback_completed: false,
-      rollback_status: 'pending' as const,
+    const mockInMemoryReportCache = new Map();
+    const mockMailQueue: Array<{ memberId: string; email: string; timestamp: Date }> = [];
+    const mockDatabaseState = {
+      reports: new Map(),
+      issues: new Map(),
     };
 
-    const mock_orchestrator_action_1_execute = jest
-      .fn()
-      .mockResolvedValue({ success: true, records_collected: 10, data: mock_daily_report_records });
-
-    const mock_orchestrator_action_2_execute = jest
-      .fn()
-      .mockResolvedValue({ success: true, reminders_sent: 3, data: mock_reminder_email_records });
-
-    const mock_orchestrator_action_3_execute = jest
-      .fn()
-      .mockResolvedValue({ success: true, issues_extracted: 15, data: mock_issue_records });
-
-    const mock_orchestrator_action_4_execute = jest
-      .fn()
-      .mockRejectedValue(new Error('Invalid priority score detected'));
-
-    const mock_orchestrator_rollback_action_3 = jest
-      .fn()
-      .mockImplementation(() => {
-        mock_state.issues_inserted_count = 0;
-        mock_db_issues.mockResolvedValueOnce({ deleted_count: 15 });
-        mock_audit_log_entries.push({
-          event_type: 'ROLLBACK_ACTION_3_EXECUTED',
-          action_id: 'action_03_compensate',
-          status: 'COMPLETED',
-          timestamp: '2024-01-15T08:01:00Z',
-          details: 'Deleted 15 issue records',
+    const mockAiClient: Tx6Imp1AiClient = {
+      async action01_collectReports(params) {
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T09:30:00Z'),
+          eventType: 'ACTION_1_STARTED',
+          actionId: 1,
+          status: 'started',
         });
-        return Promise.resolve({ success: true, deleted_count: 15 });
-      });
 
-    const mock_orchestrator_rollback_action_2 = jest
-      .fn()
-      .mockImplementation(() => {
-        mock_state.reminders_queued_count = 0;
-        mock_email_queue.mockResolvedValueOnce({ removed_count: 3 });
-        mock_audit_log_entries.push({
-          event_type: 'ROLLBACK_ACTION_2_EXECUTED',
-          action_id: 'action_02_compensate',
-          status: 'COMPLETED',
-          timestamp: '2024-01-15T08:02:00Z',
-          details: 'Removed 3 reminder email records from queue',
+        mockReportRecords.forEach((record) => {
+          mockInMemoryReportCache.set(record.reportId, record);
+          mockDatabaseState.reports.set(record.reportId, record);
         });
-        return Promise.resolve({ success: true, removed_count: 3 });
-      });
 
-    const mock_orchestrator_rollback_action_1 = jest
-      .fn()
-      .mockImplementation(() => {
-        mock_state.daily_reports_in_memory = [];
-        mock_memory_cache.mockResolvedValueOnce({ cleared_count: 10 });
-        mock_audit_log_entries.push({
-          event_type: 'ROLLBACK_ACTION_1_EXECUTED',
-          action_id: 'action_01_compensate',
-          status: 'COMPLETED',
-          timestamp: '2024-01-15T08:03:00Z',
-          details: 'Cleared 10 daily report records from memory',
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T09:35:00Z'),
+          eventType: 'ACTION_1_COMPLETED',
+          actionId: 1,
+          status: 'completed',
+          details: `Collected ${mockReportRecords.length} reports`,
         });
-        return Promise.resolve({ success: true, cleared_count: 10 });
-      });
 
-    const mock_orchestrator_record_audit_log = jest
-      .fn()
-      .mockImplementation((event: { event_type: string; action_id: string; status: string; timestamp: string; details?: string }) => {
-        mock_audit_log_entries.push(event);
-        mock_db_audit_logs.mockResolvedValueOnce({ inserted_id: `audit_${Date.now()}` });
-        return Promise.resolve({ success: true });
-      });
+        return {
+          collectedReportCount: mockReportRecords.length,
+          reportIds: mockReportRecords.map((r) => r.reportId),
+        };
+      },
 
-    const mock_tx6_imp1_ai_client = {
-      executeAction01: mock_orchestrator_action_1_execute,
-      executeAction02: mock_orchestrator_action_2_execute,
-      executeAction03: mock_orchestrator_action_3_execute,
-      executeAction04: mock_orchestrator_action_4_execute,
-      compensateAction01: mock_orchestrator_rollback_action_1,
-      compensateAction02: mock_orchestrator_rollback_action_2,
-      compensateAction03: mock_orchestrator_rollback_action_3,
-      recordAuditLog: mock_orchestrator_record_audit_log,
+      async action02_identifyAndNotifyUnsubmitted(params) {
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T09:40:00Z'),
+          eventType: 'ACTION_2_STARTED',
+          actionId: 2,
+          status: 'started',
+        });
+
+        mockUnsubmittedMembers.forEach((member) => {
+          const mailRecord = {
+            memberId: member.memberId,
+            email: member.email,
+            timestamp: new Date('2024-01-08T09:45:00Z'),
+          };
+          mockMailQueue.push(mailRecord);
+        });
+
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T09:50:00Z'),
+          eventType: 'ACTION_2_COMPLETED',
+          actionId: 2,
+          status: 'completed',
+          details: `Notified ${mockUnsubmittedMembers.length} members`,
+        });
+
+        return {
+          unsubmittedCount: mockUnsubmittedMembers.length,
+          remindersSent: mockUnsubmittedMembers.length,
+        };
+      },
+
+      async action03_extractAndClassifyIssues(params) {
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T10:00:00Z'),
+          eventType: 'ACTION_3_STARTED',
+          actionId: 3,
+          status: 'started',
+        });
+
+        mockExtractedIssues.forEach((issue) => {
+          mockDatabaseState.issues.set(issue.issueId, issue);
+        });
+
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T10:10:00Z'),
+          eventType: 'ACTION_3_COMPLETED',
+          actionId: 3,
+          status: 'completed',
+          details: `Inserted ${mockExtractedIssues.length} issues`,
+        });
+
+        return {
+          extractedIssueCount: mockExtractedIssues.length,
+          issueIds: mockExtractedIssues.map((i) => i.issueId),
+        };
+      },
+
+      async action04_analyzeTrends(params) {
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T10:20:00Z'),
+          eventType: 'ACTION_4_STARTED',
+          actionId: 4,
+          status: 'started',
+        });
+
+        mockAuditLogs.push({
+          timestamp: new Date('2024-01-08T10:25:00Z'),
+          eventType: 'ACTION_4_FAILED',
+          actionId: 4,
+          status: 'failed',
+          details: 'Invalid priority score detected',
+        });
+
+        throw new Error('Invalid priority score detected');
+      },
+
+      async action05_generateReport(params) {
+        return {
+          reportId: 'report-generated-001',
+          reportGeneratedAt: new Date('2024-01-08T10:30:00Z'),
+        };
+      },
+
+      async action06_distributeReport(params) {
+        return {
+          emailSentAt: new Date('2024-01-08T10:35:00Z'),
+          recipientCount: 1,
+        };
+      },
+
+      async action07_recordAuditLog(params) {
+        return { logRecordId: 'audit-log-001' };
+      },
     };
 
-    const test_input_params = {
-      week_start_date: '2024-01-08',
-      week_end_date: '2024-01-14',
-      department_id: 'dept_001',
-      org_id: 'org_001',
-      request_timestamp: '2024-01-15T08:00:00Z',
+    const orchestratorInput = {
+      executionTimestamp: new Date('2024-01-08T09:00:00Z'),
+      analysisStartDate: '2024-01-01',
+      analysisEndDate: '2024-01-07',
+      teamId: 'team-001',
     };
 
+    let orchestrationError: Error | null = null;
     try {
-      await sendUnsubmittedReminder(test_input_params, mock_tx6_imp1_ai_client as any);
-      expect(true).toBe(false);
-    } catch (error: any) {
-      expect(error.message).toMatch(/Invalid priority score detected/);
+      await runTx6Imp1Agent(orchestratorInput, mockAiClient);
+    } catch (error) {
+      orchestrationError = error as Error;
     }
 
-    expect(mock_orchestrator_action_1_execute).toHaveBeenCalledTimes(1);
-    expect(mock_orchestrator_action_2_execute).toHaveBeenCalledTimes(1);
-    expect(mock_orchestrator_action_3_execute).toHaveBeenCalledTimes(1);
-    expect(mock_orchestrator_action_4_execute).toHaveBeenCalledTimes(1);
+    expect(orchestrationError).not.toBeNull();
+    expect(orchestrationError?.message).toMatch(/Invalid priority score/);
 
-    expect(mock_orchestrator_rollback_action_3).toHaveBeenCalledTimes(1);
-    expect(mock_orchestrator_rollback_action_2).toHaveBeenCalledTimes(1);
-    expect(mock_orchestrator_rollback_action_1).toHaveBeenCalledTimes(1);
+    const failureAuditLog = mockAuditLogs.find((log) => log.eventType === 'ACTION_4_FAILED');
+    expect(failureAuditLog).toBeDefined();
+    expect(failureAuditLog?.actionId).toBe(4);
 
-    expect(mock_state.issues_inserted_count).toBe(0);
-    expect(mock_state.reminders_queued_count).toBe(0);
-    expect(mock_state.daily_reports_in_memory.length).toBe(0);
+    const rollbackStartLog = mockAuditLogs.find((log) => log.eventType === 'ROLLBACK_STARTED');
+    expect(rollbackStartLog).toBeDefined();
 
-    const rollback_events = mock_audit_log_entries.filter((entry) =>
-      entry.event_type.startsWith('ROLLBACK_')
-    );
-    expect(rollback_events.length).toBe(3);
-    expect(rollback_events[0].event_type).toBe('ROLLBACK_ACTION_3_EXECUTED');
-    expect(rollback_events[1].event_type).toBe('ROLLBACK_ACTION_2_EXECUTED');
-    expect(rollback_events[2].event_type).toBe('ROLLBACK_ACTION_1_EXECUTED');
+    const action3RollbackLog = mockAuditLogs.find((log) => log.eventType === 'ACTION_3_ROLLBACK');
+    expect(action3RollbackLog).toBeDefined();
+    expect(action3RollbackLog?.details).toMatch(/issues/i);
 
-    expect(mock_audit_log_entries).toContainEqual(
-      expect.objectContaining({
-        event_type: 'ROLLBACK_ACTION_3_EXECUTED',
-        action_id: 'action_03_compensate',
-        status: 'COMPLETED',
-      })
-    );
+    const action2RollbackLog = mockAuditLogs.find((log) => log.eventType === 'ACTION_2_ROLLBACK');
+    expect(action2RollbackLog).toBeDefined();
+    expect(action2RollbackLog?.details).toMatch(/mail/i);
 
-    expect(mock_audit_log_entries).toContainEqual(
-      expect.objectContaining({
-        event_type: 'ROLLBACK_ACTION_2_EXECUTED',
-        action_id: 'action_02_compensate',
-        status: 'COMPLETED',
-      })
-    );
+    const action1RollbackLog = mockAuditLogs.find((log) => log.eventType === 'ACTION_1_ROLLBACK');
+    expect(action1RollbackLog).toBeDefined();
+    expect(action1RollbackLog?.details).toMatch(/cache/i);
 
-    expect(mock_audit_log_entries).toContainEqual(
-      expect.objectContaining({
-        event_type: 'ROLLBACK_ACTION_1_EXECUTED',
-        action_id: 'action_01_compensate',
-        status: 'COMPLETED',
-      })
-    );
+    const rollbackCompleteLog = mockAuditLogs.find((log) => log.eventType === 'ROLLBACK_COMPLETED');
+    expect(rollbackCompleteLog).toBeDefined();
+
+    expect(mockDatabaseState.issues.size).toBe(0);
+    expect(mockDatabaseState.reports.size).toBe(0);
+    expect(mockInMemoryReportCache.size).toBe(0);
+    expect(mockMailQueue.length).toBe(0);
+
+    const allAuditEvents = [
+      'ACTION_1_STARTED',
+      'ACTION_1_COMPLETED',
+      'ACTION_2_STARTED',
+      'ACTION_2_COMPLETED',
+      'ACTION_3_STARTED',
+      'ACTION_3_COMPLETED',
+      'ACTION_4_STARTED',
+      'ACTION_4_FAILED',
+      'ROLLBACK_STARTED',
+      'ACTION_3_ROLLBACK',
+      'ACTION_2_ROLLBACK',
+      'ACTION_1_ROLLBACK',
+      'ROLLBACK_COMPLETED',
+    ];
+
+    allAuditEvents.forEach((eventType) => {
+      const log = mockAuditLogs.find((l) => l.eventType === eventType);
+      expect(log).toBeDefined();
+    });
+
+    const logTimestamps = mockAuditLogs.map((l) => l.timestamp.getTime());
+    for (let i = 1; i < logTimestamps.length; i++) {
+      expect(logTimestamps[i]).toBeGreaterThanOrEqual(logTimestamps[i - 1]);
+    }
   });
 });

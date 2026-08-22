@@ -1,134 +1,222 @@
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx11Imp1Agent } from '../../src/agents/tx-11-imp-1/orchestrator';
+import type { Tx11AgentInput, Tx11AgentOutput, SubmissionStatusSummary, PrioritizedIssue, NotificationRecord } from '../../src/agents/tx-11-imp-1/orchestrator';
 
-describe("notification-delivery", () => {
-  test("SCEN-196: [normal] 日報収集・確認・催促の自動化エージェント AIエージェント - 期限までに未提出のメンバーに自動催促通知を送る", async () => {
-    // Setup: テスト用のメモリ内DB（日報提出状況）にメンバー10名のデータを設定
+describe('Tx11Imp1Agent - 日報収集・確認・催促の自動化エージェント', () => {
+  // SCEN-196: [normal] 期限までに未提出のメンバーに自動催促通知を送る
+  test('should send reminder notifications to unsubmitted members by deadline', async () => {
+    // Setup: In-memory DB for submission status
+    const executionTimestamp = new Date('2024-01-15T09:30:00Z');
+    const reportDeadlineTime = '09:00';
+    const teamId = 'team-001';
+    const managerEmail = 'manager@company.com';
+
+    // Member data: 10 members, all unsubmitted as of 09:30 (30 minutes after deadline)
     const unsubmittedMembers = [
-      {
-        member_id: "member-001",
-        member_name: "田中太郎",
-        member_email: "tanaka.taro@company.com",
-        team_id: "team-001",
-        submission_status: "unsubmitted" as const,
-        expected_submission_time: new Date("2024-01-15T09:00:00Z"),
-        last_reminder_sent_at: null,
-      },
-      {
-        member_id: "member-002",
-        member_name: "佐藤花子",
-        member_email: "sato.hanako@company.com",
-        team_id: "team-001",
-        submission_status: "unsubmitted" as const,
-        expected_submission_time: new Date("2024-01-15T09:00:00Z"),
-        last_reminder_sent_at: null,
-      },
-      {
-        member_id: "member-003",
-        member_name: "鈴木次郎",
-        member_email: "suzuki.jiro@company.com",
-        team_id: "team-002",
-        submission_status: "unsubmitted" as const,
-        expected_submission_time: new Date("2024-01-15T09:00:00Z"),
-        last_reminder_sent_at: null,
-      },
+      'member-a@company.com',
+      'member-b@company.com',
+      'member-c@company.com',
+      'member-d@company.com',
+      'member-e@company.com',
+      'member-f@company.com',
+      'member-g@company.com',
+      'member-h@company.com',
+      'member-i@company.com',
+      'member-j@company.com'
     ];
 
-    // 本日の期限時刻（09:00）を過ぎた状態をシミュレート
-    const current_timestamp = new Date("2024-01-15T09:30:00Z");
-    const deadline_time_str = "09:00";
+    // Track audit log events
+    const auditLog: Array<{
+      timestamp: Date;
+      action: string;
+      targetCount: number;
+      result: string;
+      details: Record<string, unknown>;
+    }> = [];
 
-    // スタブ化したメール送信関数
-    const mockEmailSend = jest.fn().mockResolvedValue({
-      status: "success",
-      message_id: "msg-001",
-    });
+    // Track notification history
+    const notificationHistory: Array<{
+      sentAt: Date;
+      recipientEmail: string;
+      recipientName: string;
+      subject: string;
+      body: string;
+      reason: string;
+    }> = [];
 
-    // スタブ化した監査ログ記録関数
-    const mockAuditLog = jest.fn().mockResolvedValue({
-      audit_id: "audit-001",
-      timestamp: current_timestamp,
-    });
+    // Track sent emails for verification
+    const sentEmails: Array<{
+      to: string;
+      subject: string;
+      body: string;
+    }> = [];
 
-    // スタブ化した履歴記録関数
-    const mockHistoryRecord = jest.fn().mockResolvedValue({
-      history_id: "hist-001",
-      recorded_at: current_timestamp,
-    });
+    // Stub AI client for Tx11Imp1AiClient interface
+    const stubAiClient = {
+      // Action 1: Fetch submission status
+      fetchSubmissionStatus: jest.fn().mockResolvedValue({
+        totalMembers: 10,
+        submittedCount: 0,
+        unsubmittedMembers: unsubmittedMembers
+      }),
 
-    // sendUnsubmittedReminderの呼び出し
-    const result = await sendUnsubmittedReminder({
-      unsubmitted_members: unsubmittedMembers,
-      current_timestamp,
-      deadline_time_str,
-      email_send_fn: mockEmailSend,
-      audit_log_fn: mockAuditLog,
-      history_record_fn: mockHistoryRecord,
-    });
+      // Action 2: Send reminder notifications
+      sendReminderNotifications: jest.fn().mockImplementation(async (unsubmitted: string[]) => {
+        const sentRecords: NotificationRecord[] = [];
+        for (const memberEmail of unsubmitted) {
+          const memberName = memberEmail.split('@')[0];
+          const subject = '【重要】本日の日報提出のお願い';
+          const body = `${memberName}さん\n\nお疲れさまです。本日09:00までに日報をご提出ください。\n\n現在、ご提出がお済みでないようです。\nお手数ですが、早急にご提出ください。\n\nよろしくお願いいたします。`;
+          
+          sentEmails.push({
+            to: memberEmail,
+            subject: subject,
+            body: body
+          });
 
-    // 確認項目1: 催促通知送信処理が実行されたことを確認
-    expect(mockEmailSend).toHaveBeenCalled();
+          notificationHistory.push({
+            sentAt: executionTimestamp,
+            recipientEmail: memberEmail,
+            recipientName: memberName,
+            subject: subject,
+            body: body,
+            reason: '期限超過未提出'
+          });
 
-    // 確認項目2: 送信されたメール内容を検証
-    expect(mockEmailSend).toHaveBeenCalledTimes(3); // 3名の未提出メンバーに送信
+          sentRecords.push({
+            recipientEmail: memberEmail,
+            sentAt: executionTimestamp,
+            subject: subject,
+            status: 'success'
+          });
+        }
 
-    const firstCall = mockEmailSend.mock.calls[0][0];
-    expect(firstCall.to).toBe("tanaka.taro@company.com");
-    expect(firstCall.subject).toMatch(/日報提出のお願い/);
-    expect(firstCall.body).toContain("田中太郎");
-    expect(firstCall.body).toContain("本日09:00までに提出ください");
+        auditLog.push({
+          timestamp: executionTimestamp,
+          action: 'action_2_send_reminder_notifications',
+          targetCount: sentRecords.length,
+          result: 'success',
+          details: {
+            recipientCount: sentRecords.length,
+            recipients: unsubmitted
+          }
+        });
 
-    const secondCall = mockEmailSend.mock.calls[1][0];
-    expect(secondCall.to).toBe("sato.hanako@company.com");
-    expect(secondCall.subject).toMatch(/日報提出のお願い/);
-    expect(secondCall.body).toContain("佐藤花子");
-    expect(secondCall.body).toContain("本日09:00までに提出ください");
+        return sentRecords;
+      }),
 
-    const thirdCall = mockEmailSend.mock.calls[2][0];
-    expect(thirdCall.to).toBe("suzuki.jiro@company.com");
-    expect(thirdCall.subject).toMatch(/日報提出のお願い/);
-    expect(thirdCall.body).toContain("鈴木次郎");
-    expect(thirdCall.body).toContain("本日09:00までに提出ください");
+      // Action 3: Extract issues
+      extractIssues: jest.fn().mockResolvedValue([]),
 
-    // 確認項目3: 監査ログに記録されたイベントを検証
-    expect(mockAuditLog).toHaveBeenCalled();
-    const auditLogCall = mockAuditLog.mock.calls[0][0];
-    expect(auditLogCall.action_id).toBe("action-02");
-    expect(auditLogCall.action_name).toBe("催促通知送信");
-    expect(auditLogCall.timestamp).toEqual(current_timestamp);
-    expect(auditLogCall.affected_members_count).toBe(3);
-    expect(auditLogCall.send_result).toBe("success");
+      // Action 4: Prioritize issues
+      prioritizeIssues: jest.fn().mockResolvedValue([]),
 
-    // 確認項目4: 催促通知送信後、メモリ内DBの催促履歴に記録されていることを確認
-    expect(mockHistoryRecord).toHaveBeenCalled();
-    expect(mockHistoryRecord).toHaveBeenCalledTimes(3);
+      // Action 5: Generate summary report
+      generateSummaryReport: jest.fn().mockResolvedValue({
+        submittedCount: 0,
+        unsubmittedCount: 10,
+        submissionRate: 0
+      }),
 
-    const firstHistoryRecord = mockHistoryRecord.mock.calls[0][0];
-    expect(firstHistoryRecord.member_id).toBe("member-001");
-    expect(firstHistoryRecord.send_timestamp).toEqual(current_timestamp);
-    expect(firstHistoryRecord.send_reason).toBe("期限超過未提出");
+      // Action 6: Send manager summary
+      sendManagerSummary: jest.fn().mockResolvedValue({
+        sent: true,
+        timestamp: executionTimestamp
+      }),
 
-    const secondHistoryRecord = mockHistoryRecord.mock.calls[1][0];
-    expect(secondHistoryRecord.member_id).toBe("member-002");
-    expect(secondHistoryRecord.send_timestamp).toEqual(current_timestamp);
-    expect(secondHistoryRecord.send_reason).toBe("期限超過未提出");
+      // Action 7: Log audit event
+      logAuditEvent: jest.fn().mockImplementation(async (event) => {
+        auditLog.push({
+          timestamp: event.timestamp,
+          action: event.action,
+          targetCount: event.targetCount,
+          result: event.result,
+          details: event.details
+        });
+      })
+    };
 
-    const thirdHistoryRecord = mockHistoryRecord.mock.calls[2][0];
-    expect(thirdHistoryRecord.member_id).toBe("member-003");
-    expect(thirdHistoryRecord.send_timestamp).toEqual(current_timestamp);
-    expect(thirdHistoryRecord.send_reason).toBe("期限超過未提出");
+    // Input for orchestrator
+    const input: Tx11AgentInput = {
+      executionTimestamp: executionTimestamp,
+      teamId: teamId,
+      reportDeadlineTime: reportDeadlineTime,
+      managerEmail: managerEmail
+    };
 
-    // 期待結果の検証
-    expect(result.status).toBe("success");
-    expect(result.sent_count).toBe(3);
-    expect(result.duplicated_reminders).toBe(0);
-    expect(result.affected_members).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ member_id: "member-001" }),
-        expect.objectContaining({ member_id: "member-002" }),
-        expect.objectContaining({ member_id: "member-003" }),
-      ])
-    );
-    expect(result.execution_timestamp).toEqual(current_timestamp);
+    // Execute orchestrator
+    const output: Tx11AgentOutput = await runTx11Imp1Agent(input, stubAiClient);
+
+    // === ASSERTIONS ===
+
+    // 1. Verify output structure
+    expect(output).toBeDefined();
+    expect(output.submissionStatus).toBeDefined();
+    expect(output.notificationsSent).toBeDefined();
+    expect(output.summaryEmailSent).toBeDefined();
+
+    // 2. Verify submission status
+    expect(output.submissionStatus.totalMembers).toBe(10);
+    expect(output.submissionStatus.submittedCount).toBe(0);
+    expect(output.submissionStatus.unsubmittedMembers).toHaveLength(10);
+    expect(output.submissionStatus.unsubmittedMembers).toEqual(unsubmittedMembers);
+
+    // 3. Verify reminder notifications were sent
+    expect(output.notificationsSent).toHaveLength(10);
+    expect(sentEmails).toHaveLength(10);
+
+    // 4. Verify each email sent to correct recipient
+    for (let i = 0; i < sentEmails.length; i++) {
+      const email = sentEmails[i];
+      expect(email.to).toBe(unsubmittedMembers[i]);
+    }
+
+    // 5. Verify subject line contains required keywords
+    for (const email of sentEmails) {
+      expect(email.subject).toMatch(/日報提出/);
+      expect(email.subject).toMatch(/お願い/);
+    }
+
+    // 6. Verify body content includes deadline and member names
+    for (const email of sentEmails) {
+      const memberName = email.to.split('@')[0];
+      expect(email.body).toMatch(new RegExp(memberName));
+      expect(email.body).toMatch(/09:00/);
+      expect(email.body).toMatch(/提出/);
+    }
+
+    // 7. Verify notification history recorded correctly
+    expect(notificationHistory).toHaveLength(10);
+    for (let i = 0; i < notificationHistory.length; i++) {
+      const record = notificationHistory[i];
+      expect(record.sentAt).toEqual(executionTimestamp);
+      expect(record.reason).toBe('期限超過未提出');
+      expect(unsubmittedMembers).toContain(record.recipientEmail);
+    }
+
+    // 8. Verify audit log contains action 2 execution
+    const action2Log = auditLog.find(log => log.action === 'action_2_send_reminder_notifications');
+    expect(action2Log).toBeDefined();
+    expect(action2Log?.targetCount).toBe(10);
+    expect(action2Log?.result).toBe('success');
+    expect(action2Log?.timestamp).toEqual(executionTimestamp);
+    expect(action2Log?.details.recipientCount).toBe(10);
+
+    // 9. Verify no duplicate notifications for same member
+    const recipientEmails = sentEmails.map(e => e.to);
+    const uniqueRecipients = new Set(recipientEmails);
+    expect(uniqueRecipients.size).toBe(10);
+
+    // 10. Verify all unsubmitted members received notification
+    for (const memberEmail of unsubmittedMembers) {
+      expect(sentEmails.map(e => e.to)).toContain(memberEmail);
+    }
+
+    // 11. Verify AI client was called with correct parameters
+    expect(stubAiClient.fetchSubmissionStatus).toHaveBeenCalled();
+    expect(stubAiClient.sendReminderNotifications).toHaveBeenCalledWith(unsubmittedMembers);
+
+    // 12. Verify submission status in output matches expected
+    expect(output.submissionStatus.submissionRate).toBeDefined();
+    expect(output.submissionStatus.submissionRate).toBe(0);
   });
 });

@@ -1,209 +1,164 @@
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx8Imp1Agent, type Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/orchestrator";
 
-describe('sendUnsubmittedReminder - Rollback after partial side effect', () => {
-  test('SCEN-158: should rollback all side effects when Action 4 fails in tx_8_imp_1 agent execution', async () => {
-    // Setup: Initialize test stub for morning report management system
-    const initialIssueDataset = [
-      {
-        id: 'issue-001',
-        title: 'Database connection timeout',
-        category: 'infrastructure',
-        priority: 'high',
-        reportedDate: '2024-01-15T09:00:00Z',
-        isRecurring: true,
-        recurringCount: 3,
-      },
-      {
-        id: 'issue-002',
-        title: 'API rate limit exceeded',
-        category: 'performance',
-        priority: 'medium',
-        reportedDate: '2024-01-14T14:30:00Z',
-        isRecurring: true,
-        recurringCount: 2,
-      },
-      {
-        id: 'issue-003',
-        title: 'Memory leak in service',
-        category: 'stability',
-        priority: 'high',
-        reportedDate: '2024-01-16T10:15:00Z',
-        isRecurring: false,
-        recurringCount: 1,
-      },
-    ];
-
-    // Setup: Create in-memory state tracker to verify side effects
-    const stateTracker = {
-      loadedIssueData: null as typeof initialIssueDataset | null,
-      analysisResult: null as Record<string, unknown> | null,
-      patternIdentificationResult: null as Record<string, unknown> | null,
-      compensationLogsRecorded: [] as string[],
-      orchestratorState: 'uninitialized' as string,
+describe("Tx8Imp1Agent", () => {
+  // SCEN-158: [error] 課題検索から可視化レポート作成までの自動実行 - 途中失敗時の副作用巻き戻し
+  test("should rollback all side effects when Action 4 fails during report generation", async () => {
+    // Initialize test stub data
+    const issue_1 = {
+      id: "issue-001",
+      title: "Database Connection Timeout",
+      createdAt: "2024-01-10T09:00:00Z",
+      priority: "high",
+      status: "open",
+    };
+    const issue_2 = {
+      id: "issue-002",
+      title: "Database Connection Timeout",
+      createdAt: "2024-01-12T14:30:00Z",
+      priority: "high",
+      status: "open",
+    };
+    const issue_3 = {
+      id: "issue-003",
+      title: "API Rate Limit Exceeded",
+      createdAt: "2024-01-15T11:00:00Z",
+      priority: "medium",
+      status: "resolved",
     };
 
-    // Mock AI Client with injectable error
-    let action4ShouldFail = false;
+    const initialIssueCount = 3;
+    let loadedIssueCount = 0;
+    let analysisResultGenerated = false;
+    let patternDetectionResultGenerated = false;
+    let compensationExecuted = false;
+    let rollbackLog: string[] = [];
 
-    const mockAiClient = {
-      action01_extractIssueData: async () => {
-        stateTracker.loadedIssueData = JSON.parse(JSON.stringify(initialIssueDataset));
-        stateTracker.orchestratorState = 'action-01-completed';
+    // Mock AI client with controlled side effects and error injection
+    const mockAiClient: Tx8Imp1AiClient = {
+      async searchAndExtractIssues(input: {
+        systemUrl: string;
+        analysisStartDate: string;
+        analysisEndDate: string;
+      }): Promise<
+        Array<{
+          id: string;
+          title: string;
+          createdAt: string;
+          priority: string;
+          status: string;
+        }>
+      > {
+        // Action 1: Extract issues from system
+        const extractedIssues = [issue_1, issue_2, issue_3];
+        loadedIssueCount = extractedIssues.length;
+        return extractedIssues;
+      },
+
+      async analyzeRecurrencePatterns(input: {
+        issues: Array<{ id: string; title: string; createdAt: string }>;
+      }): Promise<{
+        patterns: Array<{ title: string; occurrences: number }>;
+        recurrenceRiskScore: number;
+      }> {
+        // Action 2: Analyze recurrence patterns
+        const patterns = [
+          {
+            title: "Database Connection Timeout",
+            occurrences: 2,
+          },
+        ];
+        analysisResultGenerated = true;
         return {
-          issueCount: initialIssueDataset.length,
-          successFlag: true,
+          patterns,
+          recurrenceRiskScore: 0.75,
         };
       },
 
-      action02_analyzeTimeSeriesPattern: async () => {
-        if (!stateTracker.loadedIssueData) {
-          throw new Error('Issue data not loaded');
-        }
-        stateTracker.analysisResult = {
-          timeSeriesPatterns: [
-            {
-              patternId: 'pattern-001',
-              affectedIssueIds: ['issue-001', 'issue-002'],
-              frequency: 'weekly',
-              severityTrend: 'increasing',
-            },
+      async identifyBottleneckPatterns(input: {
+        patterns: Array<{ title: string; occurrences: number }>;
+      }): Promise<{
+        criticalBottlenecks: Array<{ pattern: string; severity: string }>;
+        timelineShift: string;
+      }> {
+        // Action 3: Identify bottleneck patterns
+        patternDetectionResultGenerated = true;
+        return {
+          criticalBottlenecks: [
+            { pattern: "Database Connection Timeout", severity: "critical" },
           ],
-          lastUpdated: '2024-01-16T11:00:00Z',
-        };
-        stateTracker.orchestratorState = 'action-02-completed';
-        return {
-          patternsDetected: 1,
-          successFlag: true,
+          timelineShift: "increasing",
         };
       },
 
-      action03_identifyBottleneckPattern: async () => {
-        if (!stateTracker.analysisResult) {
-          throw new Error('Analysis result not available');
-        }
-        stateTracker.patternIdentificationResult = {
-          bottlenecks: [
-            {
-              bottleneckId: 'bn-001',
-              rootCause: 'Insufficient resource allocation',
-              affectedComponentIds: ['service-a', 'service-b'],
-              changeOverTime: 'degrading',
-            },
-          ],
-          reportGeneratedAt: '2024-01-16T11:30:00Z',
-        };
-        stateTracker.orchestratorState = 'action-03-completed';
+      async generateVisualizationReport(input: {
+        bottlenecks: Array<{ pattern: string; severity: string }>;
+      }): Promise<{
+        reportId: string;
+        reportContent: string;
+      }> {
+        // Action 4: Generate report - INTENTIONALLY FAIL HERE
+        throw new Error("Database connection failed during report generation");
+      },
+
+      async compensateAndRollback(input: {
+        failedAction: string;
+        completedActions: string[];
+      }): Promise<{ status: string; rollbackLog: string[] }> {
+        // Compensation transaction
+        compensationExecuted = true;
+        loadedIssueCount = 0;
+        analysisResultGenerated = false;
+        patternDetectionResultGenerated = false;
+        rollbackLog = [
+          "ROLLBACK_COMPENSATION_EXECUTED",
+          "REVERTED_ACTION_3_PATTERN_DETECTION",
+          "REVERTED_ACTION_2_ANALYSIS_RESULTS",
+          "REVERTED_ACTION_1_LOADED_ISSUES",
+          "SIDE_EFFECTS_REVERTED",
+        ];
         return {
-          bottlenecksIdentified: 1,
-          successFlag: true,
+          status: "rolled_back",
+          rollbackLog,
         };
       },
 
-      action04_generateVisualizationReport: async () => {
-        if (action4ShouldFail) {
-          throw new Error('Database connection failed during report generation');
-        }
-        stateTracker.orchestratorState = 'action-04-completed';
+      async verifyExternalSystemConsistency(input: {
+        originalIssueCount: number;
+      }): Promise<{ externalSystemIntact: boolean; currentIssueCount: number }> {
+        // Verify external system state unchanged
         return {
-          reportId: 'report-tx8-001',
-          successFlag: true,
-        };
-      },
-
-      action05_prioritizeIssues: async () => {
-        stateTracker.orchestratorState = 'action-05-completed';
-        return {
-          prioritizedCount: 3,
-          successFlag: true,
+          externalSystemIntact: true,
+          currentIssueCount: initialIssueCount,
         };
       },
     };
 
-    // Simulate orchestrator with rollback compensation
-    const runTx8Imp1AgentWithRollback = async (aiClient: typeof mockAiClient) => {
-      try {
-        stateTracker.orchestratorState = 'initializing';
-
-        // Action 1: Extract issue data
-        await aiClient.action01_extractIssueData();
-
-        // Action 2: Analyze time series pattern
-        await aiClient.action02_analyzeTimeSeriesPattern();
-
-        // Action 3: Identify bottleneck pattern
-        await aiClient.action03_identifyBottleneckPattern();
-
-        // Action 4: Generate visualization report - INJECT ERROR HERE
-        await aiClient.action04_generateVisualizationReport();
-
-        // Action 5: Prioritize issues
-        await aiClient.action05_prioritizeIssues();
-
-        stateTracker.orchestratorState = 'completed-successfully';
-      } catch (error) {
-        // Compensation/Rollback logic
-        stateTracker.compensationLogsRecorded.push('ROLLBACK_COMPENSATION_EXECUTED');
-        stateTracker.loadedIssueData = null;
-        stateTracker.analysisResult = null;
-        stateTracker.patternIdentificationResult = null;
-        stateTracker.orchestratorState = 'uninitialized';
-        throw error;
-      }
-    };
-
-    // Trigger: Inject error and execute orchestrator
-    action4ShouldFail = true;
-
-    let caughtError: Error | null = null;
-    try {
-      await runTx8Imp1AgentWithRollback(mockAiClient);
-    } catch (err) {
-      caughtError = err as Error;
-    }
-
-    // Verify: Error was caught
-    expect(caughtError).not.toBeNull();
-    expect(caughtError?.message).toMatch(/Database connection/);
-
-    // Verify: All side effects in memory are reverted
-    expect(stateTracker.loadedIssueData).toBeNull();
-    expect(stateTracker.analysisResult).toBeNull();
-    expect(stateTracker.patternIdentificationResult).toBeNull();
-
-    // Verify: Compensation logs recorded
-    expect(stateTracker.compensationLogsRecorded).toContain('ROLLBACK_COMPENSATION_EXECUTED');
-
-    // Verify: Orchestrator state reverted to initial
-    expect(stateTracker.orchestratorState).toBe('uninitialized');
-
-    // Verify: External system data unchanged (original 3 issues remain)
-    expect(initialIssueDataset).toHaveLength(3);
-    expect(initialIssueDataset[0].id).toBe('issue-001');
-    expect(initialIssueDataset[1].id).toBe('issue-002');
-    expect(initialIssueDataset[2].id).toBe('issue-003');
-
-    // Verify: No partial state persists after rollback
-    const allSideEffectsCleared =
-      stateTracker.loadedIssueData === null &&
-      stateTracker.analysisResult === null &&
-      stateTracker.patternIdentificationResult === null;
-    expect(allSideEffectsCleared).toBe(true);
-
-    // Call sendUnsubmittedReminder to ensure no regression in notification logic
-    const mockMailClient = {
-      sendMail: jest.fn().mockResolvedValue({ messageId: 'msg-001' }),
-    };
-
-    const reminderResult = await sendUnsubmittedReminder(
+    // Execute agent with injected mock client
+    const result = await runTx8Imp1Agent(
       {
-        unsubmittedMembers: [{ id: 'user-001', email: 'user@example.com', name: 'John' }],
-        reminderType: 'urgent',
-        scheduledAt: new Date('2024-01-16T11:45:00Z'),
+        analysisPeriodStartDate: "2024-01-01T00:00:00Z",
+        analysisPeriodEndDate: "2024-01-31T23:59:59Z",
+        managerEmail: "manager@company.com",
+        minimumDataThreshold: 3,
       },
-      mockMailClient as any,
+      mockAiClient
     );
 
-    expect(reminderResult).toBeDefined();
-    expect(mockMailClient.sendMail).toHaveBeenCalled();
+    // Verify that side effects were reverted
+    expect(compensationExecuted).toBe(true);
+    expect(loadedIssueCount).toBe(0);
+    expect(analysisResultGenerated).toBe(false);
+    expect(patternDetectionResultGenerated).toBe(false);
+
+    // Verify rollback log contains compensation records
+    expect(rollbackLog).toContain("ROLLBACK_COMPENSATION_EXECUTED");
+    expect(rollbackLog).toContain("SIDE_EFFECTS_REVERTED");
+
+    // Verify orchestrator returned to initial state
+    expect(result.analysisStatus).toBe("failed");
+
+    // Verify external system state consistency
+    expect(result.externalSystemConsistency).toBe(true);
+    expect(result.originalDataIntact).toBe(true);
   });
 });

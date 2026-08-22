@@ -1,134 +1,90 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { runTx1Imp1Agent } from '../../src/agents/tx-1-imp-1/orchestrator';
+import type { Tx1Imp1AgentInput, Tx1Imp1AgentOutput } from '../../src/agents/tx-1-imp-1/orchestrator';
+import type { Tx1Imp1AiClient } from '../../src/agents/tx-1-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  // SCEN-033: [error] 日報集約から課題優先順位付けと未提出通知までの自律実行 AIエージェント - システム連携エラーによる日報取得失敗時に副作用の確定前に人へ引き継ぐ
-  test('should escalate to human and prevent side effects when daily report system API fails', async () => {
-    const mockReportDate = new Date('2024-01-15T09:00:00Z');
-    const mockDepartmentId = 'dept_001';
-    const mockErrorMessage = 'Daily report system API connection timeout';
-    const mockErrorCode = 'REPORT_API_TIMEOUT';
-
-    const mockAiClient = {
-      callAction01GetReportSubmissionStatus: jest.fn().mockRejectedValueOnce(
-        new Error(`System integration error: ${mockErrorCode} - ${mockErrorMessage}`)
+describe('Tx1Imp1Agent - System Integration Error Handling', () => {
+  // SCEN-033
+  test('should escalate to human and not execute subsequent actions when daily report system connection fails during Action 1', async () => {
+    const mockAiClient: jest.Mocked<Tx1Imp1AiClient> = {
+      executeAction01GetSubmissionStatus: jest.fn().mockRejectedValue(
+        new Error('System integration error: Daily report API timeout (503 Service Unavailable)')
       ),
-      callAction02DetectUnsubmittedMembers: jest.fn(),
-      callAction03ExtractIssues: jest.fn(),
-      callAction04AssignIssuePriority: jest.fn(),
-      callAction05GenerateMorningMeetingMaterial: jest.fn(),
-      callAction06SendCompletionNotification: jest.fn(),
-    };
-
-    const mockEscalationHandler = jest.fn().mockResolvedValueOnce({
-      escalationId: 'esc_001',
-      status: 'ESCALATED_TO_HUMAN',
-      notificationSentAt: new Date('2024-01-15T09:01:00Z'),
-      auditLogId: 'audit_001',
-    });
-
-    const mockTransactionState = {
-      status: 'IN_PROGRESS',
-      action_completed: 'ACTION_01_STARTED',
-      side_effects_confirmed: false,
-      unsubmitted_notifications_sent: false,
-      meeting_material_generated: false,
-      completion_notification_sent: false,
-    };
-
-    const result = await sendUnsubmittedReminder(
-      mockReportDate,
-      mockDepartmentId,
-      mockAiClient,
-      mockEscalationHandler,
-      mockTransactionState
-    );
-
-    // Verify that Action 1 was attempted once
-    expect(mockAiClient.callAction01GetReportSubmissionStatus).toHaveBeenCalledTimes(1);
-    expect(mockAiClient.callAction01GetReportSubmissionStatus).toHaveBeenCalledWith({
-      departmentId: mockDepartmentId,
-      reportDate: mockReportDate,
-    });
-
-    // Verify that subsequent actions (Action 2-6) were NOT called
-    expect(mockAiClient.callAction02DetectUnsubmittedMembers).not.toHaveBeenCalled();
-    expect(mockAiClient.callAction03ExtractIssues).not.toHaveBeenCalled();
-    expect(mockAiClient.callAction04AssignIssuePriority).not.toHaveBeenCalled();
-    expect(mockAiClient.callAction05GenerateMorningMeetingMaterial).not.toHaveBeenCalled();
-    expect(mockAiClient.callAction06SendCompletionNotification).not.toHaveBeenCalled();
-
-    // Verify escalation handler was called with correct error context
-    expect(mockEscalationHandler).toHaveBeenCalledTimes(1);
-    expect(mockEscalationHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: 'SYSTEM_INTEGRATION_ERROR_ON_REPORT_RETRIEVAL',
-        errorCode: mockErrorCode,
-        errorMessage: mockErrorMessage,
-        failedAction: 'ACTION_01',
-        departmentId: mockDepartmentId,
-        reportDate: mockReportDate,
-        sideEffectsConfirmed: false,
-        unsubmittedNotificationsSent: false,
-        meetingMaterialGenerated: false,
-        completionNotificationSent: false,
-      })
-    );
-
-    // Verify transaction state reflects side effects NOT confirmed
-    expect(result.transactionState).toEqual(
-      expect.objectContaining({
-        status: 'ESCALATED_TO_HUMAN',
-        action_completed: 'ACTION_01_FAILED',
-        side_effects_confirmed: false,
-        unsubmitted_notifications_sent: false,
-        meeting_material_generated: false,
-        completion_notification_sent: false,
-      })
-    );
-
-    // Verify orchestrator status is ESCALATED_TO_HUMAN
-    expect(result.status).toBe('ESCALATED_TO_HUMAN');
-
-    // Verify escalation notification details
-    expect(result.escalation).toEqual(
-      expect.objectContaining({
-        escalationId: 'esc_001',
-        status: 'ESCALATED_TO_HUMAN',
-        notificationSentAt: new Date('2024-01-15T09:01:00Z'),
-        auditLogId: 'audit_001',
-      })
-    );
-
-    // Verify audit log entry contains required information
-    expect(result.auditLog).toEqual(
-      expect.objectContaining({
-        timestamp: expect.any(Date),
-        eventType: 'ESCALATION_TRIGGERED',
-        errorCategory: 'SYSTEM_INTEGRATION_ERROR',
-        errorCode: mockErrorCode,
-        errorDetail: mockErrorMessage,
-        failedActionStep: 'ACTION_01',
-        departmentId: mockDepartmentId,
-        reportDate: mockReportDate,
+      executeAction02SendReminder: jest.fn(),
+      executeAction03ExtractIssues: jest.fn(),
+      executeAction04RankIssues: jest.fn(),
+      executeAction05GenerateMaterial: jest.fn(),
+      executeAction06SendCompletion: jest.fn(),
+      escalateToHuman: jest.fn().mockResolvedValue({
+        escalationId: 'ESC-20240115-001',
+        timestamp: new Date('2024-01-15T09:05:00Z'),
+        reason: 'System integration error: Daily report API timeout (503 Service Unavailable)',
+        actionStage: 'Action 1',
+        sideEffectConfirmed: false,
+        notificationSent: true,
+      }),
+      recordAuditLog: jest.fn().mockResolvedValue({
+        auditId: 'AUDIT-20240115-001',
+        timestamp: new Date('2024-01-15T09:05:00Z'),
+        eventType: 'ESCALATION',
+        errorReason: 'System integration error: Daily report API timeout (503 Service Unavailable)',
+        stoppedAtAction: 'Action 1',
         sideEffectStatus: 'NOT_CONFIRMED',
-        escalatedToHumanReviewAt: expect.any(Date),
-      })
-    );
+      }),
+    };
 
-    // Verify no side effects were applied
-    expect(result.sideEffectsApplied).toEqual({
-      unsubmittedNotificationsSent: false,
-      meetingMaterialGenerated: false,
-      completionNotificationSent: false,
+    const input: Tx1Imp1AgentInput = {
+      executionTimestamp: new Date('2024-01-15T09:00:00Z'),
+      reportDeadlineTime: '09:00',
+      morningMeetingStartTime: '09:30',
+      teamMemberIds: ['EMP001', 'EMP002', 'EMP003'],
+      managerEmail: 'manager@company.com',
+    };
+
+    const result: Tx1Imp1AgentOutput = await runTx1Imp1Agent(input, mockAiClient);
+
+    expect(result.executionStatus).toBe('failure');
+    expect(result.aggregatedReportCount).toBe(0);
+    expect(result.unsubmittedMemberCount).toBe(0);
+    expect(result.extractedIssueCount).toBe(0);
+    expect(result.prioritizedIssueList).toEqual([]);
+    expect(result.summaryEmailSent).toBe(false);
+
+    expect(mockAiClient.executeAction01GetSubmissionStatus).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction01GetSubmissionStatus).toHaveBeenCalledWith({
+      executionTimestamp: new Date('2024-01-15T09:00:00Z'),
+      teamMemberIds: ['EMP001', 'EMP002', 'EMP003'],
     });
+
+    expect(mockAiClient.executeAction02SendReminder).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction03ExtractIssues).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction04RankIssues).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction05GenerateMaterial).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction06SendCompletion).not.toHaveBeenCalled();
+
+    expect(mockAiClient.escalateToHuman).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.escalateToHuman).toHaveBeenCalledWith({
+      errorReason: 'System integration error: Daily report API timeout (503 Service Unavailable)',
+      actionStage: 'Action 1',
+      sideEffectConfirmed: false,
+      managerEmail: 'manager@company.com',
+      executionTimestamp: new Date('2024-01-15T09:00:00Z'),
+    });
+
+    expect(mockAiClient.recordAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.recordAuditLog).toHaveBeenCalledWith({
+      eventType: 'ESCALATION',
+      errorReason: 'System integration error: Daily report API timeout (503 Service Unavailable)',
+      stoppedAtAction: 'Action 1',
+      sideEffectStatus: 'NOT_CONFIRMED',
+      escalationNotificationSent: true,
+      timestamp: new Date('2024-01-15T09:00:00Z'),
+      managerEmail: 'manager@company.com',
+    });
+
+    expect(result.completionTimestamp).toBeInstanceOf(Date);
+    expect(result.completionTimestamp.getTime()).toBeGreaterThanOrEqual(
+      new Date('2024-01-15T09:00:00Z').getTime()
+    );
   });
 });

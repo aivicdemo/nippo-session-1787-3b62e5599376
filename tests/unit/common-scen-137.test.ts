@@ -1,102 +1,118 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
+import { type Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  test('SCEN-137: sendUnsubmittedReminder safely rejects low-confidence AI output and escalates to human review', async () => {
-    // Setup: Create test data for unsubmitted reminders
-    const mockUnsubmittedMembers = [
-      {
-        userId: 'user-001',
-        memberName: 'Alice Johnson',
-        email: 'alice@company.com',
+describe('tx-7-imp-1 orchestrator', () => {
+  // SCEN-137
+  test('should detect low-confidence and ambiguous AI output and escalate without presenting to director', async () => {
+    // Arrange: Create a fake AI client that returns low-confidence, ambiguous analysis
+    const fakeAiClient: Tx7Imp1AiClient = {
+      validateAiOutput: jest.fn().mockResolvedValue({
+        isValid: false,
+        confidence: 0.35,
+        reason: 'ambiguous_reasoning',
+        details: 'Analysis result can be interpreted in multiple ways; confidence below threshold'
+      }),
+      action01GetReportTrigger: jest.fn().mockResolvedValue({
+        triggerId: 'monthly-20240101',
+        targetMonth: '2024-01',
         teamId: 'team-001',
-        teamName: 'Backend Team',
-        lastSubmissionDate: '2024-12-27T09:00:00Z',
-        submissionDeadline: '2025-01-15T18:00:00Z',
-      },
-      {
-        userId: 'user-002',
-        memberName: 'Bob Smith',
-        email: 'bob@company.com',
-        teamId: 'team-001',
-        teamName: 'Backend Team',
-        lastSubmissionDate: '2024-12-26T14:30:00Z',
-        submissionDeadline: '2025-01-15T18:00:00Z',
-      },
-    ];
-
-    const mockAiClientResponse = {
-      confidenceScore: 0.35,
-      analysisResult: {
-        extractedIssues: ['Issue A', 'Issue B'],
-        priorityAssignments: [
-          { issueId: 'issue-001', priority: 'HIGH', reasoning: 'possibly critical' },
-          { issueId: 'issue-002', priority: 'MEDIUM', reasoning: 'maybe important' },
+        triggeredBy: 'schedule',
+        includeDetailedAnalysis: true
+      }),
+      action02ExtractData: jest.fn().mockResolvedValue({
+        totalReports: 45,
+        reportIds: ['rep-001', 'rep-002'],
+        extractedAt: new Date('2024-01-01T08:00:00Z').toISOString()
+      }),
+      action03GenerateReport: jest.fn().mockResolvedValue({
+        reportId: 'rpt-2024-01-001',
+        generatedAt: new Date('2024-01-01T08:15:00Z').toISOString(),
+        topPriorityChallenges: [
+          {
+            challengeId: 'ch-001',
+            title: 'Database performance',
+            priority: 1,
+            score: 92
+          }
+        ]
+      }),
+      action04AnalyzeTimeSeries: jest.fn().mockResolvedValue({
+        timeSeriesData: [
+          {
+            date: '2024-01-01',
+            bottleneckSeverity: 0.65,
+            issueCount: 3
+          }
         ],
-        timeSeriesAnalysis: {
-          trend: 'uncertain',
-          changePattern: 'ambiguous',
-        },
-      },
-      validationMetadata: {
-        reasoningClarity: 0.32,
-        dataCompleteness: 0.38,
-        trustabilityFlag: false,
-      },
-      escalationReason: 'confidence_below_threshold',
+        improvementTrend: 'stable',
+        confidence: 0.35,
+        reasoning: 'Multiple interpretations possible'
+      }),
+      action05AnalyzeBottleneck: jest.fn().mockResolvedValue({
+        bottleneckId: 'bn-001',
+        description: 'Integration delays'
+      }),
+      action06AnalyzeTeamMetrics: jest.fn().mockResolvedValue({
+        teamId: 'team-001',
+        resolutionSpeed: 3.2,
+        reportSubmissionRate: 0.88
+      }),
+      action07PreparePresentation: jest.fn().mockResolvedValue({
+        presentationId: 'pres-001',
+        prepared: true
+      }),
+      action08PresentToDirector: jest.fn().mockResolvedValue({
+        directorNotified: true
+      })
     };
 
-    // Mock the notification delivery function with validation logic
-    const mockNotificationService = jest.fn(async (params: {
-      unsubmittedMembers: typeof mockUnsubmittedMembers;
-      aiOutput: typeof mockAiClientResponse;
-    }) => {
-      // Simulate validation check for low-confidence output
-      const confidenceThreshold = 0.5;
-      if (params.aiOutput.confidenceScore <= confidenceThreshold) {
-        const escalationEvent = {
-          code: 'AI_OUTPUT_REJECTED',
-          reason: 'confidence_below_threshold',
-          confidence: params.aiOutput.confidenceScore,
-          timestamp: new Date('2025-01-15T09:00:00Z').toISOString(),
-          auditMessage: `ESCALATION: 不正・曖昧・低確信度 AI 出力を検出 - 信頼度 ${params.aiOutput.confidenceScore}`,
-        };
-        return {
-          success: false,
-          escalated: true,
-          escalationEvent,
-          notificationsSent: 0,
-          skippedActions: ['Action_8_send_to_director'],
-        };
-      }
-      return {
-        success: true,
-        escalated: false,
-        notificationsSent: params.unsubmittedMembers.length,
-      };
-    });
+    const auditLog: Array<{ event: string; timestamp: string; data: unknown }> = [];
 
-    // Execute function with injected validation
-    const result = await mockNotificationService({
-      unsubmittedMembers: mockUnsubmittedMembers,
-      aiOutput: mockAiClientResponse,
-    });
+    const logAuditEvent = (event: string, data: unknown) => {
+      auditLog.push({
+        event,
+        timestamp: new Date('2024-01-01T08:30:00Z').toISOString(),
+        data
+      });
+    };
 
-    // Assertions: Verify escalation behavior
-    expect(result.escalated).toBe(true);
-    expect(result.success).toBe(false);
-    expect(result.escalationEvent).toBeDefined();
-    expect(result.escalationEvent.code).toBe('AI_OUTPUT_REJECTED');
-    expect(result.escalationEvent.reason).toBe('confidence_below_threshold');
-    expect(result.escalationEvent.confidence).toBe(0.35);
-    expect(result.escalationEvent.auditMessage).toBe(
-      'ESCALATION: 不正・曖昧・低確信度 AI 出力を検出 - 信頼度 0.35'
+    // Act: Run agent with fake AI client returning low-confidence output
+    const result = await runTx7Imp1Agent(
+      { targetMonth: '2024-01', teamId: 'team-001', triggeredBy: 'schedule' },
+      fakeAiClient,
+      logAuditEvent
     );
-    expect(result.notificationsSent).toBe(0);
-    expect(result.skippedActions).toContain('Action_8_send_to_director');
-    expect(mockNotificationService).toHaveBeenCalledWith({
-      unsubmittedMembers: mockUnsubmittedMembers,
-      aiOutput: mockAiClientResponse,
-    });
+
+    // Assert: Verify validation was called
+    expect(fakeAiClient.validateAiOutput).toHaveBeenCalled();
+
+    // Assert: Verify agent detected low confidence and escalated
+    expect(result).toEqual(
+      expect.objectContaining({
+        code: 'AI_OUTPUT_REJECTED',
+        reason: 'ambiguous_reasoning',
+        confidence: 0.35
+      })
+    );
+
+    // Assert: Verify Action 8 (presentToDirector) was NOT called
+    expect(fakeAiClient.action08PresentToDirector).not.toHaveBeenCalled();
+
+    // Assert: Verify escalation event was logged
+    const escalationEvent = auditLog.find((e) =>
+      e.event.includes('ESCALATION')
+    );
+    expect(escalationEvent).toBeDefined();
+    expect(escalationEvent?.event).toMatch(/ESCALATION/);
+    expect(escalationEvent?.data).toEqual(
+      expect.objectContaining({
+        reason: 'ambiguous_reasoning',
+        confidence: 0.35
+      })
+    );
+
+    // Assert: Verify system is in safe hold state (not presenting report)
+    expect(result.escalated).toBe(true);
+    expect(result.status).toBe('human_review_required');
   });
 });

@@ -1,222 +1,234 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
-import { detectAndNotifyUnsubmitted } from "../../src/logic/submission-status-management";
+import { runTx5Imp1Agent } from '../../src/agents/tx-5-imp-1/orchestrator';
+import { type Tx5Imp1AgentInput, type Tx5Imp1AgentOutput, type ExtractedIssue, type ToolIntegrationConfig, type PriorityRuleSet, type CategoryMapping } from '../../src/agents/tx-5-imp-1/orchestrator';
 
-describe("submission-status-management", () => {
-  let jiraApiSpy: jest.Mock;
-  let asanaApiSpy: jest.Mock;
-  let notificationSpy: jest.Mock;
-  let deduplicationStore: Map<string, { issueId: string; status: string; firstExecutionTimestamp: string; deduplicationDetectTimestamp: string }>;
-  let callCount: { jira: number; asana: number; notification: number };
-
-  beforeEach(() => {
-    deduplicationStore = new Map();
-    callCount = { jira: 0, asana: 0, notification: 0 };
-
-    jiraApiSpy = jest.fn(async (endpoint: string, issueData: any) => {
-      callCount.jira++;
-      const deduplicationKey = `${issueData.issueId}_${issueData.priority}_${issueData.category}`;
-      return { success: true, jiraIssueId: "JIRA-001", deduplicationKey };
-    });
-
-    asanaApiSpy = jest.fn(async (endpoint: string, taskData: any) => {
-      callCount.asana++;
-      const deduplicationKey = `${taskData.issueId}_${taskData.priority}_${taskData.category}`;
-      return { success: true, asanaTaskId: "ASANA-001", deduplicationKey };
-    });
-
-    notificationSpy = jest.fn(async (notificationType: string, payload: any) => {
-      callCount.notification++;
-      return { success: true };
-    });
-
-    global.fetch = jest.fn(async (url: string, options?: any) => {
-      if (url.includes("/jira/issues")) {
-        const result = await jiraApiSpy(url, JSON.parse(options?.body || "{}"));
-        return new Response(JSON.stringify(result), { status: 200 });
-      }
-      if (url.includes("/asana/tasks")) {
-        const result = await asanaApiSpy(url, JSON.parse(options?.body || "{}"));
-        return new Response(JSON.stringify(result), { status: 200 });
-      }
-      if (url.includes("/notification/send")) {
-        const result = await notificationSpy("send", JSON.parse(options?.body || "{}"));
-        return new Response(JSON.stringify(result), { status: 200 });
-      }
-      return new Response(JSON.stringify({ error: "Not Found" }), { status: 404 });
-    });
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
+describe('Tx5Imp1Agent - Idempotent Issue Extraction and Tool Integration', () => {
   // SCEN-103
-  test("should deduplicate identical issue extraction requests and prevent duplicate API calls and notifications", async () => {
-    const extractedIssueData = {
-      issueId: "ISSUE-001",
-      priority: "High",
-      category: "Bug",
-      title: "Critical system error",
-      description: "System fails under load",
+  test('should skip duplicate issue extraction on second execution and maintain single tool integration record with deduplication audit log', async () => {
+    // Setup: Mock data for first and second execution
+    const extractedIssueData: ExtractedIssue[] = [
+      {
+        issueId: 'ISSUE-001',
+        title: 'Critical Bug in Production',
+        description: 'Database connection timeout in production environment',
+        severity: 'high',
+        reportedBy: 'engineer-001',
+        reportedAt: '2024-01-15T10:00:00Z',
+      },
+    ];
+
+    const toolIntegrationConfig: ToolIntegrationConfig = {
+      toolType: 'jira',
+      apiEndpoint: 'https://jira.example.com/api/v3',
+      apiToken: 'fake-token',
+      projectKey: 'PROJ',
     };
 
-    const fakeAiClient = {
-      action01_validateExtractedIssue: jest.fn(async (issueData: any) => ({
-        isValid: true,
-        validatedData: issueData,
-      })),
-      action02_classifyIssueCategory: jest.fn(async (issueData: any) => ({
-        category: issueData.category,
-        confidence: 0.95,
-      })),
-      action03_determinePriority: jest.fn(async (issueData: any) => ({
-        priority: issueData.priority,
-        score: 85,
-      })),
-      action04_executeToolIntegration: jest.fn(async (issueData: any, deduplicationKey: string) => {
-        const isDuplicate = deduplicationStore.has(deduplicationKey);
-        if (isDuplicate) {
-          return { skipped: true, reason: "SKIPPED_DUPLICATE", deduplicationKey };
-        }
-        const jiraResponse = await jiraApiSpy("/jira/issues", issueData);
-        const asanaResponse = await asanaApiSpy("/asana/tasks", issueData);
-        return {
-          skipped: false,
-          jiraResult: jiraResponse,
-          asanaResult: asanaResponse,
-          deduplicationKey,
-        };
-      }),
-      action05_recordDeduplicationAndNotify: jest.fn(async (integrationResult: any, issueData: any) => {
-        const deduplicationKey = integrationResult.deduplicationKey;
-        const timestamp = new Date("2024-01-15T10:00:00Z").toISOString();
+    const priorityRules: PriorityRuleSet = {
+      highImpactKeywords: ['production', 'critical', 'outage'],
+      frequencyThreshold: 2,
+      impactWeights: {
+        critical: 100,
+        high: 80,
+        medium: 50,
+        low: 20,
+      },
+    };
 
-        if (integrationResult.skipped) {
-          const existingRecord = deduplicationStore.get(deduplicationKey);
-          deduplicationStore.set(deduplicationKey, {
-            issueId: issueData.issueId,
-            status: "SKIPPED_DUPLICATE",
-            firstExecutionTimestamp: existingRecord?.firstExecutionTimestamp || timestamp,
-            deduplicationDetectTimestamp: timestamp,
+    const categoryMappings: CategoryMapping[] = [
+      {
+        sourceName: 'Bug',
+        targetCategory: 'Bug',
+        toolSpecificId: 'BUG',
+      },
+      {
+        sourceName: 'Feature',
+        targetCategory: 'Feature',
+        toolSpecificId: 'FEATURE',
+      },
+    ];
+
+    // Spy counters for API calls
+    let jiraPostCallCount = 0;
+    let asanaPostCallCount = 0;
+    let notificationCallCount = 0;
+    const deduplicationAuditLog: Array<{
+      issueId: string;
+      executionTimestamp: string;
+      status: string;
+      deduplicationKeyHash: string;
+      firstExecutionTimestamp?: string;
+      duplicateDetectedTimestamp?: string;
+    }> = [];
+    const toolIntegrationRecords: Array<{
+      issueId: string;
+      toolType: string;
+      toolIssueId: string;
+      status: string;
+      createdAt: string;
+    }> = [];
+
+    // Mock AI client
+    const mockAiClient = {
+      validateExtractedIssuesAction: jest
+        .fn()
+        .mockResolvedValue({
+          validatedIssues: [
+            {
+              issueId: 'ISSUE-001',
+              priorityScore: 95,
+              priorityRank: 'high',
+              category: 'Bug',
+              toolIssueId: null,
+              validationStatus: 'valid',
+            },
+          ],
+        }),
+      determinePriorityAndCategoryAction: jest
+        .fn()
+        .mockResolvedValue({
+          categorizedIssues: [
+            {
+              issueId: 'ISSUE-001',
+              priorityScore: 95,
+              priorityRank: 'high',
+              category: 'Bug',
+              toolIssueId: null,
+              validationStatus: 'valid',
+            },
+          ],
+        }),
+      detectDuplicateIssuesAction: jest
+        .fn()
+        .mockResolvedValue({
+          deduplicationKey: 'ISSUE-001|2024-01-15T10:00:00Z|hash-001',
+          isDuplicate: false,
+          previousExecutionTimestamp: null,
+        }),
+      executeToolIntegrationAction: jest
+        .fn()
+        .mockImplementation(async (issues) => {
+          jiraPostCallCount += 1;
+          toolIntegrationRecords.push({
+            issueId: 'ISSUE-001',
+            toolType: 'jira',
+            toolIssueId: `PROJ-${jiraPostCallCount}`,
+            status: 'INTEGRATED',
+            createdAt: '2024-01-15T10:05:00Z',
           });
-          return { recorded: true, status: "SKIPPED_DUPLICATE" };
-        }
-
-        deduplicationStore.set(deduplicationKey, {
-          issueId: issueData.issueId,
-          status: "COMPLETED",
-          firstExecutionTimestamp: timestamp,
-          deduplicationDetectTimestamp: timestamp,
-        });
-
-        await notificationSpy("send", {
-          type: "ISSUE_INTEGRATION_COMPLETE",
-          issueId: issueData.issueId,
-          timestamp,
-        });
-
-        return { recorded: true, status: "COMPLETED" };
-      }),
+          return {
+            toolIssueId: `PROJ-${jiraPostCallCount}`,
+            status: 'INTEGRATED',
+          };
+        }),
+      sendCompletionNotificationAction: jest
+        .fn()
+        .mockImplementation(async (payload) => {
+          notificationCallCount += 1;
+          return { status: 'SENT' };
+        }),
+      recordDeduplicationAuditAction: jest
+        .fn()
+        .mockImplementation(async (payload) => {
+          deduplicationAuditLog.push(payload);
+          return { recorded: true };
+        }),
     };
 
-    // First execution
-    const firstExecutionTimestamp = new Date("2024-01-15T10:00:00Z").toISOString();
-    const deduplicationKeyFirstRun = `${extractedIssueData.issueId}_${extractedIssueData.priority}_${extractedIssueData.category}`;
+    const input1: Tx5Imp1AgentInput = {
+      extractedIssueData,
+      toolIntegrationConfig,
+      priorityRules,
+      categoryMappings,
+    };
 
-    // Action 1: Validate
-    const validationResult = await fakeAiClient.action01_validateExtractedIssue(extractedIssueData);
-    expect(validationResult.isValid).toBe(true);
+    // FIRST EXECUTION
+    const result1: Tx5Imp1AgentOutput = await runTx5Imp1Agent(input1, mockAiClient as any);
 
-    // Action 2: Classify
-    const classificationResult = await fakeAiClient.action02_classifyIssueCategory(validationResult.validatedData);
-    expect(classificationResult.category).toBe("Bug");
-    expect(classificationResult.confidence).toBe(0.95);
+    expect(result1).toBeDefined();
+    expect(result1.validatedIssues).toHaveLength(1);
+    expect(result1.validatedIssues[0].issueId).toBe('ISSUE-001');
+    expect(result1.validatedIssues[0].validationStatus).toBe('valid');
+    expect(result1.integrationResult.successCount).toBe(1);
+    expect(result1.integrationResult.failureCount).toBe(0);
+    expect(result1.executionSummary.status).toBe('COMPLETED');
 
-    // Action 3: Determine Priority
-    const priorityResult = await fakeAiClient.action03_determinePriority(validationResult.validatedData);
-    expect(priorityResult.priority).toBe("High");
-    expect(priorityResult.score).toBe(85);
+    // Verify first execution called tool integration
+    expect(jiraPostCallCount).toBe(1);
+    expect(notificationCallCount).toBe(1);
+    expect(toolIntegrationRecords).toHaveLength(1);
+    expect(toolIntegrationRecords[0].toolIssueId).toBe('PROJ-1');
+    expect(toolIntegrationRecords[0].status).toBe('INTEGRATED');
 
-    // Action 4: Execute Tool Integration (first run)
-    const integrationResultFirst = await fakeAiClient.action04_executeToolIntegration(
-      validationResult.validatedData,
-      deduplicationKeyFirstRun
-    );
-    expect(integrationResultFirst.skipped).toBe(false);
-    expect(jiraApiSpy).toHaveBeenCalledTimes(1);
-    expect(asanaApiSpy).toHaveBeenCalledTimes(1);
+    // Verify first deduplication audit log entry
+    expect(deduplicationAuditLog).toHaveLength(1);
+    expect(deduplicationAuditLog[0].issueId).toBe('ISSUE-001');
+    expect(deduplicationAuditLog[0].status).toBe('COMPLETED');
+    const firstExecutionTimestamp = deduplicationAuditLog[0].firstExecutionTimestamp || '2024-01-15T10:05:00Z';
 
-    // Action 5: Record Deduplication and Notify (first run)
-    const recordingResultFirst = await fakeAiClient.action05_recordDeduplicationAndNotify(
-      integrationResultFirst,
-      extractedIssueData
-    );
-    expect(recordingResultFirst.status).toBe("COMPLETED");
-    expect(notificationSpy).toHaveBeenCalledTimes(1);
+    // SECOND EXECUTION - Mock detectDuplicateIssuesAction to return duplicate detected
+    mockAiClient.detectDuplicateIssuesAction.mockResolvedValueOnce({
+      deduplicationKey: 'ISSUE-001|2024-01-15T10:00:00Z|hash-001',
+      isDuplicate: true,
+      previousExecutionTimestamp: firstExecutionTimestamp,
+    });
 
-    // Verify deduplication store after first run
-    expect(deduplicationStore.size).toBe(1);
-    const firstRecord = deduplicationStore.get(deduplicationKeyFirstRun);
-    expect(firstRecord).toBeDefined();
-    expect(firstRecord?.issueId).toBe("ISSUE-001");
-    expect(firstRecord?.status).toBe("COMPLETED");
-    expect(firstRecord?.firstExecutionTimestamp).toBe(firstExecutionTimestamp);
+    mockAiClient.executeToolIntegrationAction.mockResolvedValueOnce({
+      status: 'SKIPPED_DUPLICATE',
+    });
 
-    // Reset spy call counts for second execution
-    callCount.jira = 0;
-    callCount.asana = 0;
-    callCount.notification = 0;
-    jiraApiSpy.mockClear();
-    asanaApiSpy.mockClear();
-    notificationSpy.mockClear();
+    mockAiClient.recordDeduplicationAuditAction.mockImplementationOnce(async (payload) => {
+      deduplicationAuditLog.push({
+        issueId: payload.issueId,
+        executionTimestamp: payload.duplicateDetectedTimestamp,
+        status: 'SKIPPED_DUPLICATE',
+        deduplicationKeyHash: payload.deduplicationKeyHash,
+        firstExecutionTimestamp: payload.firstExecutionTimestamp,
+        duplicateDetectedTimestamp: payload.duplicateDetectedTimestamp,
+      });
+      return { recorded: true };
+    });
 
-    // Second execution (identical issue)
-    const secondExecutionTimestamp = new Date("2024-01-15T10:05:00Z").toISOString();
+    const input2: Tx5Imp1AgentInput = {
+      extractedIssueData,
+      toolIntegrationConfig,
+      priorityRules,
+      categoryMappings,
+    };
 
-    // Action 1: Validate (second run)
-    const validationResultSecond = await fakeAiClient.action01_validateExtractedIssue(extractedIssueData);
-    expect(validationResultSecond.isValid).toBe(true);
+    const result2: Tx5Imp1AgentOutput = await runTx5Imp1Agent(input2, mockAiClient as any);
 
-    // Action 2: Classify (second run)
-    const classificationResultSecond = await fakeAiClient.action02_classifyIssueCategory(validationResultSecond.validatedData);
-    expect(classificationResultSecond.category).toBe("Bug");
+    expect(result2).toBeDefined();
+    expect(result2.validatedIssues).toHaveLength(1);
+    expect(result2.executionSummary.status).toBe('COMPLETED');
 
-    // Action 3: Determine Priority (second run)
-    const priorityResultSecond = await fakeAiClient.action03_determinePriority(validationResultSecond.validatedData);
-    expect(priorityResultSecond.priority).toBe("High");
+    // Verify second execution did NOT call tool integration (skipped duplicate)
+    expect(jiraPostCallCount).toBe(1); // Still 1, not 2
+    expect(notificationCallCount).toBe(1); // Still 1, not 2
+    expect(toolIntegrationRecords).toHaveLength(1); // Still 1 record
+    expect(toolIntegrationRecords[0].toolIssueId).toBe('PROJ-1');
 
-    // Action 4: Execute Tool Integration (second run - should skip)
-    const integrationResultSecond = await fakeAiClient.action04_executeToolIntegration(
-      validationResultSecond.validatedData,
-      deduplicationKeyFirstRun
-    );
-    expect(integrationResultSecond.skipped).toBe(true);
-    expect(integrationResultSecond.reason).toBe("SKIPPED_DUPLICATE");
-    expect(jiraApiSpy).toHaveBeenCalledTimes(0);
-    expect(asanaApiSpy).toHaveBeenCalledTimes(0);
+    // Verify second deduplication audit log entry shows SKIPPED_DUPLICATE
+    expect(deduplicationAuditLog).toHaveLength(2);
+    expect(deduplicationAuditLog[1].issueId).toBe('ISSUE-001');
+    expect(deduplicationAuditLog[1].status).toBe('SKIPPED_DUPLICATE');
+    expect(deduplicationAuditLog[1].firstExecutionTimestamp).toBe(firstExecutionTimestamp);
+    expect(deduplicationAuditLog[1].duplicateDetectedTimestamp).toBeDefined();
 
-    // Action 5: Record Deduplication (second run - no notification)
-    const recordingResultSecond = await fakeAiClient.action05_recordDeduplicationAndNotify(
-      integrationResultSecond,
-      extractedIssueData
-    );
-    expect(recordingResultSecond.status).toBe("SKIPPED_DUPLICATE");
-    expect(notificationSpy).toHaveBeenCalledTimes(0);
+    // Verify no duplicate tool records were created
+    const jiraIssueCount = toolIntegrationRecords.filter(
+      (r) => r.toolType === 'jira'
+    ).length;
+    expect(jiraIssueCount).toBe(1);
 
-    // Verify no duplicate records created
-    expect(deduplicationStore.size).toBe(1);
+    // Verify integration result indicates no new integrations in second execution
+    expect(result2.integrationResult.successCount).toBe(0);
+    expect(result2.integrationResult.skippedDuplicateCount).toBe(1);
+    expect(result2.integrationResult.failureCount).toBe(0);
 
-    // Verify deduplication record contains correct metadata
-    const secondRecord = deduplicationStore.get(deduplicationKeyFirstRun);
-    expect(secondRecord).toBeDefined();
-    expect(secondRecord?.issueId).toBe("ISSUE-001");
-    expect(secondRecord?.status).toBe("SKIPPED_DUPLICATE");
-    expect(secondRecord?.firstExecutionTimestamp).toBe(firstExecutionTimestamp);
-    expect(secondRecord?.deduplicationDetectTimestamp).toBe(secondExecutionTimestamp);
-
-    // Verify total API call counts remain at 1
-    expect(callCount.jira).toBe(0);
-    expect(callCount.asana).toBe(0);
-    expect(callCount.notification).toBe(0);
+    // Verify deduplication key format and content
+    const deduplicationRecord = deduplicationAuditLog[1];
+    expect(deduplicationRecord.deduplicationKeyHash).toBe('ISSUE-001|2024-01-15T10:00:00Z|hash-001');
+    expect(deduplicationRecord.issueId).toBe('ISSUE-001');
+    expect(deduplicationRecord.status).toBe('SKIPPED_DUPLICATE');
   });
 });

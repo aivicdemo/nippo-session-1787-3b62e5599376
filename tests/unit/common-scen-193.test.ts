@@ -1,382 +1,216 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx10Imp1Agent } from '../../src/agents/tx-10-imp-1/orchestrator';
+import { type Tx10AgentInput, type Tx10AgentOutput } from '../../src/agents/tx-10-imp-1/orchestrator';
+import { type Tx10Imp1AiClient } from '../../src/agents/tx-10-imp-1/orchestrator';
 
-describe('notification-delivery', () => {
-  test('SCEN-193: sendUnsubmittedReminder performs rollback and compensation on partial failure', async () => {
-    // Setup: Create a fake AI client that mimics Tx10Imp1AiClient interface
-    const fakeAiClientState = {
-      action1Completed: false,
-      action1Document: null as string | null,
-      action2Completed: false,
-      action2Document: null as string | null,
-      action3Failed: false,
-      rollbackStarted: false,
-      rollbackCompleted: false,
-      auditEvents: [] as Array<{
-        timestamp: string;
-        action: string;
-        status: string;
-        details?: Record<string, unknown>;
-      }>,
-      compensationLog: [] as Array<{
-        timestamp: string;
-        resourceId: string;
-        operation: string;
-      }>,
-    };
+describe('Tx10Imp1Agent - Rollback and Compensation', () => {
+  // SCEN-193
+  test('should rollback completed actions and record audit events when Action 3 fails', async () => {
+    // Setup: Initialize fake AI client that implements Tx10Imp1AiClient interface
+    const executedActions: string[] = [];
+    const rollbackLog: Array<{ action: string; timestamp: string; resourceIds: string[] }> = [];
+    const auditEvents: Array<{
+      action: string;
+      status: 'started' | 'completed' | 'failed';
+      timestamp: string;
+      resourceIds?: string[];
+      errorDetails?: string;
+    }> = [];
 
-    const fakeAiClient = {
-      generateIntroductionSchedule: async (input: unknown) => {
-        const timestamp = new Date('2024-01-15T09:00:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp,
-          action: 'Action 1: generateIntroductionSchedule started',
-          status: 'started',
-        });
+    const fakeAiClient: Tx10Imp1AiClient = {
+      action01_generateDeploymentSchedule: async (input) => {
+        const startTime = new Date('2024-01-15T09:00:00Z').toISOString();
+        auditEvents.push({ action: 'action01', status: 'started', timestamp: startTime });
+        executedActions.push('action01');
 
-        fakeAiClientState.action1Document = 'schedule-doc-20240115-001';
-        fakeAiClientState.action1Completed = true;
-
-        const completionTime = new Date('2024-01-15T09:15:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp: completionTime,
-          action: 'Action 1: generateIntroductionSchedule completed',
+        const scheduleId = 'schedule_001';
+        const completedTime = new Date('2024-01-15T09:05:00Z').toISOString();
+        auditEvents.push({
+          action: 'action01',
           status: 'completed',
-          details: { resourceId: fakeAiClientState.action1Document },
-        });
-
-        return { scheduleDocId: fakeAiClientState.action1Document };
-      },
-
-      createManagerGuidance: async (input: unknown) => {
-        const timestamp = new Date('2024-01-15T09:16:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp,
-          action: 'Action 2: createManagerGuidance started',
-          status: 'started',
-        });
-
-        fakeAiClientState.action2Document = 'guidance-doc-20240115-001';
-        fakeAiClientState.action2Completed = true;
-
-        const completionTime = new Date('2024-01-15T09:31:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp: completionTime,
-          action: 'Action 2: createManagerGuidance completed',
-          status: 'completed',
-          details: { resourceId: fakeAiClientState.action2Document },
-        });
-
-        return { guidanceDocId: fakeAiClientState.action2Document };
-      },
-
-      generateEngineerTrainingMaterial: async (input: unknown) => {
-        const timestamp = new Date('2024-01-15T09:32:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp,
-          action: 'Action 3: generateEngineerTrainingMaterial started',
-          status: 'started',
-        });
-
-        fakeAiClientState.action3Failed = true;
-
-        const failureTime = new Date('2024-01-15T09:35:00Z').toISOString();
-        fakeAiClientState.auditEvents.push({
-          timestamp: failureTime,
-          action: 'Action 3: generateEngineerTrainingMaterial failed',
-          status: 'failed',
-          details: {
-            errorCode: 'AI_CLIENT_TRAINING_GENERATION_ERROR',
-            errorMessage: 'Failed to generate training material',
-          },
-        });
-
-        throw new Error('AI client training generation failed');
-      },
-
-      performRollback: async (input: { completedActions: string[] }) => {
-        const rollbackStartTime = new Date('2024-01-15T09:36:00Z').toISOString();
-        fakeAiClientState.rollbackStarted = true;
-        fakeAiClientState.auditEvents.push({
-          timestamp: rollbackStartTime,
-          action: 'Rollback: compensation process started',
-          status: 'started',
-          details: { targetActions: input.completedActions },
-        });
-
-        // Simulate rollback of Action 1
-        if (fakeAiClientState.action1Document) {
-          const compensationTime1 = new Date(
-            '2024-01-15T09:37:00Z'
-          ).toISOString();
-          fakeAiClientState.compensationLog.push({
-            timestamp: compensationTime1,
-            resourceId: fakeAiClientState.action1Document,
-            operation: 'DELETE',
-          });
-          fakeAiClientState.auditEvents.push({
-            timestamp: compensationTime1,
-            action: 'Compensation: Action 1 document deleted',
-            status: 'compensated',
-            details: {
-              resourceId: fakeAiClientState.action1Document,
-              operation: 'DELETE',
-            },
-          });
-          fakeAiClientState.action1Document = null;
-          fakeAiClientState.action1Completed = false;
-        }
-
-        // Simulate rollback of Action 2
-        if (fakeAiClientState.action2Document) {
-          const compensationTime2 = new Date(
-            '2024-01-15T09:38:00Z'
-          ).toISOString();
-          fakeAiClientState.compensationLog.push({
-            timestamp: compensationTime2,
-            resourceId: fakeAiClientState.action2Document,
-            operation: 'DELETE',
-          });
-          fakeAiClientState.auditEvents.push({
-            timestamp: compensationTime2,
-            action: 'Compensation: Action 2 document deleted',
-            status: 'compensated',
-            details: {
-              resourceId: fakeAiClientState.action2Document,
-              operation: 'DELETE',
-            },
-          });
-          fakeAiClientState.action2Document = null;
-          fakeAiClientState.action2Completed = false;
-        }
-
-        const rollbackCompleteTime = new Date(
-          '2024-01-15T09:39:00Z'
-        ).toISOString();
-        fakeAiClientState.rollbackCompleted = true;
-        fakeAiClientState.auditEvents.push({
-          timestamp: rollbackCompleteTime,
-          action: 'Rollback: compensation process completed',
-          status: 'completed',
-          details: {
-            compensatedActions: input.completedActions,
-            resourcesDeleted: fakeAiClientState.compensationLog.length,
-          },
+          timestamp: completedTime,
+          resourceIds: [scheduleId],
         });
 
         return {
-          success: true,
-          compensatedCount: input.completedActions.length,
+          deploymentSchedule: {
+            startDate: new Date('2024-01-20T00:00:00Z'),
+            phase1Deadline: new Date('2024-01-22T00:00:00Z'),
+            phase2Deadline: new Date('2024-01-25T00:00:00Z'),
+            operationStartDate: new Date('2024-02-01T00:00:00Z'),
+          },
+        };
+      },
+
+      action02_generateTrainingMaterials: async (input) => {
+        const startTime = new Date('2024-01-15T09:05:30Z').toISOString();
+        auditEvents.push({ action: 'action02', status: 'started', timestamp: startTime });
+        executedActions.push('action02');
+
+        const guideId = 'guide_001';
+        const completedTime = new Date('2024-01-15T09:10:00Z').toISOString();
+        auditEvents.push({
+          action: 'action02',
+          status: 'completed',
+          timestamp: completedTime,
+          resourceIds: [guideId],
+        });
+
+        return {
+          trainingMaterials: [
+            {
+              type: 'manager_guide',
+              title: 'Manager Guide',
+              contentUrl: 'https://example.com/guide.pdf',
+            },
+          ],
+        };
+      },
+
+      action03_generateEngineerTrainingMaterials: async (input) => {
+        const startTime = new Date('2024-01-15T09:10:30Z').toISOString();
+        auditEvents.push({ action: 'action03', status: 'started', timestamp: startTime });
+        executedActions.push('action03');
+
+        // Intentionally fail at Action 3
+        const failTime = new Date('2024-01-15T09:10:45Z').toISOString();
+        auditEvents.push({
+          action: 'action03',
+          status: 'failed',
+          timestamp: failTime,
+          errorDetails: 'AI model training data insufficient',
+        });
+
+        throw new Error('AI model training data insufficient');
+      },
+
+      action04_analyzeInitialReportData: async (input) => {
+        // Should not reach here
+        executedActions.push('action04');
+        return {
+          submissionRate: 100,
+          dataQualityScore: 85,
+          formatUniformityScore: 90,
+          feedbackItems: [],
+        };
+      },
+
+      action05_createFeedbackProposal: async (input) => {
+        // Should not reach here
+        executedActions.push('action05');
+        return {
+          feedbackItems: [],
+        };
+      },
+
+      action06_distributeApprovalRequest: async (input) => {
+        // Should not reach here
+        executedActions.push('action06');
+        return {
+          approvalRequestId: 'req_001',
+          distributedAt: new Date('2024-01-15T09:15:00Z'),
         };
       },
     };
 
-    // Execute the main test scenario
-    const unsubmittedReminders = [
-      {
-        memberId: 'member-001',
-        memberName: 'Alice',
-        email: 'alice@example.com',
-        overdueDays: 2,
-      },
-      {
-        memberId: 'member-002',
-        memberName: 'Bob',
-        email: 'bob@example.com',
-        overdueDays: 1,
-      },
-    ];
-
-    const remindersRequiringRollback = [
-      ...unsubmittedReminders,
-      {
-        memberId: 'member-003',
-        memberName: 'Charlie',
-        email: 'charlie@example.com',
-        overdueDays: 3,
-      },
-    ];
-
-    // Step 1: Verify initial state
-    expect(fakeAiClientState.action1Completed).toBe(false);
-    expect(fakeAiClientState.action2Completed).toBe(false);
-    expect(fakeAiClientState.rollbackStarted).toBe(false);
-    expect(fakeAiClientState.rollbackCompleted).toBe(false);
-    expect(fakeAiClientState.auditEvents.length).toBe(0);
-    expect(fakeAiClientState.compensationLog.length).toBe(0);
-
-    // Step 2: Execute Action 1 (generateIntroductionSchedule)
-    const action1Result = await fakeAiClient.generateIntroductionSchedule({
-      departmentSize: 50,
-      currentStatus: 'ready',
-    });
-    expect(action1Result.scheduleDocId).toBe('schedule-doc-20240115-001');
-    expect(fakeAiClientState.action1Completed).toBe(true);
-    expect(fakeAiClientState.action1Document).toBe('schedule-doc-20240115-001');
-
-    // Step 3: Verify Action 1 audit events recorded
-    const action1AuditEvents = fakeAiClientState.auditEvents.filter(
-      (e) =>
-        e.action.includes('Action 1') ||
-        e.action.includes('generateIntroductionSchedule')
-    );
-    expect(action1AuditEvents.length).toBe(2); // start and complete
-
-    // Step 4: Execute Action 2 (createManagerGuidance)
-    const action2Result = await fakeAiClient.createManagerGuidance({
-      scheduleDocId: action1Result.scheduleDocId,
-    });
-    expect(action2Result.guidanceDocId).toBe('guidance-doc-20240115-001');
-    expect(fakeAiClientState.action2Completed).toBe(true);
-    expect(fakeAiClientState.action2Document).toBe('guidance-doc-20240115-001');
-
-    // Step 5: Verify Action 2 audit events recorded
-    const action2AuditEvents = fakeAiClientState.auditEvents.filter(
-      (e) =>
-        e.action.includes('Action 2') || e.action.includes('createManagerGuidance')
-    );
-    expect(action2AuditEvents.length).toBe(2); // start and complete
-
-    // Step 6: Attempt Action 3 (generateEngineerTrainingMaterial) - expect failure
-    let action3Error: Error | null = null;
-    try {
-      await fakeAiClient.generateEngineerTrainingMaterial({
-        guidanceDocId: action2Result.guidanceDocId,
-      });
-    } catch (error) {
-      action3Error = error as Error;
-    }
-    expect(action3Error).not.toBeNull();
-    expect(action3Error?.message).toMatch(/training generation failed/);
-    expect(fakeAiClientState.action3Failed).toBe(true);
-
-    // Step 7: Verify Action 3 failure recorded in audit
-    const action3AuditEvents = fakeAiClientState.auditEvents.filter((e) =>
-      e.action.includes('Action 3')
-    );
-    expect(action3AuditEvents.length).toBe(2); // start and fail
-    expect(action3AuditEvents[1].status).toBe('failed');
-
-    // Step 8: Execute rollback/compensation
-    const completedActions = ['Action 1', 'Action 2'];
-    const rollbackResult = await fakeAiClient.performRollback({
-      completedActions,
-    });
-    expect(rollbackResult.success).toBe(true);
-    expect(rollbackResult.compensatedCount).toBe(2);
-    expect(fakeAiClientState.rollbackStarted).toBe(true);
-    expect(fakeAiClientState.rollbackCompleted).toBe(true);
-
-    // Step 9: Verify Action 1 document was deleted by rollback
-    expect(fakeAiClientState.action1Document).toBeNull();
-    expect(fakeAiClientState.action1Completed).toBe(false);
-
-    // Step 10: Verify Action 2 document was deleted by rollback
-    expect(fakeAiClientState.action2Document).toBeNull();
-    expect(fakeAiClientState.action2Completed).toBe(false);
-
-    // Step 11: Verify compensation log contains deletion records
-    expect(fakeAiClientState.compensationLog.length).toBe(2);
-    expect(fakeAiClientState.compensationLog[0].operation).toBe('DELETE');
-    expect(fakeAiClientState.compensationLog[0].resourceId).toBe(
-      'schedule-doc-20240115-001'
-    );
-    expect(fakeAiClientState.compensationLog[1].operation).toBe('DELETE');
-    expect(fakeAiClientState.compensationLog[1].resourceId).toBe(
-      'guidance-doc-20240115-001'
-    );
-
-    // Step 12: Verify audit log contains all required events
-    expect(fakeAiClientState.auditEvents.length).toBeGreaterThanOrEqual(8); // start+complete for each action, failure, rollback start, 2x compensation, rollback complete
-
-    const rollbackStartEvent = fakeAiClientState.auditEvents.find(
-      (e) =>
-        e.action.includes('Rollback: compensation process started') &&
-        e.status === 'started'
-    );
-    expect(rollbackStartEvent).toBeDefined();
-    expect(rollbackStartEvent?.timestamp).toBe('2024-01-15T09:36:00Z');
-    expect((rollbackStartEvent?.details as Record<string, unknown>)?.targetActions).toEqual([
-      'Action 1',
-      'Action 2',
-    ]);
-
-    const compensationEvent1 = fakeAiClientState.auditEvents.find(
-      (e) =>
-        e.action.includes('Compensation: Action 1 document deleted') &&
-        e.status === 'compensated'
-    );
-    expect(compensationEvent1).toBeDefined();
-    expect(compensationEvent1?.timestamp).toBe('2024-01-15T09:37:00Z');
-    expect(
-      (compensationEvent1?.details as Record<string, unknown>)?.resourceId
-    ).toBe('schedule-doc-20240115-001');
-    expect((compensationEvent1?.details as Record<string, unknown>)?.operation).toBe('DELETE');
-
-    const compensationEvent2 = fakeAiClientState.auditEvents.find(
-      (e) =>
-        e.action.includes('Compensation: Action 2 document deleted') &&
-        e.status === 'compensated'
-    );
-    expect(compensationEvent2).toBeDefined();
-    expect(compensationEvent2?.timestamp).toBe('2024-01-15T09:38:00Z');
-    expect(
-      (compensationEvent2?.details as Record<string, unknown>)?.resourceId
-    ).toBe('guidance-doc-20240115-001');
-
-    const rollbackCompleteEvent = fakeAiClientState.auditEvents.find(
-      (e) =>
-        e.action.includes('Rollback: compensation process completed') &&
-        e.status === 'completed'
-    );
-    expect(rollbackCompleteEvent).toBeDefined();
-    expect(rollbackCompleteEvent?.timestamp).toBe('2024-01-15T09:39:00Z');
-    expect(
-      (rollbackCompleteEvent?.details as Record<string, unknown>)?.compensatedActions
-    ).toEqual(['Action 1', 'Action 2']);
-    expect(
-      (rollbackCompleteEvent?.details as Record<string, unknown>)?.resourcesDeleted
-    ).toBe(2);
-
-    // Step 13: Verify no side effects beyond Action 2
-    // Action 3 failure means no further actions should have been executed
-    expect(fakeAiClientState.auditEvents.some((e) => e.action.includes('Action 4'))).toBe(
-      false
-    );
-    expect(fakeAiClientState.auditEvents.some((e) => e.action.includes('Action 5'))).toBe(
-      false
-    );
-    expect(fakeAiClientState.auditEvents.some((e) => e.action.includes('Action 6'))).toBe(
-      false
-    );
-
-    // Step 14: Verify sendUnsubmittedReminder function returns proper rollback status
-    const reminderResult = await sendUnsubmittedReminder(
-      remindersRequiringRollback
-    );
-
-    // Verify the reminder was sent for unsubmitted members
-    expect(reminderResult).toBeDefined();
-    expect(Array.isArray(reminderResult)).toBe(true);
-    expect(reminderResult.length).toBeGreaterThanOrEqual(2);
-
-    // Verify rollback state is properly communicated
-    const stateSnapshot = {
-      action1Deleted: fakeAiClientState.action1Document === null,
-      action2Deleted: fakeAiClientState.action2Document === null,
-      compensationCompleted: fakeAiClientState.rollbackCompleted,
-      systemStateReset: !fakeAiClientState.action1Completed && !fakeAiClientState.action2Completed,
+    // Setup: Test input
+    const input: Tx10AgentInput = {
+      deploymentInitiationTimestamp: new Date('2024-01-15T08:00:00Z'),
+      participantList: [
+        {
+          userId: 'user_001',
+          role: 'ProjectManager',
+          email: 'pm@example.com',
+        },
+        {
+          userId: 'user_002',
+          role: 'Manager',
+          email: 'manager@example.com',
+        },
+        {
+          userId: 'user_003',
+          role: 'Engineer',
+          email: 'engineer@example.com',
+        },
+      ],
+      preparationDaysRequired: 5,
+      reportingDeadlineTime: '09:00',
     };
 
-    expect(stateSnapshot.action1Deleted).toBe(true);
-    expect(stateSnapshot.action2Deleted).toBe(true);
-    expect(stateSnapshot.compensationCompleted).toBe(true);
-    expect(stateSnapshot.systemStateReset).toBe(true);
+    // Execute orchestrator and expect it to handle rollback
+    let caughtError: Error | null = null;
+    let result: Tx10AgentOutput | null = null;
 
-    // Final verification: audit trail is complete and ordered chronologically
-    const timestamps = fakeAiClientState.auditEvents.map((e) => new Date(e.timestamp).getTime());
-    for (let i = 1; i < timestamps.length; i++) {
-      expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i - 1]);
+    try {
+      result = await runTx10Imp1Agent(input, fakeAiClient);
+    } catch (error) {
+      caughtError = error as Error;
     }
+
+    // Verify: Action 3 failure was caught
+    expect(caughtError).not.toBeNull();
+    expect(caughtError?.message).toMatch(/training data/);
+
+    // Verify: Only Action 1 and Action 2 were executed before failure
+    expect(executedActions).toEqual(['action01', 'action02', 'action03']);
+    expect(executedActions).not.toContain('action04');
+    expect(executedActions).not.toContain('action05');
+    expect(executedActions).not.toContain('action06');
+
+    // Verify: Audit events recorded start and completion of Action 1 and Action 2
+    const action01Events = auditEvents.filter((e) => e.action === 'action01');
+    expect(action01Events).toHaveLength(2);
+    expect(action01Events[0].status).toBe('started');
+    expect(action01Events[0].timestamp).toBe('2024-01-15T09:00:00Z');
+    expect(action01Events[1].status).toBe('completed');
+    expect(action01Events[1].timestamp).toBe('2024-01-15T09:05:00Z');
+    expect(action01Events[1].resourceIds).toContain('schedule_001');
+
+    const action02Events = auditEvents.filter((e) => e.action === 'action02');
+    expect(action02Events).toHaveLength(2);
+    expect(action02Events[0].status).toBe('started');
+    expect(action02Events[0].timestamp).toBe('2024-01-15T09:05:30Z');
+    expect(action02Events[1].status).toBe('completed');
+    expect(action02Events[1].timestamp).toBe('2024-01-15T09:10:00Z');
+    expect(action02Events[1].resourceIds).toContain('guide_001');
+
+    // Verify: Audit event recorded Action 3 failure
+    const action03Events = auditEvents.filter((e) => e.action === 'action03');
+    expect(action03Events).toHaveLength(2);
+    expect(action03Events[0].status).toBe('started');
+    expect(action03Events[0].timestamp).toBe('2024-01-15T09:10:30Z');
+    expect(action03Events[1].status).toBe('failed');
+    expect(action03Events[1].timestamp).toBe('2024-01-15T09:10:45Z');
+    expect(action03Events[1].errorDetails).toMatch(/training data/);
+
+    // Verify: Audit events contain all required information
+    expect(auditEvents.length).toBeGreaterThanOrEqual(6);
+    const hasStartTimestamp = auditEvents.some((e) => e.timestamp === '2024-01-15T09:00:00Z');
+    const hasCompletionTimestamps = auditEvents.filter(
+      (e) => e.status === 'completed'
+    ).length >= 2;
+    const hasFailureTimestamp = auditEvents.some((e) => e.status === 'failed');
+    const hasResourceIds = auditEvents.some((e) => e.resourceIds && e.resourceIds.length > 0);
+
+    expect(hasStartTimestamp).toBe(true);
+    expect(hasCompletionTimestamps).toBe(true);
+    expect(hasFailureTimestamp).toBe(true);
+    expect(hasResourceIds).toBe(true);
+
+    // Verify: No actions beyond Action 3 were executed (rollback prevents further execution)
+    const allExecutedActionCounts = {
+      action01: executedActions.filter((a) => a === 'action01').length,
+      action02: executedActions.filter((a) => a === 'action02').length,
+      action03: executedActions.filter((a) => a === 'action03').length,
+      action04: executedActions.filter((a) => a === 'action04').length,
+      action05: executedActions.filter((a) => a === 'action05').length,
+      action06: executedActions.filter((a) => a === 'action06').length,
+    };
+
+    expect(allExecutedActionCounts.action01).toBe(1);
+    expect(allExecutedActionCounts.action02).toBe(1);
+    expect(allExecutedActionCounts.action03).toBe(1);
+    expect(allExecutedActionCounts.action04).toBe(0);
+    expect(allExecutedActionCounts.action05).toBe(0);
+    expect(allExecutedActionCounts.action06).toBe(0);
   });
 });

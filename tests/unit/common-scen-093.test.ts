@@ -1,189 +1,252 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { detectAndNotifyUnsubmitted } from '../../src/logic/submission-status-management';
+import { runTx5Imp1Agent } from '../../src/agents/tx-5-imp-1/orchestrator';
+import {
+  buildAction01Prompt,
+  ACTION_01_PROMPT_VERSION,
+} from '../../src/agents/tx-5-imp-1/prompts/action-01';
+import {
+  buildAction02Prompt,
+  ACTION_02_PROMPT_VERSION,
+} from '../../src/agents/tx-5-imp-1/prompts/action-02';
+import {
+  buildAction03Prompt,
+  ACTION_03_PROMPT_VERSION,
+} from '../../src/agents/tx-5-imp-1/prompts/action-03';
+import {
+  buildAction04Prompt,
+  ACTION_04_PROMPT_VERSION,
+} from '../../src/agents/tx-5-imp-1/prompts/action-04';
+import {
+  buildAction05Prompt,
+  ACTION_05_PROMPT_VERSION,
+} from '../../src/agents/tx-5-imp-1/prompts/action-05';
 
-describe('submission-status-management', () => {
-  // SCEN-093: [normal] 課題抽出から既存ツール連携・確認までの自律実行 AIエージェント - 「課題抽出から既存ツール連携・確認までの自律実行」が自律処理「既存ツール連携設定を実行する」を契約どおり実行する
-  test('should execute tool integration setup action as autonomous process without manual intervention', async () => {
-    // Arrange: テスト環境にて、モック化されたJira・Asana APIクライアントを注入したTx5Imp1AiClientインスタンスを準備する
-    const mockJiraClient = {
+describe('tx-5-imp-1: 課題抽出から既存ツール連携・確認までの自律実行', () => {
+  // SCEN-093: [normal] 課題抽出から既存ツール連携・確認までの自律実行 AIエージェント - 正常系・完全実行
+  test('should execute autonomous issue extraction, validation, and tool integration end-to-end', async () => {
+    const mockJiraApiClient = {
       createIssue: jest.fn().mockResolvedValue({
-        id: 'PROJ-001',
-        key: 'PROJ-001',
-        self: 'https://jira.example.com/rest/api/3/issue/10000',
+        id: 'JIRA-001',
+        key: 'PROJ-123',
       }),
-      linkIssue: jest.fn().mockResolvedValue({ id: 'PROJ-001' }),
     };
 
-    const mockAsanaClient = {
+    const mockAsanaApiClient = {
       createTask: jest.fn().mockResolvedValue({
-        data: {
-          id: '1234567890',
-          name: 'Test Issue Task',
-          gid: '1234567890',
-        },
+        id: '1234567890',
+        gid: '1234567890',
       }),
-      addCustomFields: jest.fn().mockResolvedValue({}),
     };
 
     const mockAiClient = {
-      validateExtractedIssues: jest.fn().mockResolvedValue({
-        isValid: true,
-        issues: [
+      validateExtractedIssues: jest
+        .fn()
+        .mockResolvedValue([
           {
-            id: 'issue-001',
-            title: 'Database connection timeout',
-            description: 'Connection timeout occurs frequently',
-            priority: 'HIGH',
-            category: 'INFRASTRUCTURE',
-            recurrenceRisk: 0.75,
+            issueId: 'issue-001',
+            priorityScore: 85,
+            priorityRank: 'high',
+            category: 'Quality',
+            validationStatus: 'valid',
+          },
+        ]),
+      determineToolMapping: jest.fn().mockResolvedValue({
+        targetTools: ['jira', 'asana'],
+      }),
+      executeToolIntegration: jest.fn().mockResolvedValue({
+        jiraResults: [
+          {
+            issueId: 'issue-001',
+            toolIssueId: 'PROJ-123',
+            status: 'linked',
+          },
+        ],
+        asanaResults: [
+          {
+            issueId: 'issue-001',
+            toolIssueId: '1234567890',
+            status: 'linked',
           },
         ],
       }),
-      determinePriorityAndCategory: jest.fn().mockResolvedValue({
-        priority: 'HIGH',
-        category: 'INFRASTRUCTURE',
-        confidence: 0.92,
+      recordLinkageStatus: jest.fn().mockResolvedValue({
+        recordedAt: '2024-01-15T11:00:00Z',
+        count: 2,
       }),
-      planToolIntegrationSetup: jest.fn().mockResolvedValue({
-        jiraConfig: {
-          projectKey: 'PROJ',
-          issueType: 'Bug',
-          priority: 'High',
-          labels: ['infrastructure', 'critical'],
+      generateAuditLog: jest.fn().mockResolvedValue([
+        {
+          action: 'validate',
+          timestamp: '2024-01-15T11:00:00Z',
+          promptVersion: ACTION_01_PROMPT_VERSION,
         },
-        asanaConfig: {
-          projectId: 'project-123',
-          taskName: 'Database connection timeout',
-          priority: 'HIGH',
-          customFields: { category: 'INFRASTRUCTURE' },
+        {
+          action: 'mapTools',
+          timestamp: '2024-01-15T11:00:05Z',
+          promptVersion: ACTION_02_PROMPT_VERSION,
         },
-      }),
-      executeToolIntegrationSetup: jest.fn().mockResolvedValue({
-        jiraResult: { issueId: 'PROJ-001', status: 'created' },
-        asanaResult: { taskId: '1234567890', status: 'created' },
-      }),
-      recordAndNotifyCompletionStatus: jest.fn().mockResolvedValue({
-        status: 'linked',
-        timestamp: '2024-01-15T08:00:00Z',
-        linkedCount: 2,
-      }),
+        {
+          action: 'executeIntegration',
+          timestamp: '2024-01-15T11:00:10Z',
+          promptVersion: ACTION_03_PROMPT_VERSION,
+        },
+        {
+          action: 'recordLinkage',
+          timestamp: '2024-01-15T11:00:15Z',
+          promptVersion: ACTION_05_PROMPT_VERSION,
+        },
+      ]),
     };
 
-    const extractedIssuesData = [
+    const mockToolIntegrationConfig = {
+      jira: {
+        apiUrl: 'https://jira.example.com',
+        token: 'mock-jira-token',
+      },
+      asana: {
+        apiUrl: 'https://app.asana.com/api/1.0',
+        token: 'mock-asana-token',
+      },
+    };
+
+    const mockPriorityRules = {
+      impactWeighting: 0.4,
+      frequencyWeighting: 0.3,
+      urgencyWeighting: 0.3,
+      thresholds: {
+        high: 75,
+        medium: 50,
+        low: 0,
+      },
+    };
+
+    const mockCategoryMappings = [
       {
-        id: 'issue-001',
-        title: 'Database connection timeout',
-        description: 'Connection timeout occurs frequently',
-        priority: 'HIGH',
-        category: 'INFRASTRUCTURE',
-        recurrenceRisk: 0.75,
+        systemCategory: 'Quality',
+        jiraCategory: 'Bug',
+        asanaCategory: 'Quality Issue',
+      },
+      {
+        systemCategory: 'Delivery',
+        jiraCategory: 'Task',
+        asanaCategory: 'Delivery Task',
       },
     ];
 
-    const testContext = {
-      timestamp: '2024-01-15T08:00:00Z',
-      userId: 'user-manager-001',
-      sessionId: 'session-abc123',
-      auditLog: [] as Array<{
-        action: string;
-        timestamp: string;
-        promptVersion: string;
-        result: Record<string, unknown>;
-      }>,
+    const mockInput = {
+      extractedIssueData: [
+        {
+          issueId: 'issue-001',
+          title: 'API response delay in production',
+          description: 'Performance issue affecting user experience',
+          detectedAt: '2024-01-15T10:00:00Z',
+          severity: 'high',
+          affectedComponents: ['API_SERVER'],
+        },
+      ],
+      toolIntegrationConfig: mockToolIntegrationConfig,
+      priorityRules: mockPriorityRules,
+      categoryMappings: mockCategoryMappings,
     };
 
-    // Act: runTx5Imp1Agentの第2パラメータとしてTx5Imp1AiClientが構造的に一致していることをassertで確認する
-    expect(mockAiClient).toHaveProperty('validateExtractedIssues');
-    expect(mockAiClient).toHaveProperty('determinePriorityAndCategory');
-    expect(mockAiClient).toHaveProperty('planToolIntegrationSetup');
-    expect(mockAiClient).toHaveProperty('executeToolIntegrationSetup');
-    expect(mockAiClient).toHaveProperty('recordAndNotifyCompletionStatus');
+    // Verify prompt modules are loaded correctly
+    expect(ACTION_01_PROMPT_VERSION).toBeDefined();
+    expect(ACTION_02_PROMPT_VERSION).toBeDefined();
+    expect(ACTION_03_PROMPT_VERSION).toBeDefined();
+    expect(ACTION_04_PROMPT_VERSION).toBeDefined();
+    expect(ACTION_05_PROMPT_VERSION).toBeDefined();
 
-    // 抽出済み課題データ（形式正常、優先度・カテゴリ判定済み、連携エラーなし）をオーケストレータへ入力する
-    const result = await detectAndNotifyUnsubmitted({
-      extractedIssues: extractedIssuesData,
-      aiClient: mockAiClient,
-      jiraClient: mockJiraClient,
-      asanaClient: mockAsanaClient,
-      context: testContext,
-    });
+    const action01Prompt = buildAction01Prompt(mockInput.extractedIssueData);
+    const action02Prompt = buildAction02Prompt(
+      mockInput.extractedIssueData,
+      mockInput.categoryMappings
+    );
+    const action03Prompt = buildAction03Prompt(
+      mockInput.extractedIssueData,
+      mockInput.toolIntegrationConfig
+    );
 
-    // Assert: オーケストレータが各アクションのプロンプトをロードしていることを確認する
+    expect(action01Prompt).toContain('validate');
+    expect(action02Prompt).toContain('map');
+    expect(action03Prompt).toContain('integrate');
+
+    // Execute agent with mocked AI client
+    const result = await runTx5Imp1Agent(mockInput, mockAiClient);
+
+    // Verify AI client method invocations
     expect(mockAiClient.validateExtractedIssues).toHaveBeenCalledTimes(1);
-    expect(mockAiClient.determinePriorityAndCategory).toHaveBeenCalledTimes(1);
-    expect(mockAiClient.planToolIntegrationSetup).toHaveBeenCalledTimes(1);
-    expect(mockAiClient.executeToolIntegrationSetup).toHaveBeenCalledTimes(1);
-    expect(mockAiClient.recordAndNotifyCompletionStatus).toHaveBeenCalledTimes(1);
-
-    // AIクライアントが既存ツール連携設定実行アクション（Action 3に対応）をモックAIの応答として契約通りに実行することをspy/mockで検証する
-    const executeToolIntegrationSetupCall = mockAiClient.executeToolIntegrationSetup.mock.calls[0];
-    expect(executeToolIntegrationSetupCall).toBeDefined();
-    expect(executeToolIntegrationSetupCall[0]).toHaveProperty('jiraConfig');
-    expect(executeToolIntegrationSetupCall[0]).toHaveProperty('asanaConfig');
-
-    // モックJira APIに対して、テスト課題データが正しい形式（課題ID、優先度レベル、カテゴリラベル）で登録リクエストが送信されたことをassertする
-    expect(mockJiraClient.createIssue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fields: expect.objectContaining({
-          summary: expect.stringContaining('Database connection timeout'),
-          priority: expect.objectContaining({ name: 'High' }),
-          labels: expect.arrayContaining(['infrastructure', 'critical']),
-        }),
-      })
+    expect(mockAiClient.validateExtractedIssues).toHaveBeenCalledWith(
+      mockInput.extractedIssueData
     );
 
-    // モックAsana APIに対して、テスト課題データが正しい形式で登録リクエストが送信されたことをassertする
-    expect(mockAsanaClient.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: expect.stringContaining('Database connection timeout'),
-        projects: ['project-123'],
-      })
-    );
+    expect(mockAiClient.determineToolMapping).toHaveBeenCalledTimes(1);
 
-    // 連携完了ステータスが記録・通知アクション（Action 5）によって適切に設定されたことを確認する
-    expect(mockAiClient.recordAndNotifyCompletionStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        jiraIssueId: 'PROJ-001',
-        asanaTaskId: '1234567890',
-      })
-    );
+    expect(mockAiClient.executeToolIntegration).toHaveBeenCalledTimes(1);
 
-    // オーケストレータの戻り値に以下の構造が含まれていることをassertする：{ success: true, linkedIssueIds: [...], linkedTaskIds: [...], timestamp: ISO8601形式, auditLog: [...] }
+    expect(mockAiClient.recordLinkageStatus).toHaveBeenCalledTimes(1);
+
+    expect(mockAiClient.generateAuditLog).toHaveBeenCalledTimes(1);
+
+    // Verify result structure
     expect(result).toHaveProperty('success');
     expect(result.success).toBe(true);
 
     expect(result).toHaveProperty('linkedIssueIds');
     expect(Array.isArray(result.linkedIssueIds)).toBe(true);
-    expect(result.linkedIssueIds).toContain('PROJ-001');
+    expect(result.linkedIssueIds.length).toBe(1);
+    expect(result.linkedIssueIds[0]).toBe('PROJ-123');
 
     expect(result).toHaveProperty('linkedTaskIds');
     expect(Array.isArray(result.linkedTaskIds)).toBe(true);
-    expect(result.linkedTaskIds).toContain('1234567890');
+    expect(result.linkedTaskIds.length).toBe(1);
+    expect(result.linkedTaskIds[0]).toBe('1234567890');
 
     expect(result).toHaveProperty('timestamp');
-    expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(result.timestamp)).toBe(true);
+    expect(typeof result.timestamp).toBe('string');
+    expect(new Date(result.timestamp).toISOString()).toBe(
+      '2024-01-15T11:00:15Z'
+    );
 
     expect(result).toHaveProperty('auditLog');
     expect(Array.isArray(result.auditLog)).toBe(true);
-    expect(result.auditLog.length).toBeGreaterThanOrEqual(5);
+    expect(result.auditLog.length).toBe(4);
 
-    // 監査ログには各アクション実行タイムスタンプ、使用プロンプトバージョン、登録結果が記録され、戻り値のsuccess フラグがtrueとなること
-    const auditLogActions = result.auditLog.map((log: Record<string, unknown>) => log.action);
-    expect(auditLogActions).toContain('VALIDATE_EXTRACTED_ISSUES');
-    expect(auditLogActions).toContain('DETERMINE_PRIORITY_CATEGORY');
-    expect(auditLogActions).toContain('PLAN_TOOL_INTEGRATION');
-    expect(auditLogActions).toContain('EXECUTE_TOOL_INTEGRATION');
-    expect(auditLogActions).toContain('RECORD_COMPLETION_STATUS');
-
-    result.auditLog.forEach((log: Record<string, unknown>) => {
-      expect(log).toHaveProperty('timestamp');
-      expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(log.timestamp as string)).toBe(true);
-      expect(log).toHaveProperty('promptVersion');
-      expect(log).toHaveProperty('result');
+    // Verify audit log entries contain expected structure
+    expect(result.auditLog[0]).toEqual({
+      action: 'validate',
+      timestamp: '2024-01-15T11:00:00Z',
+      promptVersion: ACTION_01_PROMPT_VERSION,
     });
 
-    // 外部APIへの実通信は行われず、すべてモックを経由することを確認
-    expect(mockJiraClient.createIssue).toHaveBeenCalledTimes(1);
-    expect(mockAsanaClient.createTask).toHaveBeenCalledTimes(1);
+    expect(result.auditLog[2]).toEqual({
+      action: 'executeIntegration',
+      timestamp: '2024-01-15T11:00:10Z',
+      promptVersion: ACTION_03_PROMPT_VERSION,
+    });
+
+    expect(result.auditLog[3]).toEqual({
+      action: 'recordLinkage',
+      timestamp: '2024-01-15T11:00:15Z',
+      promptVersion: ACTION_05_PROMPT_VERSION,
+    });
+
+    // Verify that Jira API was called with correct parameters
+    expect(mockJiraApiClient.createIssue).toHaveBeenCalledWith({
+      key: 'PROJ-123',
+      issueType: 'Bug',
+      summary: 'API response delay in production',
+      priority: 'High',
+    });
+
+    // Verify that Asana API was called with correct parameters
+    expect(mockAsanaApiClient.createTask).toHaveBeenCalledWith({
+      gid: '1234567890',
+      name: 'API response delay in production',
+      custom_fields: {
+        priority: 'High',
+        category: 'Quality Issue',
+      },
+    });
+
+    // Verify no external API calls were made directly
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

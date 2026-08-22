@@ -1,107 +1,153 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { detectAndNotifyUnsubmitted } from '../../src/logic/submission-status-management';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { runTx4Imp1Agent } from "../../src/agents/tx-4-imp-1/orchestrator";
 
-describe('submission-status-management', () => {
-  // SCEN-080: [error] ダッシュボード分析から課題指示までの自動実行 AIエージェント - 複数部門にまたがる課題の場合
-  test('should escalate and halt side effects when multi-department issue is detected before committing pending actions', async () => {
-    const mock_ai_client = {
-      action_01_get_dashboard_data: jest.fn().mockResolvedValue({
-        teams: [
-          { team_id: 'sales', team_name: '営業部' },
-          { team_id: 'manufacturing', team_name: '製造部' },
-          { team_id: 'planning', team_name: '企画部' }
-        ],
-        submission_status: [
-          { member_id: 'M001', submitted: true },
-          { member_id: 'M002', submitted: false }
-        ],
-        issues: [
+describe("Tx4Imp1Agent - Dashboard Analysis to Issue Direction Autonomous Execution", () => {
+  // SCEN-080
+  test("should handoff to human when multi-department issue is detected before committing side effects", async () => {
+    // Mock AI client with escalation detection
+    const mockAiClient = {
+      callAction01AggregateProgressData: jest.fn().mockResolvedValue({
+        dashboardDataSet: [
           {
-            issue_id: 'I001',
-            title: 'カスタマー要件変更による納期調整',
-            affected_teams: ['sales', 'manufacturing', 'planning'],
-            severity: 'high',
-            reported_at: '2024-01-15T10:30:00Z'
-          }
-        ]
+            departmentId: "sales",
+            departmentName: "営業部",
+            progressMetric: 0.65,
+            delayedTasks: 3,
+            anomalyCount: 1,
+          },
+          {
+            departmentId: "manufacturing",
+            departmentName: "製造部",
+            progressMetric: 0.58,
+            delayedTasks: 5,
+            anomalyCount: 2,
+          },
+          {
+            departmentId: "planning",
+            departmentName: "企画部",
+            progressMetric: 0.72,
+            delayedTasks: 2,
+            anomalyCount: 0,
+          },
+        ],
       }),
 
-      action_02_extract_issues: jest.fn().mockResolvedValue({
-        extracted_issues: [
+      callAction02ExtractIssues: jest.fn().mockResolvedValue({
+        extractedIssues: [
           {
-            issue_key: 'I001',
-            title: 'カスタマー要件変更による納期調整',
-            affected_teams: ['sales', 'manufacturing', 'planning'],
-            department_count: 3,
-            description: '要件変更に伴う納期短縮対応が必要'
-          }
-        ]
-      }),
-
-      action_03_check_past_issues: jest.fn().mockResolvedValue({
-        similar_issues: [
+            issueId: "issue-001",
+            title: "受注データ同期遅延",
+            affectedDepartments: ["sales", "manufacturing"],
+            severity: "HIGH",
+            description:
+              "営業部の受注データが製造部のシステムに反映されない",
+          },
           {
-            past_issue_id: 'PI001',
-            title: '納期調整',
-            resolution_time_days: 2
-          }
+            issueId: "issue-002",
+            title: "企画部の資料納期未達",
+            affectedDepartments: ["planning"],
+            severity: "MEDIUM",
+            description: "提案資料の作成が予定より3日遅延",
+          },
         ],
-        recurrence_risk_score: 0.75
       }),
 
-      action_04_prioritize_issues: jest.fn().mockResolvedValue({
-        prioritized_issues: [
+      callAction03ClassifyIssues: jest.fn().mockResolvedValue({
+        classifiedIssues: [
           {
-            issue_key: 'I001',
-            priority_level: 'critical',
-            urgency: 'immediate',
-            is_multi_department: true,
-            affected_department_count: 3,
-            escalation_required: true
-          }
+            issueId: "issue-001",
+            category: "SYSTEM_INTEGRATION",
+            priority: null,
+            affectedDepartmentCount: 2,
+            departmentList: ["sales", "manufacturing"],
+            isMultiDepartment: true,
+          },
+          {
+            issueId: "issue-002",
+            category: "SCHEDULE_DELAY",
+            priority: "MEDIUM",
+            affectedDepartmentCount: 1,
+            departmentList: ["planning"],
+            isMultiDepartment: false,
+          },
         ],
-        escalation_condition_met: 'MULTI_DEPARTMENT_ISSUE'
       }),
 
-      action_05_generate_response_plan: jest.fn(),
-      action_06_create_presentation_material: jest.fn(),
-      action_07_extract_unsubmitted_members: jest.fn()
+      callAction04PrioritizeIssues: jest.fn().mockResolvedValue({
+        escalationDetected: true,
+        escalationReason: "MULTI_DEPARTMENT_ISSUE",
+        prioritizedIssues: [
+          {
+            issueId: "issue-001",
+            priority: "CRITICAL",
+            affectedDepartments: ["sales", "manufacturing"],
+            requiresManualReview: true,
+          },
+        ],
+        multiDepartmentIssueCount: 1,
+      }),
+
+      callAction05GenerateCountermeasurePlan: jest.fn(),
+      callAction06GenerateMeetingMaterial: jest.fn(),
+      callAction07ExtractNonSubmitters: jest.fn(),
     };
 
-    const pending_actions_expected = ['action-05', 'action-06', 'action-07'];
-    const escalation_reason = 'MULTI_DEPARTMENT_ISSUE';
-    const side_effect_status = 'NOT_COMMITTED';
-    const human_handoff_required = true;
+    const request = {
+      executionTimestamp: new Date("2024-01-15T09:00:00Z"),
+      targetDate: "2024-01-15",
+      executorUserId: "user-manager-001",
+      teamId: "team-engineering",
+    };
 
-    const result = await detectAndNotifyUnsubmitted(
-      {
-        dashboard_request_id: 'REQ-001',
-        triggered_at: '2024-01-15T10:30:00Z',
-        analysis_scope: 'daily'
-      },
-      mock_ai_client
+    const result = await runTx4Imp1Agent(request, mockAiClient as any);
+
+    // Verify Action 1-3 were called
+    expect(mockAiClient.callAction01AggregateProgressData).toHaveBeenCalledWith(
+      request
     );
+    expect(mockAiClient.callAction02ExtractIssues).toHaveBeenCalled();
+    expect(mockAiClient.callAction03ClassifyIssues).toHaveBeenCalled();
 
-    expect(result.escalation_reason).toBe(escalation_reason);
-    expect(result.pending_actions).toEqual(pending_actions_expected);
-    expect(result.side_effect_status).toBe(side_effect_status);
-    expect(result.human_handoff_required).toBe(human_handoff_required);
-    
-    expect(mock_ai_client.action_01_get_dashboard_data).toHaveBeenCalled();
-    expect(mock_ai_client.action_02_extract_issues).toHaveBeenCalled();
-    expect(mock_ai_client.action_03_check_past_issues).toHaveBeenCalled();
-    expect(mock_ai_client.action_04_prioritize_issues).toHaveBeenCalled();
-    
-    expect(mock_ai_client.action_05_generate_response_plan).not.toHaveBeenCalled();
-    expect(mock_ai_client.action_06_create_presentation_material).not.toHaveBeenCalled();
-    expect(mock_ai_client.action_07_extract_unsubmitted_members).not.toHaveBeenCalled();
+    // Verify Action 4 was called and detected escalation
+    expect(mockAiClient.callAction04PrioritizeIssues).toHaveBeenCalled();
 
-    expect(result.escalation_payload).toEqual({
-      issue_key: 'I001',
-      title: 'カスタマー要件変更による納期調整',
-      affected_teams: ['sales', 'manufacturing', 'planning'],
-      priority_level: 'critical',
-      requires_executive_confirmation: true
+    // Verify Actions 5, 6, 7 were NOT called (before side effect commitment)
+    expect(
+      mockAiClient.callAction05GenerateCountermeasurePlan
+    ).not.toHaveBeenCalled();
+    expect(
+      mockAiClient.callAction06GenerateMeetingMaterial
+    ).not.toHaveBeenCalled();
+    expect(
+      mockAiClient.callAction07ExtractNonSubmitters
+    ).not.toHaveBeenCalled();
+
+    // Verify result is HumanHandoff type
+    expect(result).toEqual({
+      type: "HumanHandoff",
+      escalationReason: "MULTI_DEPARTMENT_ISSUE",
+      pendingActions: ["action-05", "action-06", "action-07"],
+      sideEffectStatus: "NOT_COMMITTED",
+      humanHandoffRequired: true,
+      executionId: expect.any(String),
+      completionTimestamp: expect.any(Date),
+      context: {
+        multiDepartmentIssueDetected: true,
+        affectedDepartments: ["sales", "manufacturing"],
+        criticalIssueCount: 1,
+        requiresDirectorApproval: true,
+      },
     });
+
+    // Verify specific payload content
+    expect(result.escalationReason).toBe("MULTI_DEPARTMENT_ISSUE");
+    expect(result.pendingActions).toContain("action-05");
+    expect(result.pendingActions).toContain("action-06");
+    expect(result.pendingActions).toContain("action-07");
+    expect(result.sideEffectStatus).toBe("NOT_COMMITTED");
+    expect(result.humanHandoffRequired).toBe(true);
+
+    // Verify no side effects were committed
+    expect(result.sideEffectStatus).not.toBe("COMMITTED");
   });
 });

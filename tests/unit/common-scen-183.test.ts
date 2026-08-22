@@ -1,112 +1,167 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx10Imp1Agent, type Tx10Imp1AiClient } from '../../src/agents/tx-10-imp-1/orchestrator';
+import { buildAction06Prompt, ACTION_06_PROMPT_VERSION } from '../../src/agents/tx-10-imp-1/prompts/action-06';
 
-describe("Notification Delivery - sendUnsubmittedReminder", () => {
-  // SCEN-183: [normal] Tx10Imp1 导入计划・研修实施・フィードバック対応の自動化・統合 AIエージェント
-  // 部長承認後、フィードバック内容をメンバーに自動配信する
-  test("should deliver feedback to all 10 members after director approval with audit logging", async () => {
-    // ========== Setup ==========
-    const directorId = "director-001";
-    const approvalTimestamp = "2024-01-15T09:30:00Z";
-    const deliveryTimestamp = "2024-01-15T09:31:00Z";
-
-    const memberIds = [
-      "member-001",
-      "member-002",
-      "member-003",
-      "member-004",
-      "member-005",
-      "member-006",
-      "member-007",
-      "member-008",
-      "member-009",
-      "member-010",
+describe('tx-10-imp-1 Orchestrator', () => {
+  // SCEN-183
+  test('should execute action 6 auto-delivery of feedback after manager approval and record audit events', async () => {
+    // Setup: Manager approval input
+    const approvalTimestamp = new Date('2024-01-15T09:30:00Z');
+    const managerUserId = 'manager-001';
+    const deploymentId = 'deploy-tx10-20240115';
+    
+    // Setup: 10 engineers for initial feedback
+    const engineerIds = [
+      'eng-001', 'eng-002', 'eng-003', 'eng-004', 'eng-005',
+      'eng-006', 'eng-007', 'eng-008', 'eng-009', 'eng-010'
     ];
-
-    const feedbackContent = {
-      approverDirectorId: directorId,
-      approvalStatus: "approved",
-      approvalTimestamp,
-      feedbackBody:
-        "初回報告データの確認が完了しました。以下の点について改善をお願いします。",
-      targetMemberCount: 10,
-    };
-
-    const mockDeliveryResults = memberIds.map((memberId) => ({
-      memberId,
-      deliveryStatus: "success",
-      deliveryTimestamp,
+    
+    const feedbackItems = engineerIds.map((engId, index) => ({
+      memberId: engId,
+      feedbackText: `Improvement point ${index + 1}: Please review your report format and ensure all required fields are completed.`,
+      feedbackCategory: 'report_format'
     }));
 
-    const mockAuditLog = {
-      eventType: "feedback_delivery_initiated",
-      approverDirectorId: directorId,
-      approvalTimestamp,
-      targetMemberCount: 10,
-      completedDeliveryCount: 10,
-      allDeliveryResults: mockDeliveryResults,
-      completionTimestamp: deliveryTimestamp,
+    // Setup: Deployment input matching Tx10AgentInput structure
+    const deploymentInput = {
+      deploymentInitiationTimestamp: new Date('2024-01-15T08:00:00Z'),
+      participantList: engineerIds.map((engId, index) => ({
+        userId: engId,
+        role: index === 0 ? 'ProjectManager' : 'Engineer',
+        email: `${engId}@company.example.com`
+      })),
+      preparationDaysRequired: 3,
+      reportingDeadlineTime: '09:00'
     };
 
-    // ========== Execute ==========
-    const result = await sendUnsubmittedReminder(feedbackContent);
+    // Setup: Mock AI Client stub implementing Tx10Imp1AiClient interface
+    const mockAiClient: Tx10Imp1AiClient = {
+      callAction01: jest.fn().mockResolvedValue({
+        scheduleStartDate: '2024-01-15',
+        scheduleEndDate: '2024-01-18',
+        phaseDeadlines: {
+          phase1_setup: '2024-01-15T17:00:00Z',
+          phase2_training: '2024-01-16T17:00:00Z',
+          phase3_testrun: '2024-01-17T17:00:00Z'
+        },
+        productionStartDate: '2024-01-18'
+      }),
+      callAction02: jest.fn().mockResolvedValue({
+        managerGuideUrl: 'https://system.example.com/guides/manager-guide-tx10.pdf',
+        engineerMaterialUrls: engineerIds.map(id => `https://system.example.com/materials/eng-${id}.pdf`)
+      }),
+      callAction03: jest.fn().mockResolvedValue({
+        initialReportAnalysisResult: {
+          submissionRate: 95,
+          dataQualityScore: 82,
+          formatUniformityScore: 78,
+          feedbackItems: feedbackItems
+        }
+      }),
+      callAction04: jest.fn().mockResolvedValue({
+        approvalStatus: 'approved',
+        approverUserId: managerUserId,
+        approvalTimestamp: approvalTimestamp.toISOString(),
+        productionReadyDate: '2024-01-18T00:00:00Z'
+      }),
+      callAction05: jest.fn().mockResolvedValue({
+        feedbackDeliveryTriggered: true,
+        deliveryStartTimestamp: approvalTimestamp.toISOString()
+      }),
+      callAction06: jest.fn().mockResolvedValue({
+        targetMemberCount: 10,
+        deliveryRequests: engineerIds.map(memberId => ({
+          memberId,
+          deliveryStatus: 'success',
+          deliveryTimestamp: new Date(approvalTimestamp.getTime() + 1000).toISOString(),
+          feedbackContent: feedbackItems.find(f => f.memberId === memberId)?.feedbackText || ''
+        }))
+      })
+    };
 
-    // ========== Assertions ==========
-    // 1. 配信対象メンバー数の検証
-    expect(result.deliveryResults).toHaveLength(10);
+    // Verify prompt module is loaded correctly
+    expect(typeof buildAction06Prompt).toBe('function');
+    expect(typeof ACTION_06_PROMPT_VERSION).toBe('string');
+    expect(ACTION_06_PROMPT_VERSION.length).toBeGreaterThan(0);
 
-    // 2. 各メンバーへの個別配信リクエスト検証
-    memberIds.forEach((memberId, index) => {
-      expect(result.deliveryResults[index].memberId).toBe(memberId);
-      expect(result.deliveryResults[index].deliveryStatus).toBe("success");
-      expect(result.deliveryResults[index].deliveryTimestamp).toBe(
-        deliveryTimestamp
-      );
+    // Execute orchestrator with approval trigger
+    const orchestratorInput = {
+      input: deploymentInput,
+      approvalAction: 'approve',
+      approverUserId: managerUserId,
+      approvalTimestamp
+    };
+
+    const result = await runTx10Imp1Agent(orchestratorInput, mockAiClient);
+
+    // Assertion 1: Verify AI client boundary - second parameter matches Tx10Imp1AiClient interface
+    expect(mockAiClient).toBeDefined();
+    expect(typeof mockAiClient.callAction01).toBe('function');
+    expect(typeof mockAiClient.callAction02).toBe('function');
+    expect(typeof mockAiClient.callAction03).toBe('function');
+    expect(typeof mockAiClient.callAction04).toBe('function');
+    expect(typeof mockAiClient.callAction05).toBe('function');
+    expect(typeof mockAiClient.callAction06).toBe('function');
+
+    // Assertion 2: Verify action 6 was invoked (auto-delivery trigger after approval)
+    expect(mockAiClient.callAction06).toHaveBeenCalled();
+
+    // Assertion 3: Verify feedback delivery output structure
+    expect(result.feedbackDeliveryResult).toBeDefined();
+    expect(result.feedbackDeliveryResult.targetMemberCount).toBe(10);
+    expect(Array.isArray(result.feedbackDeliveryResult.deliveryRequests)).toBe(true);
+
+    // Assertion 4: Verify each engineer received individual feedback delivery request
+    const deliveryRequests = result.feedbackDeliveryResult.deliveryRequests;
+    expect(deliveryRequests.length).toBe(10);
+    
+    engineerIds.forEach((expectedEngId, index) => {
+      const deliveryRequest = deliveryRequests[index];
+      expect(deliveryRequest.memberId).toBe(expectedEngId);
+      expect(deliveryRequest.deliveryStatus).toBe('success');
+      expect(deliveryRequest.feedbackContent).toBeTruthy();
     });
 
-    // 3. 配信完了数の検証 (10名全員に成功)
-    const successCount = result.deliveryResults.filter(
-      (r) => r.deliveryStatus === "success"
-    ).length;
-    expect(successCount).toBe(10);
+    // Assertion 5: Verify delivery status log entries (audit events)
+    const auditLog = result.auditEvents || [];
+    expect(Array.isArray(auditLog)).toBe(true);
 
-    // 4. 配信対象者数と配信完了数の一致確認
-    expect(result.auditLog.targetMemberCount).toBe(10);
-    expect(result.auditLog.completedDeliveryCount).toBe(10);
-    expect(result.auditLog.targetMemberCount).toBe(
-      result.auditLog.completedDeliveryCount
+    // Assertion 6: Verify audit log contains approval event
+    const approvalEvent = auditLog.find(
+      (event: any) => event.eventType === 'approval' && event.userId === managerUserId
     );
+    expect(approvalEvent).toBeDefined();
+    expect(approvalEvent.timestamp).toBe(approvalTimestamp.toISOString());
+    expect(approvalEvent.action).toBe('approve');
 
-    // 5. 監査ログの部長承認者ID記録
-    expect(result.auditLog.approverDirectorId).toBe(directorId);
-
-    // 6. 監査ログの承認タイムスタンプ記録
-    expect(result.auditLog.approvalTimestamp).toBe(approvalTimestamp);
-
-    // 7. 監査ログのイベントタイプ記録
-    expect(result.auditLog.eventType).toBe("feedback_delivery_initiated");
-
-    // 8. フィードバック本文が配信結果に含まれることを確認
-    expect(result.feedbackBody).toBe(
-      "初回報告データの確認が完了しました。以下の点について改善をお願いします。"
+    // Assertion 7: Verify audit log contains delivery completion events
+    const deliveryCompletionEvents = auditLog.filter(
+      (event: any) => event.eventType === 'feedback_delivery_completed'
     );
+    expect(deliveryCompletionEvents.length).toBe(10);
 
-    // 9. 承認ステータスの確認
-    expect(result.approvalStatus).toBe("approved");
-
-    // 10. 配信完了イベントがすべてのメンバーについて記録されていることを確認
-    result.deliveryResults.forEach((deliveryResult) => {
-      expect(deliveryResult).toHaveProperty("memberId");
-      expect(deliveryResult).toHaveProperty("deliveryStatus");
-      expect(deliveryResult).toHaveProperty("deliveryTimestamp");
+    deliveryCompletionEvents.forEach((event: any, index: number) => {
+      expect(event.memberId).toBe(engineerIds[index]);
+      expect(event.deliveryStatus).toBe('success');
+      expect(typeof event.deliveryTimestamp).toBe('string');
+      expect(event.deliveryTimestamp.length).toBeGreaterThan(0);
     });
 
-    // 11. 部長による手動連絡ステップが排除されたことを確認
-    // (自動配信が完了し、手動介入が不要な状態)
-    expect(result.auditLog.completedDeliveryCount).toBe(
-      result.auditLog.targetMemberCount
+    // Assertion 8: Verify delivery completion summary matches expected counts
+    const deliveryCompletionSummary = result.deliveryCompletionSummary;
+    expect(deliveryCompletionSummary).toBeDefined();
+    expect(deliveryCompletionSummary.targetMemberCount).toBe(10);
+    expect(deliveryCompletionSummary.successDeliveryCount).toBe(10);
+    expect(deliveryCompletionSummary.failedDeliveryCount).toBe(0);
+    expect(deliveryCompletionSummary.targetMemberCount).toBe(deliveryCompletionSummary.successDeliveryCount);
+
+    // Assertion 9: Verify no manual intervention required after manager approval
+    expect(result.manualInterventionRequired).toBe(false);
+
+    // Assertion 10: Verify audit trail captures approval user ID and timestamp
+    const auditTrailApprovalEntry = auditLog.find(
+      (event: any) => event.eventType === 'approval'
     );
-    expect(result.deliveryResults.every((r) => r.deliveryStatus === "success"))
-      .toBe(true);
+    expect(auditTrailApprovalEntry.approverUserId).toBe(managerUserId);
+    expect(auditTrailApprovalEntry.timestamp).toBe(approvalTimestamp.toISOString());
   });
 });

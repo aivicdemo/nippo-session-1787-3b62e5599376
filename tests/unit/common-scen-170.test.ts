@@ -1,139 +1,163 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { detectAndNotifyUnsubmitted } from "../../src/logic/submission-status-management";
+import { runTx9Imp1Agent } from '../../src/agents/tx-9-imp-1/orchestrator';
+import { type Tx9Imp1AiClient } from '../../src/agents/tx-9-imp-1/orchestrator';
+import { type Tx9AggregationRequest, type Tx9AnalysisReport } from '../../src/agents/tx-9-imp-1/orchestrator';
 
-describe("submission-status-management", () => {
-  // SCEN-170: [error] 日報集約から分析報告までの自動実行エージェント AIエージェント - 「日報集約から分析報告までの自動実行エージェント」が「システム連携エラーが発生した場合」の場合に副作用の確定前に人へ引き継ぐ
-  test("should stop before side effect confirmation and escalate to manager on system integration error", async () => {
-    const mockAiClient = {
-      action01_aggregateDailyReports: jest
-        .fn()
-        .mockResolvedValue({
-          aggregatedReportIds: ["report_001", "report_002"],
-          totalReports: 2,
-          aggregationTimestamp: new Date("2024-01-15T09:00:00Z"),
-        }),
-      action02_identifyUnsubmitted: jest.fn().mockResolvedValue({
-        unsubmittedMembers: ["member_003", "member_004"],
-        unsubmittedCount: 2,
-        identificationTimestamp: new Date("2024-01-15T09:15:00Z"),
-      }),
-      action03_sendReminderNotifications: jest.fn().mockResolvedValue({
-        sentNotificationIds: ["notif_001", "notif_002"],
-        notificationCount: 2,
-        sendTimestamp: new Date("2024-01-15T09:30:00Z"),
-      }),
-      action04_quantifyProductivityMetrics: jest.fn().mockResolvedValue({
-        metricsData: {
-          averageResolutionTime: 2.5,
-          responseRate: 0.88,
-          taskCompletionRate: 0.92,
-        },
-        calculationTimestamp: new Date("2024-01-15T09:45:00Z"),
-      }),
-      action05_classifyIssuesByPriority: jest.fn().mockRejectedValue(
-        new Error(
-          "System integration error: External API connection timeout after 30s. Service: jira-api. Please check network connectivity and API service status."
-        )
-      ),
-      action06_proposeImprovementMeasures: jest.fn(),
-      action07_generateReportAndPresent: jest.fn(),
-      action08_logEscalationEvent: jest.fn().mockResolvedValue({
-        escalationId: "esc_sys_001",
-        escalationStatus: "pending_manual_review",
-        escalationTimestamp: new Date("2024-01-15T10:00:00Z"),
-      }),
-      action09_performRollback: jest.fn().mockResolvedValue({
-        rollbackStatus: "completed",
-        rollbackTargets: ["agg_data_001", "notif_001", "notif_002"],
-        rollbackTimestamp: new Date("2024-01-15T10:05:00Z"),
-      }),
-      action10_notifyManagerEscalation: jest.fn().mockResolvedValue({
-        notificationId: "escal_notif_001",
-        recipientEmail: "manager@company.com",
-        notificationTimestamp: new Date("2024-01-15T10:10:00Z"),
-        message:
-          "System integration error detected. Manual review required. Escalation ID: esc_sys_001",
-      }),
+describe('Tx9Imp1Agent', () => {
+  // SCEN-170
+  test('should handoff to human before finalizing side effects when system integration error occurs', async () => {
+    const aggregationStartDate = '2024-01-08';
+    const aggregationEndDate = '2024-01-14';
+    const targetTeamIds = ['team-001', 'team-002'];
+    const requestedByUserId = 'user-director-001';
+
+    const request: Tx9AggregationRequest = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      requestedByUserId,
     };
 
-    const aggregationInput = {
-      aggregationPeriodStartDate: new Date("2024-01-08T00:00:00Z"),
-      aggregationPeriodEndDate: new Date("2024-01-15T23:59:59Z"),
-      targetTeamIds: ["team_alpha", "team_beta"],
-      memberList: [
-        "member_001",
-        "member_002",
-        "member_003",
-        "member_004",
-      ],
-      managerId: "mgr_001",
-      managerEmail: "manager@company.com",
+    let action1Executed = false;
+    let action2Executed = false;
+    let action3Executed = false;
+    let action4Executed = false;
+    let action5Executed = false;
+    let action6Executed = false;
+    let action7Executed = false;
+
+    const aggregatedData = {
+      reportCount: 42,
+      memberCount: 15,
+      teamCount: 2,
     };
 
-    const result = await detectAndNotifyUnsubmitted(
-      aggregationInput,
-      mockAiClient as any
-    );
+    const remindedMembers = [
+      { memberId: 'mem-003', name: 'Alice', email: 'alice@example.com' },
+      { memberId: 'mem-007', name: 'Bob', email: 'bob@example.com' },
+    ];
 
-    expect(result).toBeDefined();
-    expect(result.escalationStatus).toBe("pending_manual_review");
-    expect(result.errorType).toBe("system_integration_error");
-    expect(result.rollbackCandidates).toEqual([
-      "agg_data_001",
-      "notif_001",
-      "notif_002",
-    ]);
+    const productivityMetrics = {
+      issueResolutionSpeed: 3.5,
+      reportSubmissionRate: 85.0,
+      issueRecurrenceRate: 12.5,
+    };
 
-    expect(mockAiClient.action01_aggregateDailyReports).toHaveBeenCalledWith(
-      aggregationInput
-    );
-    expect(mockAiClient.action02_identifyUnsubmitted).toHaveBeenCalled();
-    expect(mockAiClient.action03_sendReminderNotifications).toHaveBeenCalled();
-    expect(
-      mockAiClient.action04_quantifyProductivityMetrics
-    ).toHaveBeenCalled();
-    expect(mockAiClient.action05_classifyIssuesByPriority).toHaveBeenCalled();
+    const prioritizedIssues = [
+      {
+        issueId: 'iss-001',
+        title: 'Critical system outage',
+        priority: 1,
+        score: 95,
+      },
+      {
+        issueId: 'iss-002',
+        title: 'Database performance degradation',
+        priority: 2,
+        score: 78,
+      },
+    ];
 
-    expect(
-      mockAiClient.action06_proposeImprovementMeasures
-    ).not.toHaveBeenCalled();
-    expect(
-      mockAiClient.action07_generateReportAndPresent
-    ).not.toHaveBeenCalled();
+    const recommendedCountermeasures = [
+      {
+        measureId: 'meas-001',
+        title: 'Infrastructure scaling',
+        priority: 1,
+      },
+    ];
 
-    expect(mockAiClient.action08_logEscalationEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        errorType: "system_integration_error",
-        escalationTrigger: "System integration error",
-      })
-    );
+    const fakeAiClient: Tx9Imp1AiClient = {
+      executeAction01: async () => {
+        action1Executed = true;
+        return aggregatedData;
+      },
+      executeAction02: async () => {
+        action2Executed = true;
+        return remindedMembers;
+      },
+      executeAction03: async () => {
+        action3Executed = true;
+        return productivityMetrics;
+      },
+      executeAction04: async () => {
+        action4Executed = true;
+        return prioritizedIssues;
+      },
+      executeAction05: async () => {
+        action5Executed = true;
+        throw new Error(
+          'System integration error: Failed to connect to external knowledge base API. Timeout after 30 seconds.'
+        );
+      },
+      executeAction06: async () => {
+        action6Executed = true;
+        return recommendedCountermeasures;
+      },
+      executeAction07: async () => {
+        action7Executed = true;
+        return {
+          reportId: 'report-9999',
+          aggregationPeriod: { startDate: aggregationStartDate, endDate: aggregationEndDate },
+          productivityMetrics,
+          prioritizedIssues,
+          recommendedCountermeasures,
+          generatedAt: '2024-01-15T09:00:00Z',
+        } as Tx9AnalysisReport;
+      },
+    };
 
-    expect(mockAiClient.action09_performRollback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rollbackTargets: ["agg_data_001", "notif_001", "notif_002"],
-      })
-    );
+    let escalationNotificationSent = false;
+    let escalationContext: {
+      status: string;
+      errorType: string;
+      rollbackCandidates: string[];
+      escalationTargetEmail: string;
+    } | null = null;
 
-    expect(mockAiClient.action10_notifyManagerEscalation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientEmail: "manager@company.com",
-        escalationId: "esc_sys_001",
-        escalationStatus: "pending_manual_review",
-      })
-    );
+    const captureEscalation = (context: {
+      status: string;
+      errorType: string;
+      rollbackCandidates: string[];
+      escalationTargetEmail: string;
+    }) => {
+      escalationNotificationSent = true;
+      escalationContext = context;
+    };
 
-    expect(result.reportGenerated).toBe(false);
-    expect(result.reportPresentationCompleted).toBe(false);
-    expect(result.partialSideEffectsConfirmed).toBe(false);
+    let result: Tx9AnalysisReport | { status: string; error: string; escalationId: string } | undefined;
+    let caughtError: Error | undefined;
 
-    expect(result.escalationNotificationLog).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          recipientEmail: "manager@company.com",
-          notificationId: "escal_notif_001",
-          timestamp: new Date("2024-01-15T10:10:00Z"),
-        }),
-      ])
-    );
+    try {
+      result = await runTx9Imp1Agent(request, fakeAiClient, { onEscalation: captureEscalation });
+    } catch (err) {
+      if (err instanceof Error) {
+        caughtError = err;
+      }
+    }
+
+    expect(action1Executed).toBe(true);
+    expect(action2Executed).toBe(true);
+    expect(action3Executed).toBe(true);
+    expect(action4Executed).toBe(true);
+    expect(action5Executed).toBe(true);
+    expect(action6Executed).toBe(false);
+    expect(action7Executed).toBe(false);
+
+    expect(escalationNotificationSent).toBe(true);
+    expect(escalationContext).not.toBeNull();
+
+    if (escalationContext) {
+      expect(escalationContext.status).toBe('pending_manual_review');
+      expect(escalationContext.errorType).toMatch(/system_integration_error|integration/i);
+      expect(escalationContext.rollbackCandidates).toContain('aggregated_data');
+      expect(escalationContext.rollbackCandidates).toContain('reminder_notifications');
+      expect(escalationContext.escalationTargetEmail).toMatch(/@example\.com$/);
+    }
+
+    if (typeof result === 'object' && 'status' in result && result.status === 'error') {
+      expect(result.error).toMatch(/system|integration|connection/i);
+      expect(result.escalationId).toBeDefined();
+    }
+
+    expect(caughtError).toBeUndefined();
   });
 });

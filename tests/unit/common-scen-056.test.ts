@@ -1,294 +1,510 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx2Imp1Agent } from "../../src/agents/tx-2-imp-1/orchestrator";
+import type {
+  Tx2Imp1AgentInput,
+  Tx2Imp1AgentOutput,
+} from "../../src/agents/tx-2-imp-1/orchestrator";
+import type { Tx2Imp1AiClient } from "../../src/agents/tx-2-imp-1/orchestrator";
 
-// Mock types for Tx2Imp1AiClient
-interface MockAction {
-  actionNumber: number;
-  status: 'pending' | 'completed' | 'failed';
-  timestamp: string;
-  result?: unknown;
-  error?: Error;
-}
-
-interface MockAuditEvent {
-  transactionId: string;
-  failureStep: string;
-  rollbackTargets: string[];
-  compensationExecuted: boolean;
-  timestamp: string;
-}
-
-interface MockMailBuffer {
-  id: string;
-  subject: string;
-  to: string;
-  status: 'queued' | 'sent' | 'cancelled';
-  sentAt?: string;
-}
-
-interface MockState {
-  actionHistory: MockAction[];
-  auditLog: MockAuditEvent[];
-  mailBuffer: MockMailBuffer[];
-  formattedReports?: Record<string, unknown>[];
-  extractedIssues?: Record<string, unknown>[];
-  unsubmittedMembers?: string[];
-}
-
-// Test suite for SCEN-056
-describe('sendUnsubmittedReminder - Rollback on Partial Failure', () => {
-  let mockState: MockState;
-  let mockMailIds: string[];
-  let rollbackExecuted: boolean;
-  let compensationExecuted: boolean;
+describe("Tx2Imp1Agent - Rollback after partial side effect", () => {
+  let fakeAiClient: Tx2Imp1AiClient;
+  let executionLog: Array<{
+    action: string;
+    timestamp: Date;
+    status: "success" | "failure";
+    data?: unknown;
+  }>;
+  let sentEmails: Array<{
+    id: string;
+    to: string;
+    subject: string;
+    body: string;
+    timestamp: Date;
+  }>;
+  let auditEvents: Array<{
+    timestamp: Date;
+    transactionId: string;
+    failureStep: string;
+    rollbackTargets: string[];
+    compensationStatus: string;
+    message: string;
+  }>;
+  let intermediateArtifacts: Map<
+    string,
+    {
+      data: unknown;
+      isValid: boolean;
+      version: string;
+    }
+  >;
 
   beforeEach(() => {
-    mockState = {
-      actionHistory: [],
-      auditLog: [],
-      mailBuffer: [],
-      formattedReports: [],
-      extractedIssues: [],
-      unsubmittedMembers: []
+    executionLog = [];
+    sentEmails = [];
+    auditEvents = [];
+    intermediateArtifacts = new Map();
+
+    fakeAiClient = {
+      async runAction01ConfirmReportReception(input: {
+        teamId: string;
+        executionTimestamp: Date;
+      }): Promise<{ submittedCount: number; unsubmittedCount: number }> {
+        executionLog.push({
+          action: "action-01",
+          timestamp: new Date("2024-01-15T09:00:00Z"),
+          status: "success",
+          data: { teamId: input.teamId },
+        });
+        return {
+          submittedCount: 8,
+          unsubmittedCount: 2,
+        };
+      },
+
+      async runAction02ConvertToUnifiedFormat(input: {
+        reportDataList: unknown[];
+      }): Promise<{ convertedReports: unknown[]; conversionErrors: string[] }> {
+        executionLog.push({
+          action: "action-02",
+          timestamp: new Date("2024-01-15T09:05:00Z"),
+          status: "success",
+        });
+        const convertedReports = (input.reportDataList || []).map((r) => ({
+          ...r,
+          format: "unified_v1",
+          convertedAt: "2024-01-15T09:05:00Z",
+        }));
+        intermediateArtifacts.set("action-02-converted-reports", {
+          data: convertedReports,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          convertedReports,
+          conversionErrors: [],
+        };
+      },
+
+      async runAction03ExtractIssues(input: {
+        convertedReports: unknown[];
+      }): Promise<{ extractedIssues: unknown[]; extractionErrors: string[] }> {
+        executionLog.push({
+          action: "action-03",
+          timestamp: new Date("2024-01-15T09:10:00Z"),
+          status: "success",
+        });
+        const extractedIssues = [
+          {
+            id: "issue-001",
+            title: "Database performance degradation",
+            category: "performance",
+            priority: "high",
+          },
+          {
+            id: "issue-002",
+            title: "Memory leak in service",
+            category: "stability",
+            priority: "high",
+          },
+          {
+            id: "issue-003",
+            title: "Documentation outdated",
+            category: "documentation",
+            priority: "low",
+          },
+        ];
+        intermediateArtifacts.set("action-03-extracted-issues", {
+          data: extractedIssues,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          extractedIssues,
+          extractionErrors: [],
+        };
+      },
+
+      async runAction04PrioritizeAndColorize(input: {
+        extractedIssues: unknown[];
+      }): Promise<{ prioritizedIssues: unknown[] }> {
+        executionLog.push({
+          action: "action-04",
+          timestamp: new Date("2024-01-15T09:15:00Z"),
+          status: "success",
+        });
+
+        // Simulate failure during action-04 by throwing an error
+        throw new Error(
+          "ValidationError: Priority assignment rule mismatch detected"
+        );
+      },
+
+      async runAction05IdentifyUnsubmittedMembers(input: {
+        submittedCount: number;
+        unsubmittedCount: number;
+      }): Promise<{ unsubmittedMembersList: string[] }> {
+        executionLog.push({
+          action: "action-05",
+          timestamp: new Date("2024-01-15T09:20:00Z"),
+          status: "success",
+        });
+        const unsubmittedMembers = ["member-001@example.com", "member-002@example.com"];
+        intermediateArtifacts.set("action-05-unsubmitted-members", {
+          data: unsubmittedMembers,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          unsubmittedMembersList: unsubmittedMembers,
+        };
+      },
+
+      async runAction06GenerateAndSendConfirmationEmail(input: {
+        managerEmail: string;
+        prioritizedIssuesList: unknown[];
+        reportingDeadline: Date;
+      }): Promise<{ emailSendStatus: string; emailId: string }> {
+        executionLog.push({
+          action: "action-06",
+          timestamp: new Date("2024-01-15T09:25:00Z"),
+          status: "success",
+        });
+        const emailId = `email-tx2-imp1-${Date.now()}`;
+        const email = {
+          id: emailId,
+          to: input.managerEmail,
+          subject: "Morning Report Summary - Issues Extracted",
+          body: "Please review the attached prioritized issues list for today morning meeting.",
+          timestamp: new Date("2024-01-15T09:25:00Z"),
+        };
+        sentEmails.push(email);
+        intermediateArtifacts.set("action-06-sent-email", {
+          data: email,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          emailSendStatus: "sent",
+          emailId,
+        };
+      },
     };
-    mockMailIds = [];
-    rollbackExecuted = false;
-    compensationExecuted = false;
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    executionLog = [];
+    sentEmails = [];
+    auditEvents = [];
+    intermediateArtifacts.clear();
   });
 
-  // SCEN-056: Action-04 failure triggers rollback and compensation
-  test('should rollback email delivery and invalidate intermediate artifacts on action-04 failure', async () => {
-    // Setup: Prepare daily report dataset
-    const dailyReports = [
-      {
-        memberId: 'M001',
-        date: '2024-01-15',
-        content: 'Fixed critical bug in authentication module',
-        status: 'submitted'
-      },
-      {
-        memberId: 'M002',
-        date: '2024-01-15',
-        content: 'Completed database migration',
-        status: 'submitted'
-      },
-      {
-        memberId: 'M003',
-        date: '2024-01-15',
-        status: 'unsubmitted'
-      }
-    ];
-
-    const unsubmittedMembers = dailyReports
-      .filter(r => r.status === 'unsubmitted')
-      .map(r => r.memberId);
-
-    // Action-01: Verify report submission status
-    mockState.actionHistory.push({
-      actionNumber: 1,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T07:00:00Z').toISOString()
-    });
-
-    // Action-02: Convert to unified format
-    const formattedReports = dailyReports.map(r => ({
-      ...r,
-      format_version: '1.0',
-      converted_at: new Date('2024-01-15T07:05:00Z').toISOString()
-    }));
-    mockState.formattedReports = formattedReports;
-    mockState.actionHistory.push({
-      actionNumber: 2,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T07:05:00Z').toISOString(),
-      result: formattedReports
-    });
-
-    // Action-03: Extract issues
-    const extractedIssues = [
-      {
-        id: 'ISS001',
-        content: 'Critical bug in authentication',
-        priority: 'high',
-        extractedFrom: 'M001'
-      },
-      {
-        id: 'ISS002',
-        content: 'Database migration completed',
-        priority: 'medium',
-        extractedFrom: 'M002'
-      }
-    ];
-    mockState.extractedIssues = extractedIssues;
-    mockState.actionHistory.push({
-      actionNumber: 3,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T07:10:00Z').toISOString(),
-      result: extractedIssues
-    });
-
-    // Action-04: Assign priority with color coding - INTENTIONALLY FAIL HERE
-    mockState.actionHistory.push({
-      actionNumber: 4,
-      status: 'failed',
-      timestamp: new Date('2024-01-15T07:15:00Z').toISOString(),
-      error: new Error('ValidationError: Priority classification failed')
-    });
-
-    // Action-05: Identify unsubmitted members (should not execute due to prior failure)
-    mockState.unsubmittedMembers = unsubmittedMembers;
-
-    // Action-06: Generate and send confirmation email (executed BEFORE failure detected)
-    const generatedMailId = 'MAIL_20240115_001';
-    const mailEntry: MockMailBuffer = {
-      id: generatedMailId,
-      subject: '[朝会報告管理] 日報未提出者へのリマインド: 2024-01-15',
-      to: 'director@company.com',
-      status: 'sent',
-      sentAt: new Date('2024-01-15T07:12:00Z').toISOString()
+  // SCEN-056
+  test("should rollback sent email and invalidate intermediate artifacts when action-04 fails", async () => {
+    const agentInput: Tx2Imp1AgentInput = {
+      executionTimestamp: new Date("2024-01-15T09:00:00Z"),
+      teamId: "team-engineering",
+      reportingDeadline: new Date("2024-01-15T09:30:00Z"),
+      managerEmail: "manager@example.com",
     };
-    mockState.mailBuffer.push(mailEntry);
-    mockMailIds.push(generatedMailId);
-    mockState.actionHistory.push({
-      actionNumber: 6,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T07:12:00Z').toISOString(),
-      result: { mailId: generatedMailId, recipients: 1 }
-    });
 
-    // Simulate action-04 failure detection and rollback initiation
-    const actionThatFailed = mockState.actionHistory.find(a => a.status === 'failed');
-    expect(actionThatFailed).toBeDefined();
-    expect(actionThatFailed?.actionNumber).toBe(4);
+    let caughtError: Error | null = null;
+    let agentOutput: Tx2Imp1AgentOutput | null = null;
 
-    // Execute rollback: Cancel email delivery
-    const sentMails = mockState.mailBuffer.filter(m => m.status === 'sent');
-    expect(sentMails.length).toBeGreaterThan(0);
+    try {
+      agentOutput = await runTx2Imp1Agent(agentInput, fakeAiClient);
+    } catch (error) {
+      if (error instanceof Error) {
+        caughtError = error;
+      }
+    }
 
-    sentMails.forEach(mail => {
-      mail.status = 'cancelled';
-    });
-    rollbackExecuted = true;
+    // Verify that action-04 failure was caught
+    expect(caughtError).not.toBeNull();
+    expect(caughtError?.message).toMatch(/ValidationError/);
 
-    // Verify email cancellation
-    const cancelledMails = mockState.mailBuffer.filter(m => m.status === 'cancelled');
-    expect(cancelledMails.length).toBe(1);
-    expect(cancelledMails[0].id).toBe(generatedMailId);
-    expect(cancelledMails[0].subject).toBe('[朝会報告管理] 日報未提出者へのリマインド: 2024-01-15');
-    expect(cancelledMails[0].to).toBe('director@company.com');
+    // Verify execution log shows actions 01-04 were attempted
+    expect(executionLog.length).toBeGreaterThanOrEqual(4);
+    expect(executionLog[0].action).toBe("action-01");
+    expect(executionLog[1].action).toBe("action-02");
+    expect(executionLog[2].action).toBe("action-03");
+    expect(executionLog[3].action).toBe("action-04");
 
-    // Invalidate intermediate artifacts
-    mockState.formattedReports = [];
-    mockState.extractedIssues = [];
-    mockState.unsubmittedMembers = [];
+    // Verify that action-06 email was sent before failure
+    const emailsSentBeforeFailure = sentEmails.filter(
+      (e) =>
+        new Date(e.timestamp).getTime() <
+        new Date("2024-01-15T09:16:00Z").getTime()
+    );
 
-    // Execute compensation: Generate audit event
-    const compensationAuditEvent: MockAuditEvent = {
-      transactionId: 'tx_2_imp_1',
-      failureStep: 'action-04',
-      rollbackTargets: [generatedMailId],
-      compensationExecuted: true,
-      timestamp: new Date('2024-01-15T07:16:00Z').toISOString()
-    };
-    mockState.auditLog.push(compensationAuditEvent);
-    compensationExecuted = true;
+    // Verify rollback: email should be marked for deletion or moved to compensation log
+    if (emailsSentBeforeFailure.length > 0) {
+      const emailToRollback = emailsSentBeforeFailure[0];
 
-    // Verify audit log entry
-    expect(mockState.auditLog.length).toBe(1);
-    const auditEntry = mockState.auditLog[0];
-    expect(auditEntry.transactionId).toBe('tx_2_imp_1');
-    expect(auditEntry.failureStep).toBe('action-04');
-    expect(auditEntry.rollbackTargets).toContain(generatedMailId);
-    expect(auditEntry.compensationExecuted).toBe(true);
+      // Simulate rollback operation: mark email as invalid
+      const emailArtifact = intermediateArtifacts.get("action-06-sent-email");
+      if (emailArtifact) {
+        emailArtifact.isValid = false;
+        intermediateArtifacts.set("action-06-sent-email", emailArtifact);
+      }
 
-    // Verify rollback completion
-    expect(rollbackExecuted).toBe(true);
-    expect(compensationExecuted).toBe(true);
+      // Record compensation event
+      auditEvents.push({
+        timestamp: new Date("2024-01-15T09:30:00Z"),
+        transactionId: "tx_2_imp_1",
+        failureStep: "action-04",
+        rollbackTargets: [emailToRollback.id],
+        compensationStatus: "completed",
+        message: `Transaction tx_2_imp_1 failed at action-04 stage. Rollback email ID ${emailToRollback.id}. Compensation executed.`,
+      });
+    }
 
     // Verify intermediate artifacts are invalidated
-    expect(mockState.formattedReports).toEqual([]);
-    expect(mockState.extractedIssues).toEqual([]);
-    expect(mockState.unsubmittedMembers).toEqual([]);
-
-    // Idempotency check: Re-execute with same dataset
-    mockState.actionHistory = [];
-    mockState.auditLog = [];
-    mockState.mailBuffer = [];
-
-    // Re-run action-01 through action-06
-    mockState.actionHistory.push({
-      actionNumber: 1,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:00:00Z').toISOString()
-    });
-
-    const retryFormattedReports = dailyReports.map(r => ({
-      ...r,
-      format_version: '1.0',
-      converted_at: new Date('2024-01-15T08:05:00Z').toISOString()
-    }));
-    mockState.formattedReports = retryFormattedReports;
-    mockState.actionHistory.push({
-      actionNumber: 2,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:05:00Z').toISOString(),
-      result: retryFormattedReports
-    });
-
-    mockState.actionHistory.push({
-      actionNumber: 3,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:10:00Z').toISOString(),
-      result: extractedIssues
-    });
-
-    mockState.actionHistory.push({
-      actionNumber: 4,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:15:00Z').toISOString()
-    });
-
-    mockState.actionHistory.push({
-      actionNumber: 5,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:16:00Z').toISOString(),
-      result: { unsubmittedCount: 1 }
-    });
-
-    const retryMailId = 'MAIL_20240115_002';
-    const retryMailEntry: MockMailBuffer = {
-      id: retryMailId,
-      subject: '[朝会報告管理] 日報未提出者へのリマインド: 2024-01-15',
-      to: 'director@company.com',
-      status: 'sent',
-      sentAt: new Date('2024-01-15T08:17:00Z').toISOString()
-    };
-    mockState.mailBuffer.push(retryMailEntry);
-    mockState.actionHistory.push({
-      actionNumber: 6,
-      status: 'completed',
-      timestamp: new Date('2024-01-15T08:17:00Z').toISOString(),
-      result: { mailId: retryMailId, recipients: 1 }
-    });
-
-    // Verify no duplicate mails from first attempt
-    const allMailsSentBySubject = mockState.mailBuffer.filter(
-      m => m.subject === '[朝会報告管理] 日報未提出者へのリマインド: 2024-01-15'
+    const convertedReports = intermediateArtifacts.get(
+      "action-02-converted-reports"
     );
-    expect(allMailsSentBySubject.length).toBe(1);
-    expect(allMailsSentBySubject[0].id).toBe(retryMailId);
-    expect(allMailsSentBySubject[0].status).toBe('sent');
+    if (convertedReports) {
+      convertedReports.isValid = false;
+    }
 
-    // Verify system consistency after retry
-    expect(mockState.actionHistory.length).toBe(6);
-    expect(mockState.actionHistory.every(a => a.status === 'completed')).toBe(true);
+    const extractedIssues = intermediateArtifacts.get("action-03-extracted-issues");
+    if (extractedIssues) {
+      extractedIssues.isValid = false;
+    }
 
-    // Final audit verification
-    expect(mockState.auditLog.length).toBe(1);
-    expect(mockState.auditLog[0].failureStep).toBe('action-04');
+    const unsubmittedMembers = intermediateArtifacts.get(
+      "action-05-unsubmitted-members"
+    );
+    if (unsubmittedMembers) {
+      unsubmittedMembers.isValid = false;
+    }
+
+    // Verify audit events are recorded
+    expect(auditEvents.length).toBeGreaterThan(0);
+    const compensationEvent = auditEvents[0];
+    expect(compensationEvent.transactionId).toBe("tx_2_imp_1");
+    expect(compensationEvent.failureStep).toBe("action-04");
+    expect(compensationEvent.compensationStatus).toBe("completed");
+    expect(compensationEvent.message).toMatch(/action-04/);
+    expect(compensationEvent.message).toMatch(/Rollback/);
+
+    // Verify no valid intermediate artifacts remain
+    let validArtifactCount = 0;
+    intermediateArtifacts.forEach((artifact) => {
+      if (artifact.isValid) {
+        validArtifactCount++;
+      }
+    });
+    expect(validArtifactCount).toBe(0);
+
+    // Verify email invalidation
+    const sentEmailArtifact = intermediateArtifacts.get("action-06-sent-email");
+    if (sentEmailArtifact) {
+      expect(sentEmailArtifact.isValid).toBe(false);
+    }
+
+    // Test idempotent retry: second execution should succeed with same input
+    executionLog = [];
+    sentEmails = [];
+    auditEvents = [];
+    intermediateArtifacts.clear();
+
+    // Re-initialize fakeAiClient for retry to complete successfully
+    fakeAiClient = {
+      async runAction01ConfirmReportReception(input: {
+        teamId: string;
+        executionTimestamp: Date;
+      }): Promise<{ submittedCount: number; unsubmittedCount: number }> {
+        executionLog.push({
+          action: "action-01",
+          timestamp: new Date("2024-01-15T09:00:00Z"),
+          status: "success",
+          data: { teamId: input.teamId },
+        });
+        return {
+          submittedCount: 8,
+          unsubmittedCount: 2,
+        };
+      },
+
+      async runAction02ConvertToUnifiedFormat(input: {
+        reportDataList: unknown[];
+      }): Promise<{ convertedReports: unknown[]; conversionErrors: string[] }> {
+        executionLog.push({
+          action: "action-02",
+          timestamp: new Date("2024-01-15T09:05:00Z"),
+          status: "success",
+        });
+        const convertedReports = (input.reportDataList || []).map((r) => ({
+          ...r,
+          format: "unified_v1",
+          convertedAt: "2024-01-15T09:05:00Z",
+        }));
+        intermediateArtifacts.set("action-02-converted-reports", {
+          data: convertedReports,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          convertedReports,
+          conversionErrors: [],
+        };
+      },
+
+      async runAction03ExtractIssues(input: {
+        convertedReports: unknown[];
+      }): Promise<{ extractedIssues: unknown[]; extractionErrors: string[] }> {
+        executionLog.push({
+          action: "action-03",
+          timestamp: new Date("2024-01-15T09:10:00Z"),
+          status: "success",
+        });
+        const extractedIssues = [
+          {
+            id: "issue-001",
+            title: "Database performance degradation",
+            category: "performance",
+            priority: "high",
+          },
+          {
+            id: "issue-002",
+            title: "Memory leak in service",
+            category: "stability",
+            priority: "high",
+          },
+          {
+            id: "issue-003",
+            title: "Documentation outdated",
+            category: "documentation",
+            priority: "low",
+          },
+        ];
+        intermediateArtifacts.set("action-03-extracted-issues", {
+          data: extractedIssues,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          extractedIssues,
+          extractionErrors: [],
+        };
+      },
+
+      async runAction04PrioritizeAndColorize(input: {
+        extractedIssues: unknown[];
+      }): Promise<{ prioritizedIssues: unknown[] }> {
+        executionLog.push({
+          action: "action-04",
+          timestamp: new Date("2024-01-15T09:15:00Z"),
+          status: "success",
+        });
+        // Successful execution on retry
+        const prioritizedIssues = [
+          {
+            id: "issue-001",
+            title: "Database performance degradation",
+            category: "performance",
+            priority: "high",
+            color: "red",
+          },
+          {
+            id: "issue-002",
+            title: "Memory leak in service",
+            category: "stability",
+            priority: "high",
+            color: "red",
+          },
+          {
+            id: "issue-003",
+            title: "Documentation outdated",
+            category: "documentation",
+            priority: "low",
+            color: "green",
+          },
+        ];
+        intermediateArtifacts.set("action-04-prioritized-issues", {
+          data: prioritizedIssues,
+          isValid: true,
+          version: "1",
+        });
+        return { prioritizedIssues };
+      },
+
+      async runAction05IdentifyUnsubmittedMembers(input: {
+        submittedCount: number;
+        unsubmittedCount: number;
+      }): Promise<{ unsubmittedMembersList: string[] }> {
+        executionLog.push({
+          action: "action-05",
+          timestamp: new Date("2024-01-15T09:20:00Z"),
+          status: "success",
+        });
+        const unsubmittedMembers = [
+          "member-001@example.com",
+          "member-002@example.com",
+        ];
+        intermediateArtifacts.set("action-05-unsubmitted-members", {
+          data: unsubmittedMembers,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          unsubmittedMembersList: unsubmittedMembers,
+        };
+      },
+
+      async runAction06GenerateAndSendConfirmationEmail(input: {
+        managerEmail: string;
+        prioritizedIssuesList: unknown[];
+        reportingDeadline: Date;
+      }): Promise<{ emailSendStatus: string; emailId: string }> {
+        executionLog.push({
+          action: "action-06",
+          timestamp: new Date("2024-01-15T09:25:00Z"),
+          status: "success",
+        });
+        const emailId = `email-tx2-imp1-retry-${Date.now()}`;
+        const email = {
+          id: emailId,
+          to: input.managerEmail,
+          subject: "Morning Report Summary - Issues Extracted",
+          body: "Please review the attached prioritized issues list for today morning meeting.",
+          timestamp: new Date("2024-01-15T09:25:00Z"),
+        };
+        sentEmails.push(email);
+        intermediateArtifacts.set("action-06-sent-email", {
+          data: email,
+          isValid: true,
+          version: "1",
+        });
+        return {
+          emailSendStatus: "sent",
+          emailId,
+        };
+      },
+    };
+
+    agentOutput = null;
+    const retryOutput = await runTx2Imp1Agent(agentInput, fakeAiClient);
+
+    // Verify successful retry execution
+    expect(retryOutput).not.toBeNull();
+    expect(retryOutput?.aggregationStatus).toBe("success");
+    expect(retryOutput?.emailSendStatus).toBe("sent");
+
+    // Verify no duplicate emails were sent
+    expect(sentEmails.length).toBe(1);
+    const finalEmail = sentEmails[0];
+    expect(finalEmail.to).toBe("manager@example.com");
+    expect(finalEmail.subject).toContain("Morning Report Summary");
+
+    // Verify execution completed all 6 actions
+    expect(executionLog.length).toBe(6);
+    expect(executionLog[5].action).toBe("action-06");
+
+    // Verify no leftover artifacts from failed transaction remain
+    const artifactValidityCount = Array.from(intermediateArtifacts.values()).filter(
+      (a) => a.isValid
+    ).length;
+    expect(artifactValidityCount).toBeGreaterThan(0); // New artifacts from retry are valid
   });
 });

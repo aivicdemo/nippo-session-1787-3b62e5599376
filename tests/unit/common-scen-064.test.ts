@@ -1,127 +1,220 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { detectAndNotifyUnsubmitted } from '../../src/logic/submission-status-management';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx3Imp1Agent } from "../../src/agents/tx-3-imp-1/orchestrator";
 
-describe('submission-status-management', () => {
-  // SCEN-064: Escalation when multi-department issue detected before action confirmation
-  test('should escalate to human review when multi-department issue is detected and prevent auto-actions until approval', async () => {
-    const mockAiClient = {
-      extractIssueKeywords: jest.fn().mockResolvedValue({
-        keywords: ['営業部', '製造部', '納期遅延'],
-        departmentFlags: ['sales', 'manufacturing'],
-      }),
-      classifyIssueCategory: jest.fn().mockResolvedValue({
-        category: 'multi_department_issue',
-        classifications: [
-          { keyword: '営業部', category: 'sales' },
-          { keyword: '製造部', category: 'manufacturing' },
-          { keyword: '納期遅延', category: 'deadline' },
+// Mock fetch
+const fetchMock = require("jest-fetch-mock");
+fetchMock.enableMocks();
+
+describe("tx-3-imp-1 orchestrator - runTx3Imp1Agent", () => {
+  beforeEach(() => {
+    fetchMock.resetMocks();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // SCEN-064
+  test("should escalate and defer priority determination when multi-department issues are detected, then resume after human approval", async () => {
+    // 1. Initialize fake AI client and mock aggregated daily report data with multi-department issue
+    const fakeAiClient = {
+      callAction01ExtractIssueKeywords: jest.fn(async (prompt) => ({
+        keywords: [
+          "営業部",
+          "製造部",
+          "納期遅延",
+          "顧客対応",
+          "品質",
         ],
-        multiDepartmentDetected: true,
-      }),
-      assignPriority: jest.fn().mockResolvedValue({
-        priority: 'high',
-        score: 85,
-      }),
-      generateIssueSummary: jest.fn().mockResolvedValue({
-        summary: 'Multi-department deadline issue',
-      }),
-      sendNotificationEmail: jest.fn().mockResolvedValue({
-        emailSent: true,
-        recipientId: 'manager_001',
-      }),
-      escalateToHuman: jest.fn().mockResolvedValue({
-        escalationId: 'esc_20240115_001',
-        status: 'escalation_pending',
-        assignedTo: 'manager_001',
-      }),
-    };
-
-    const aggregatedReportData = {
-      reportDate: '2024-01-15',
-      submittedReports: [
-        {
-          reportId: 'rep_001',
-          employeeId: 'emp_sales_001',
-          department: 'sales',
-          issues: [
-            {
-              issueId: 'iss_001',
-              title: '営業部と製造部に影響する納期遅延',
-              description: '営業部の受注が製造部の生産スケジュールに遅延をもたらしている',
-              affectedDepartments: ['sales', 'manufacturing'],
-              timestamp: '2024-01-15T09:30:00Z',
-            },
-          ],
+        extractedAt: new Date("2024-01-15T09:00:00Z"),
+        confidence: 0.92,
+      })),
+      callAction02ClassifyCategory: jest.fn(async (prompt) => ({
+        classification: {
+          category: "multi_department",
+          affected_departments: ["営業部", "製造部"],
+          is_multi_department: true,
+          primary_category: "納期対応",
         },
-      ],
-      unsubmittedEmployees: [],
-      aggregationTimestamp: '2024-01-15T10:00:00Z',
+        classifiedAt: new Date("2024-01-15T09:05:00Z"),
+        confidence: 0.88,
+      })),
+      callAction03DeterminePriority: jest.fn(async (prompt) => ({
+        priority_score: 85,
+        priority_level: "high",
+        determined_at: new Date("2024-01-15T09:10:00Z"),
+      })),
+      callAction04GenerateIssueListing: jest.fn(async (prompt) => ({
+        issue_list: [
+          {
+            id: "ISSUE-001",
+            title: "納期遅延対応",
+            priority_level: "high",
+            affected_departments: ["営業部", "製造部"],
+          },
+        ],
+        generated_at: new Date("2024-01-15T09:15:00Z"),
+      })),
+      callAction05SendEmail: jest.fn(async (prompt) => ({
+        email_sent: false,
+        reason: "escalation_pending",
+        sent_at: null,
+      })),
     };
 
-    const action1Output = await mockAiClient.extractIssueKeywords(aggregatedReportData);
-    expect(action1Output.departmentFlags).toEqual(['sales', 'manufacturing']);
-    expect(action1Output.departmentFlags.length).toBe(2);
+    const aggregatedReportId = "report-2024-01-15-001";
+    const analysisExecutionTime = new Date("2024-01-15T09:00:00Z");
+    const managerEmail = "manager@company.com";
 
-    const action2Output = await mockAiClient.classifyIssueCategory(action1Output);
-    expect(action2Output.multiDepartmentDetected).toBe(true);
-    expect(action2Output.category).toBe('multi_department_issue');
-    expect(action2Output.classifications.length).toBeGreaterThanOrEqual(2);
+    const input = {
+      reportAggregationId: aggregatedReportId,
+      analysisExecutionTime: analysisExecutionTime,
+      managerEmail: managerEmail,
+      priorityThresholds: {
+        highPriorityMinScore: 80,
+        mediumPriorityMinScore: 50,
+      },
+    };
 
-    if (action2Output.multiDepartmentDetected) {
-      const escalationResult = await mockAiClient.escalateToHuman(action2Output);
-      expect(escalationResult.status).toBe('escalation_pending');
-      expect(escalationResult.assignedTo).toBe('manager_001');
-      expect(escalationResult.escalationId).toBeTruthy();
+    // 2. Execute Action 1 (keyword extraction)
+    const result = await runTx3Imp1Agent(input, fakeAiClient);
 
-      expect(mockAiClient.assignPriority).not.toHaveBeenCalled();
-      expect(mockAiClient.generateIssueSummary).not.toHaveBeenCalled();
-      expect(mockAiClient.sendNotificationEmail).not.toHaveBeenCalled();
+    // 3. Verify Action 1 output contains multi-department keywords
+    expect(fakeAiClient.callAction01ExtractIssueKeywords).toHaveBeenCalledTimes(
+      1
+    );
+    const action01Call = fakeAiClient.callAction01ExtractIssueKeywords.mock
+      .calls[0][0];
+    expect(action01Call).toContain("reportAggregationId");
 
-      const unsubmittedDetectionResult = await detectAndNotifyUnsubmitted(aggregatedReportData);
-      expect(unsubmittedDetectionResult.status).toBe('escalation_pending');
-      expect(unsubmittedDetectionResult.escalationId).toBe('esc_20240115_001');
-      expect(unsubmittedDetectionResult.pendingApprovalBy).toBe('manager_001');
-      expect(unsubmittedDetectionResult.auditLog).toContain(
-        'multi_department_issue_detected'
-      );
-      expect(unsubmittedDetectionResult.auditLog).toContain(
-        'auto_judgment_skipped'
-      );
-      expect(unsubmittedDetectionResult.auditLog).toContain(
-        'human_handoff_initiated'
-      );
+    // 4. Verify Action 2 executed and classified as multi-department
+    expect(fakeAiClient.callAction02ClassifyCategory).toHaveBeenCalledTimes(1);
+    const classification = fakeAiClient.callAction02ClassifyCategory.mock
+      .results[0].value;
+    expect(classification.classification.is_multi_department).toBe(true);
+    expect(classification.classification.affected_departments).toEqual([
+      "営業部",
+      "製造部",
+    ]);
 
-      const managerApprovalSimulation = {
-        escalationId: 'esc_20240115_001',
-        approvalStatus: 'approved',
-        approverEmployeeId: 'manager_001',
-        approvalTimestamp: '2024-01-15T10:15:00Z',
-      };
+    // 5. Verify escalation condition is triggered before Action 3
+    expect(result.status).toBe("escalation_pending");
+    expect(result.escalation_reason).toBe("multi_department_issue_detected");
 
-      mockAiClient.assignPriority.mockClear();
-      mockAiClient.generateIssueSummary.mockClear();
-      mockAiClient.sendNotificationEmail.mockClear();
+    // 6. Verify Action 3 was NOT executed (priority determination deferred)
+    expect(fakeAiClient.callAction03DeterminePriority).not.toHaveBeenCalled();
 
-      const action3OutputAfterApproval = await mockAiClient.assignPriority(
-        action2Output
-      );
-      expect(action3OutputAfterApproval.priority).toBe('high');
-      expect(action3OutputAfterApproval.score).toBe(85);
+    // 7. Verify Action 5 (email send) was NOT executed
+    expect(fakeAiClient.callAction05SendEmail).not.toHaveBeenCalled();
 
-      const action4OutputAfterApproval = await mockAiClient.generateIssueSummary(
-        action3OutputAfterApproval
-      );
-      expect(action4OutputAfterApproval.summary).toBeTruthy();
+    // 8. Verify handoff notification data is generated
+    expect(result.handoff_data).toBeDefined();
+    expect(result.handoff_data.target_email).toBe(managerEmail);
+    expect(result.handoff_data.affected_departments).toEqual([
+      "営業部",
+      "製造部",
+    ]);
 
-      const action5OutputAfterApproval = await mockAiClient.sendNotificationEmail(
-        action4OutputAfterApproval
-      );
-      expect(action5OutputAfterApproval.emailSent).toBe(true);
-      expect(action5OutputAfterApproval.recipientId).toBe('manager_001');
+    // 9. Verify audit log records escalation
+    expect(result.audit_log).toBeDefined();
+    expect(result.audit_log.events).toContainEqual(
+      expect.objectContaining({
+        event_type: "escalation_triggered",
+        reason: "multi_department_issue",
+        timestamp: expect.any(Date),
+      })
+    );
 
-      expect(mockAiClient.assignPriority).toHaveBeenCalledTimes(1);
-      expect(mockAiClient.generateIssueSummary).toHaveBeenCalledTimes(1);
-      expect(mockAiClient.sendNotificationEmail).toHaveBeenCalledTimes(1);
-    }
+    expect(result.audit_log.events).toContainEqual(
+      expect.objectContaining({
+        event_type: "auto_determination_skipped",
+        reason: "awaiting_human_review",
+        timestamp: expect.any(Date),
+      })
+    );
+
+    // 10. Simulate human approval and verify resume of Actions 3-5
+    const resumeAiClient = {
+      callAction03DeterminePriority: jest.fn(async (prompt) => ({
+        priority_score: 85,
+        priority_level: "high",
+        determined_at: new Date("2024-01-15T09:20:00Z"),
+        human_approved: true,
+      })),
+      callAction04GenerateIssueListing: jest.fn(async (prompt) => ({
+        issue_list: [
+          {
+            id: "ISSUE-001",
+            title: "納期遅延対応",
+            priority_level: "high",
+            affected_departments: ["営業部", "製造部"],
+          },
+        ],
+        generated_at: new Date("2024-01-15T09:25:00Z"),
+      })),
+      callAction05SendEmail: jest.fn(async (prompt) => ({
+        email_sent: true,
+        email_id: "EMAIL-001",
+        sent_to: managerEmail,
+        sent_at: new Date("2024-01-15T09:30:00Z"),
+      })),
+    };
+
+    const resumeInput = {
+      reportAggregationId: aggregatedReportId,
+      analysisExecutionTime: new Date("2024-01-15T09:20:00Z"),
+      managerEmail: managerEmail,
+      priorityThresholds: {
+        highPriorityMinScore: 80,
+        mediumPriorityMinScore: 50,
+      },
+      human_approval_token: "APPROVAL-TOKEN-001",
+    };
+
+    const resumeResult = await runTx3Imp1Agent(
+      resumeInput,
+      resumeAiClient as any
+    );
+
+    // Verify Actions 3-5 were executed after approval
+    expect(resumeAiClient.callAction03DeterminePriority).toHaveBeenCalledTimes(
+      1
+    );
+    expect(resumeAiClient.callAction04GenerateIssueListing).toHaveBeenCalledTimes(
+      1
+    );
+    expect(resumeAiClient.callAction05SendEmail).toHaveBeenCalledTimes(1);
+
+    // Verify final status is completed
+    expect(resumeResult.status).toBe("completed");
+    expect(resumeResult.emailSendStatus).toEqual({
+      email_sent: true,
+      email_id: "EMAIL-001",
+      sent_to: managerEmail,
+    });
+
+    // Verify audit log records completion
+    expect(resumeResult.audit_log.events).toContainEqual(
+      expect.objectContaining({
+        event_type: "human_approval_received",
+        approval_token: "APPROVAL-TOKEN-001",
+        timestamp: expect.any(Date),
+      })
+    );
+
+    expect(resumeResult.audit_log.events).toContainEqual(
+      expect.objectContaining({
+        event_type: "auto_determination_resumed",
+        timestamp: expect.any(Date),
+      })
+    );
+
+    expect(resumeResult.audit_log.events).toContainEqual(
+      expect.objectContaining({
+        event_type: "email_sent",
+        email_id: "EMAIL-001",
+        timestamp: expect.any(Date),
+      })
+    );
   });
 });

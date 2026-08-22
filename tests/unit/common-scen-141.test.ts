@@ -1,256 +1,291 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { generateMonthlyAnalysisReport } from '../../src/logic/analysis-reporting';
+import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
+import { buildAction01Prompt, ACTION_01_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-01';
+import { buildAction02Prompt, ACTION_02_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-02';
+import { buildAction03Prompt, ACTION_03_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-03';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-04';
+import { buildAction05Prompt, ACTION_05_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-05';
+import { buildAction06Prompt, ACTION_06_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-06';
+import { buildAction07Prompt, ACTION_07_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-07';
+import { buildAction08Prompt, ACTION_08_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-08';
 
-// Mock modules
-jest.mock('../../src/agents/tx-7-imp-1/orchestrator');
-jest.mock('../../src/auditing/audit-logger');
+describe('tx-7-imp-1: 月次レポート生成から分析完了までの自動実行', () => {
+  // SCEN-141
+  test('AIエージェント実行によるレポート生成から分析完了までの全フローが監査ログに時系列記録される', async () => {
+    const executionId = 'exec-tx7-imp1-202401-001';
+    const reportId = 'report-2024-01-monthly-001';
+    const teamCount = 3;
+    const extractedDataCount = 150;
+    const analysisItemCount = 12;
+    const detectedPatternCount = 5;
+    const bottleneckCount = 4;
+    const priorityHighCount = 8;
+    const priorityMediumCount = 12;
+    const priorityLowCount = 5;
+    const deliveryEmailAddress = 'director@company.example.com';
+    const agentStartTime = new Date('2024-01-01T09:00:00Z');
+    const agentEndTime = new Date('2024-01-01T09:15:00Z');
+    const totalExecutionTimeMs = 900000;
 
-describe('Monthly Analysis Report Generation with Audit Logging', () => {
-  let mockAuditLogger: any;
-  let mockOrchestrator: any;
-  let auditEvents: any[] = [];
+    const auditLogEntries: Array<{
+      eventType: string;
+      timestamp: Date;
+      executionId: string;
+      status?: string;
+      metadata?: Record<string, unknown>;
+    }> = [];
 
-  beforeEach(() => {
-    auditEvents = [];
-    
-    mockAuditLogger = {
-      recordEvent: jest.fn((eventType: string, metadata: any) => {
-        auditEvents.push({
+    const mockAiClient = {
+      action01ConfirmMonthlyTrigger: jest.fn(async () => ({
+        triggerConfirmed: true,
+        targetMonth: '2024-01',
+        triggeredBy: 'schedule',
+      })),
+      action02ExtractAccumulatedData: jest.fn(async () => ({
+        dataCount: extractedDataCount,
+        dataRangeStart: '2024-01-01',
+        dataRangeEnd: '2024-01-31',
+        extractionStatus: 'completed',
+      })),
+      action03ExecuteReportGeneration: jest.fn(async () => ({
+        reportId: reportId,
+        generationStatus: 'success',
+        generatedAt: agentStartTime.toISOString(),
+      })),
+      action04AnalyzeTimeSeriesIssues: jest.fn(async () => ({
+        analysisItemCount: analysisItemCount,
+        detectedPatternCount: detectedPatternCount,
+        analysisStatus: 'completed',
+      })),
+      action05IdentifyBottleneckTrend: jest.fn(async () => ({
+        bottleneckCount: bottleneckCount,
+        priorityLevel: 'high',
+        trendStatus: 'deteriorating',
+      })),
+      action06CalculateTeamPerformanceMetrics: jest.fn(async () => ({
+        teamCount: teamCount,
+        metricsItemCount: 6,
+        metricsStatus: 'calculated',
+      })),
+      action07AssignPriorityAndSummarize: jest.fn(async () => ({
+        priorityHighCount: priorityHighCount,
+        priorityMediumCount: priorityMediumCount,
+        priorityLowCount: priorityLowCount,
+        summaryStatus: 'ready',
+      })),
+      action08PresentAnalysisReport: jest.fn(async () => ({
+        deliveryTarget: deliveryEmailAddress,
+        deliveryTimestamp: agentEndTime.toISOString(),
+        deliveryStatus: 'sent',
+      })),
+      recordAuditEvent: jest.fn(async (eventType: string, metadata: Record<string, unknown>) => {
+        const entry = {
           eventType,
+          timestamp: new Date(),
+          executionId,
+          status: metadata.status as string | undefined,
           metadata,
-          timestamp: new Date().toISOString()
-        });
-      }),
-      getEvents: jest.fn(() => auditEvents)
-    };
-
-    mockOrchestrator = {
-      runTx7Imp1Agent: jest.fn(async (aiClient: any) => {
-        // Simulate agent workflow with audit logging
-        mockAuditLogger.recordEvent('AGENT_STARTED', {
-          executionId: 'exec-001',
-          timestamp: '2024-01-15T09:00:00Z',
-          actionList: [
-            'ACTION_01', 'ACTION_02', 'ACTION_03', 'ACTION_04',
-            'ACTION_05', 'ACTION_06', 'ACTION_07', 'ACTION_08'
-          ]
-        });
-
-        // Action 01: Check monthly report generation trigger
-        mockAuditLogger.recordEvent('ACTION_01_EXECUTED', {
-          actionName: 'confirmReportGenerationTrigger',
-          promptVersion: 'v1.0.0',
-          timestamp: '2024-01-15T09:01:00Z'
-        });
-
-        // Action 02: Extract accumulated report data
-        mockAuditLogger.recordEvent('ACTION_02_EXECUTED', {
-          actionName: 'extractAccumulatedData',
-          extractedRecordCount: 156,
-          dataRangeStart: '2024-01-01',
-          dataRangeEnd: '2024-01-31',
-          timestamp: '2024-01-15T09:02:00Z'
-        });
-
-        // Action 03: Execute report generation
-        mockAuditLogger.recordEvent('ACTION_03_COMPLETED', {
-          actionName: 'executeReportGeneration',
-          reportId: 'rpt-2024-01-001',
-          generationStatus: 'SUCCESS',
-          timestamp: '2024-01-15T09:03:00Z'
-        });
-
-        // Action 04: Analyze time series changes in issues
-        mockAuditLogger.recordEvent('ACTION_04_COMPLETED', {
-          actionName: 'analyzeTimeSeriesChanges',
-          analysisItemCount: 24,
-          detectedPatternCount: 5,
-          timestamp: '2024-01-15T09:04:00Z'
-        });
-
-        // Action 05: Identify bottleneck transitions
-        mockAuditLogger.recordEvent('ACTION_05_COMPLETED', {
-          actionName: 'identifyBottleneckTransitions',
-          bottleneckCount: 8,
-          priorityLevels: ['HIGH', 'MEDIUM', 'LOW'],
-          timestamp: '2024-01-15T09:05:00Z'
-        });
-
-        // Action 06: Calculate team-wise performance metrics
-        mockAuditLogger.recordEvent('ACTION_06_COMPLETED', {
-          actionName: 'calculateTeamPerformanceMetrics',
-          teamCount: 4,
-          metricItems: ['resolveTime', 'issueCount', 'responseSpeed', 'reworkRate'],
-          timestamp: '2024-01-15T09:06:00Z'
-        });
-
-        // Action 07: Prioritize and summarize analysis results
-        mockAuditLogger.recordEvent('ACTION_07_COMPLETED', {
-          actionName: 'prioritizeSummaryAnalysisResults',
-          priorityBreakdown: {
-            HIGH: 12,
-            MEDIUM: 28,
-            LOW: 116
-          },
-          timestamp: '2024-01-15T09:07:00Z'
-        });
-
-        // Action 08: Present analysis report to director
-        mockAuditLogger.recordEvent('ACTION_08_COMPLETED', {
-          actionName: 'presentAnalysisReportToDirector',
-          deliveryTargets: ['director@example.com'],
-          deliveryTimestamp: '2024-01-15T09:08:00Z'
-        });
-
-        // Agent completion
-        mockAuditLogger.recordEvent('AGENT_COMPLETED', {
-          executionId: 'exec-001',
-          totalExecutionTimeMs: 480000,
-          finalStatus: 'SUCCESS',
-          timestamp: '2024-01-15T09:08:30Z'
-        });
-
-        return {
-          executionId: 'exec-001',
-          status: 'SUCCESS',
-          reportId: 'rpt-2024-01-001',
-          analysisMetadata: {
-            recordsProcessed: 156,
-            patternsDetected: 5,
-            bottlenecksIdentified: 8,
-            teamsAnalyzed: 4,
-            prioritySummary: {
-              HIGH: 12,
-              MEDIUM: 28,
-              LOW: 116
-            }
-          }
         };
-      })
+        auditLogEntries.push(entry);
+      }),
     };
-  });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-    auditEvents = [];
-  });
+    const agentRequest = {
+      targetMonth: '2024-01',
+      teamId: 'team-001',
+      triggeredBy: 'schedule' as const,
+      includeDetailedAnalysis: true,
+      requestTimestamp: agentStartTime.toISOString(),
+    };
 
-  // SCEN-141: Monthly analysis report generation with complete audit trail
-  test('should execute complete monthly analysis report generation workflow with audit logging for all 8 actions', async () => {
-    const executionResult = await mockOrchestrator.runTx7Imp1Agent({});
-    const recordedEvents = mockAuditLogger.getEvents();
+    await runTx7Imp1Agent(executionId, mockAiClient, agentRequest);
 
-    // Verify agent execution result
-    expect(executionResult.status).toBe('SUCCESS');
-    expect(executionResult.executionId).toBe('exec-001');
-    expect(executionResult.reportId).toBe('rpt-2024-01-001');
-    expect(executionResult.analysisMetadata.recordsProcessed).toBe(156);
-    expect(executionResult.analysisMetadata.patternsDetected).toBe(5);
-    expect(executionResult.analysisMetadata.bottlenecksIdentified).toBe(8);
-    expect(executionResult.analysisMetadata.teamsAnalyzed).toBe(4);
+    expect(auditLogEntries.length).toBe(11);
 
-    // Verify priority breakdown
-    expect(recordedEvents.find((e: any) => e.eventType === 'ACTION_07_COMPLETED')?.metadata.priorityBreakdown).toEqual({
-      HIGH: 12,
-      MEDIUM: 28,
-      LOW: 116
-    });
+    const agentStartedEntry = auditLogEntries[0];
+    expect(agentStartedEntry.eventType).toBe('AGENT_STARTED');
+    expect(agentStartedEntry.executionId).toBe(executionId);
+    expect(agentStartedEntry.metadata).toEqual(
+      expect.objectContaining({
+        targetMonth: '2024-01',
+        teamId: 'team-001',
+        triggeredBy: 'schedule',
+        actionList: [
+          'Action 01: Confirm Monthly Trigger',
+          'Action 02: Extract Accumulated Data',
+          'Action 03: Execute Report Generation',
+          'Action 04: Analyze Time Series Issues',
+          'Action 05: Identify Bottleneck Trend',
+          'Action 06: Calculate Team Performance Metrics',
+          'Action 07: Assign Priority and Summarize',
+          'Action 08: Present Analysis Report',
+        ],
+      })
+    );
 
-    // Verify 10 audit events were recorded (AGENT_STARTED + 8 actions + AGENT_COMPLETED)
-    expect(recordedEvents.length).toBe(10);
+    const action01Entry = auditLogEntries[1];
+    expect(action01Entry.eventType).toBe('ACTION_01_EXECUTED');
+    expect(action01Entry.executionId).toBe(executionId);
+    expect(action01Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Confirm Monthly Trigger',
+        triggerConfirmed: true,
+        targetMonth: '2024-01',
+        promptVersion: ACTION_01_PROMPT_VERSION,
+      })
+    );
 
-    // Verify event sequence and structure
-    const eventTypes = recordedEvents.map((e: any) => e.eventType);
-    expect(eventTypes).toEqual([
-      'AGENT_STARTED',
-      'ACTION_01_EXECUTED',
-      'ACTION_02_EXECUTED',
-      'ACTION_03_COMPLETED',
-      'ACTION_04_COMPLETED',
-      'ACTION_05_COMPLETED',
-      'ACTION_06_COMPLETED',
-      'ACTION_07_COMPLETED',
-      'ACTION_08_COMPLETED',
-      'AGENT_COMPLETED'
-    ]);
+    const action02Entry = auditLogEntries[2];
+    expect(action02Entry.eventType).toBe('ACTION_02_EXECUTED');
+    expect(action02Entry.executionId).toBe(executionId);
+    expect(action02Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Extract Accumulated Data',
+        extractedDataCount: extractedDataCount,
+        dataRangeStart: '2024-01-01',
+        dataRangeEnd: '2024-01-31',
+        promptVersion: ACTION_02_PROMPT_VERSION,
+      })
+    );
 
-    // Verify AGENT_STARTED event
-    const agentStartedEvent = recordedEvents[0];
-    expect(agentStartedEvent.eventType).toBe('AGENT_STARTED');
-    expect(agentStartedEvent.metadata.executionId).toBe('exec-001');
-    expect(agentStartedEvent.metadata.timestamp).toBe('2024-01-15T09:00:00Z');
-    expect(agentStartedEvent.metadata.actionList).toHaveLength(8);
-    expect(agentStartedEvent.metadata.actionList[0]).toBe('ACTION_01');
+    const action03Entry = auditLogEntries[3];
+    expect(action03Entry.eventType).toBe('ACTION_03_COMPLETED');
+    expect(action03Entry.executionId).toBe(executionId);
+    expect(action03Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Execute Report Generation',
+        reportId: reportId,
+        generationStatus: 'success',
+        promptVersion: ACTION_03_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_01_EXECUTED event
-    const action01Event = recordedEvents[1];
-    expect(action01Event.eventType).toBe('ACTION_01_EXECUTED');
-    expect(action01Event.metadata.actionName).toBe('confirmReportGenerationTrigger');
-    expect(action01Event.metadata.promptVersion).toBe('v1.0.0');
+    const action04Entry = auditLogEntries[4];
+    expect(action04Entry.eventType).toBe('ACTION_04_COMPLETED');
+    expect(action04Entry.executionId).toBe(executionId);
+    expect(action04Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Analyze Time Series Issues',
+        analysisItemCount: analysisItemCount,
+        detectedPatternCount: detectedPatternCount,
+        promptVersion: ACTION_04_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_02_EXECUTED event with data extraction details
-    const action02Event = recordedEvents[2];
-    expect(action02Event.eventType).toBe('ACTION_02_EXECUTED');
-    expect(action02Event.metadata.extractedRecordCount).toBe(156);
-    expect(action02Event.metadata.dataRangeStart).toBe('2024-01-01');
-    expect(action02Event.metadata.dataRangeEnd).toBe('2024-01-31');
+    const action05Entry = auditLogEntries[5];
+    expect(action05Entry.eventType).toBe('ACTION_05_COMPLETED');
+    expect(action05Entry.executionId).toBe(executionId);
+    expect(action05Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Identify Bottleneck Trend',
+        bottleneckCount: bottleneckCount,
+        priorityLevel: 'high',
+        promptVersion: ACTION_05_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_03_COMPLETED event with report generation status
-    const action03Event = recordedEvents[3];
-    expect(action03Event.eventType).toBe('ACTION_03_COMPLETED');
-    expect(action03Event.metadata.reportId).toBe('rpt-2024-01-001');
-    expect(action03Event.metadata.generationStatus).toBe('SUCCESS');
+    const action06Entry = auditLogEntries[6];
+    expect(action06Entry.eventType).toBe('ACTION_06_COMPLETED');
+    expect(action06Entry.executionId).toBe(executionId);
+    expect(action06Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Calculate Team Performance Metrics',
+        teamCount: teamCount,
+        metricsItemCount: 6,
+        promptVersion: ACTION_06_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_04_COMPLETED event with analysis details
-    const action04Event = recordedEvents[4];
-    expect(action04Event.eventType).toBe('ACTION_04_COMPLETED');
-    expect(action04Event.metadata.analysisItemCount).toBe(24);
-    expect(action04Event.metadata.detectedPatternCount).toBe(5);
+    const action07Entry = auditLogEntries[7];
+    expect(action07Entry.eventType).toBe('ACTION_07_COMPLETED');
+    expect(action07Entry.executionId).toBe(executionId);
+    expect(action07Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Assign Priority and Summarize',
+        priorityHighCount: priorityHighCount,
+        priorityMediumCount: priorityMediumCount,
+        priorityLowCount: priorityLowCount,
+        promptVersion: ACTION_07_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_05_COMPLETED event with bottleneck details
-    const action05Event = recordedEvents[5];
-    expect(action05Event.eventType).toBe('ACTION_05_COMPLETED');
-    expect(action05Event.metadata.bottleneckCount).toBe(8);
-    expect(action05Event.metadata.priorityLevels).toEqual(['HIGH', 'MEDIUM', 'LOW']);
+    const action08Entry = auditLogEntries[8];
+    expect(action08Entry.eventType).toBe('ACTION_08_COMPLETED');
+    expect(action08Entry.executionId).toBe(executionId);
+    expect(action08Entry.metadata).toEqual(
+      expect.objectContaining({
+        action: 'Present Analysis Report',
+        deliveryTarget: deliveryEmailAddress,
+        deliveryStatus: 'sent',
+        promptVersion: ACTION_08_PROMPT_VERSION,
+      })
+    );
 
-    // Verify ACTION_06_COMPLETED event with team metrics
-    const action06Event = recordedEvents[6];
-    expect(action06Event.eventType).toBe('ACTION_06_COMPLETED');
-    expect(action06Event.metadata.teamCount).toBe(4);
-    expect(action06Event.metadata.metricItems).toHaveLength(4);
-    expect(action06Event.metadata.metricItems).toContain('resolveTime');
-    expect(action06Event.metadata.metricItems).toContain('issueCount');
-    expect(action06Event.metadata.metricItems).toContain('responseSpeed');
-    expect(action06Event.metadata.metricItems).toContain('reworkRate');
+    const agentCompletedEntry = auditLogEntries[9];
+    expect(agentCompletedEntry.eventType).toBe('AGENT_COMPLETED');
+    expect(agentCompletedEntry.executionId).toBe(executionId);
+    expect(agentCompletedEntry.metadata).toEqual(
+      expect.objectContaining({
+        finalStatus: 'SUCCESS',
+        totalExecutionTimeMs: expect.any(Number),
+        reportId: reportId,
+      })
+    );
 
-    // Verify ACTION_07_COMPLETED event with priority breakdown
-    const action07Event = recordedEvents[7];
-    expect(action07Event.eventType).toBe('ACTION_07_COMPLETED');
-    expect(action07Event.metadata.priorityBreakdown.HIGH).toBe(12);
-    expect(action07Event.metadata.priorityBreakdown.MEDIUM).toBe(28);
-    expect(action07Event.metadata.priorityBreakdown.LOW).toBe(116);
+    const auditConsistencyEntry = auditLogEntries[10];
+    expect(auditConsistencyEntry.eventType).toBe('AUDIT_CONSISTENCY_VERIFIED');
+    expect(auditConsistencyEntry.executionId).toBe(executionId);
+    expect(auditConsistencyEntry.metadata).toEqual(
+      expect.objectContaining({
+        totalEventCount: 11,
+        eventSequenceValid: true,
+        expectedSequence: [
+          'AGENT_STARTED',
+          'ACTION_01_EXECUTED',
+          'ACTION_02_EXECUTED',
+          'ACTION_03_COMPLETED',
+          'ACTION_04_COMPLETED',
+          'ACTION_05_COMPLETED',
+          'ACTION_06_COMPLETED',
+          'ACTION_07_COMPLETED',
+          'ACTION_08_COMPLETED',
+          'AGENT_COMPLETED',
+          'AUDIT_CONSISTENCY_VERIFIED',
+        ],
+      })
+    );
 
-    // Verify ACTION_08_COMPLETED event with delivery details
-    const action08Event = recordedEvents[8];
-    expect(action08Event.eventType).toBe('ACTION_08_COMPLETED');
-    expect(action08Event.metadata.deliveryTargets).toContain('director@example.com');
-    expect(action08Event.metadata.deliveryTimestamp).toBe('2024-01-15T09:08:00Z');
+    const eventSequence = auditLogEntries.map((entry) => entry.eventType);
+    expect(eventSequence[0]).toBe('AGENT_STARTED');
+    expect(eventSequence[1]).toBe('ACTION_01_EXECUTED');
+    expect(eventSequence[2]).toBe('ACTION_02_EXECUTED');
+    expect(eventSequence[3]).toBe('ACTION_03_COMPLETED');
+    expect(eventSequence[4]).toBe('ACTION_04_COMPLETED');
+    expect(eventSequence[5]).toBe('ACTION_05_COMPLETED');
+    expect(eventSequence[6]).toBe('ACTION_06_COMPLETED');
+    expect(eventSequence[7]).toBe('ACTION_07_COMPLETED');
+    expect(eventSequence[8]).toBe('ACTION_08_COMPLETED');
+    expect(eventSequence[9]).toBe('AGENT_COMPLETED');
+    expect(eventSequence[10]).toBe('AUDIT_CONSISTENCY_VERIFIED');
 
-    // Verify AGENT_COMPLETED event with final status
-    const agentCompletedEvent = recordedEvents[9];
-    expect(agentCompletedEvent.eventType).toBe('AGENT_COMPLETED');
-    expect(agentCompletedEvent.metadata.executionId).toBe('exec-001');
-    expect(agentCompletedEvent.metadata.finalStatus).toBe('SUCCESS');
-    expect(agentCompletedEvent.metadata.totalExecutionTimeMs).toBe(480000);
-
-    // Verify chronological order of timestamps
-    const timestamps = recordedEvents.map((e: any) => new Date(e.metadata.timestamp).getTime());
-    for (let i = 1; i < timestamps.length; i++) {
-      expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i - 1]);
+    for (let i = 1; i < auditLogEntries.length; i++) {
+      expect(auditLogEntries[i].timestamp.getTime()).toBeGreaterThanOrEqual(
+        auditLogEntries[i - 1].timestamp.getTime()
+      );
     }
 
-    // Verify audit trail completeness: all events present and in correct order
-    expect(recordedEvents.every((e: any) => e.metadata.timestamp)).toBe(true);
-    expect(recordedEvents.every((e: any) => e.eventType)).toBe(true);
+    expect(mockAiClient.action01ConfirmMonthlyTrigger).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action02ExtractAccumulatedData).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action03ExecuteReportGeneration).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action04AnalyzeTimeSeriesIssues).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action05IdentifyBottleneckTrend).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action06CalculateTeamPerformanceMetrics).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action07AssignPriorityAndSummarize).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action08PresentAnalysisReport).toHaveBeenCalledTimes(1);
+
+    const agentCompletedMetadata = agentCompletedEntry.metadata as Record<string, unknown>;
+    expect(agentCompletedMetadata.finalStatus).toBe('SUCCESS');
+    expect(typeof agentCompletedMetadata.totalExecutionTimeMs).toBe('number');
+    expect((agentCompletedMetadata.totalExecutionTimeMs as number) > 0).toBe(true);
   });
 });

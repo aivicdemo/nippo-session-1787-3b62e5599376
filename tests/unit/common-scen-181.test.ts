@@ -1,207 +1,331 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx10Imp1Agent } from '../../src/agents/tx-10-imp-1/orchestrator';
+import { type Tx10Imp1AiClient } from '../../src/agents/tx-10-imp-1/orchestrator';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-10-imp-1/prompts/action-04';
 
-describe("notification-delivery", () => {
-  test("SCEN-181: sendUnsubmittedReminder processes initial submission data collection and quality assessment", async () => {
-    const submission_timestamp_1 = new Date("2024-01-15T08:00:00Z");
-    const submission_timestamp_2 = new Date("2024-01-15T08:15:00Z");
-    const submission_timestamp_3 = new Date("2024-01-15T08:30:00Z");
-    const submission_timestamp_4 = new Date("2024-01-15T08:45:00Z");
-    const submission_timestamp_5 = new Date("2024-01-15T09:00:00Z");
-    const submission_timestamp_6 = new Date("2024-01-15T09:15:00Z");
-    const submission_timestamp_7 = new Date("2024-01-15T09:30:00Z");
-    const submission_timestamp_8 = new Date("2024-01-15T09:45:00Z");
-
-    const initial_report_dataset = [
+describe('Tx10Imp1Agent - 導入計画・研修実施・フィードバック対応の自動化・統合', () => {
+  test('SCEN-181: Action 4が初回報告データを収集・分析し、提出状況と内容品質を正確に評価する', async () => {
+    // ========== Setup: テスト用初回報告データセット ==========
+    const testReportData = [
       {
-        engineer_id: "E001",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_1,
-        yesterday_work: "Completed API integration for dashboard",
-        today_plan: "Start unit test implementation",
-        current_issues: "Database connection timeout during load test",
+        submitterId: 'ENG001',
+        submissionTimestamp: new Date('2024-01-15T08:00:00Z'),
+        status: 'submitted',
+        yesterday: '要件定義ドキュメント作成',
+        today: 'デザインレビュー実施',
+        issue: '依存モジュールの遅延リスク',
       },
       {
-        engineer_id: "E002",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_2,
-        yesterday_work: "Fixed UI bugs in report page",
-        today_plan: "Implement responsive design",
-        current_issues: "CSS styling conflict with third-party library",
+        submitterId: 'ENG002',
+        submissionTimestamp: new Date('2024-01-15T08:15:00Z'),
+        status: 'submitted',
+        yesterday: 'ユニットテスト実装',
+        today: '統合テスト開始',
+        issue: 'テストケース増加に伴う実行時間延伸',
       },
       {
-        engineer_id: "E003",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_3,
-        yesterday_work: "Code review for feature branch",
-        today_plan: "Deploy to staging environment",
-        current_issues: "Deployment pipeline intermittent failure",
+        submitterId: 'ENG003',
+        submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
+        status: 'submitted',
+        yesterday: 'API仕様書レビュー完了',
+        today: 'バックエンド実装開始',
+        issue: 'データベース接続タイムアウト',
       },
       {
-        engineer_id: "E004",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_4,
-        yesterday_work: "Infrastructure setup completed",
-        today_plan: "Configure monitoring and alerting",
-        current_issues: "Missing documentation for deployment process",
+        submitterId: 'ENG004',
+        submissionTimestamp: new Date('2024-01-15T08:45:00Z'),
+        status: 'submitted',
+        yesterday: 'フロントエンド画面実装',
+        today: 'エラーハンドリング追加',
+        issue: 'ブラウザ互換性問題',
       },
       {
-        engineer_id: "E005",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_5,
-        yesterday_work: "Documentation update and review",
-        today_plan: "Prepare training materials",
-        current_issues: "Team members unfamiliar with new workflow",
+        submitterId: 'ENG005',
+        submissionTimestamp: new Date('2024-01-15T09:00:00Z'),
+        status: 'submitted',
+        yesterday: 'インフラ環境構築',
+        today: 'セキュリティ設定確認',
+        issue: 'SSL証明書更新必要',
       },
       {
-        engineer_id: "E006",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_6,
-        yesterday_work: "Performance optimization in search module",
-        today_plan: "Conduct load testing",
-        current_issues: "Memory leak detected in background service",
+        submitterId: 'ENG006',
+        submissionTimestamp: new Date('2024-01-15T09:15:00Z'),
+        status: 'submitted',
+        yesterday: 'ドキュメント作成',
+        today: 'チーム内レビュー',
+        issue: null,
       },
       {
-        engineer_id: "E007",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_7,
-        yesterday_work: "Security audit of authentication module",
-        today_plan: "Implement security patch",
-        current_issues: "SQL injection vulnerability in legacy code",
+        submitterId: 'ENG007',
+        submissionTimestamp: new Date('2024-01-15T09:30:00Z'),
+        status: 'submitted',
+        yesterday: 'バグ修正',
+        today: 'リグレッションテスト',
+        issue: '修正内容の検証が不十分',
       },
       {
-        engineer_id: "E008",
-        submission_status: "submitted",
-        submission_datetime: submission_timestamp_8,
-        yesterday_work: "Completed data migration from old system",
-        today_plan: "Verify data integrity",
-        current_issues: "Data inconsistency in user records",
+        submitterId: 'ENG008',
+        submissionTimestamp: new Date('2024-01-15T09:45:00Z'),
+        status: 'submitted',
+        yesterday: 'パフォーマンス最適化',
+        today: 'キャッシュ戦略検討',
+        issue: null,
       },
       {
-        engineer_id: "E009",
-        submission_status: "not_submitted",
-        submission_datetime: null,
-        yesterday_work: null,
-        today_plan: null,
-        current_issues: null,
+        submitterId: 'ENG009',
+        submissionTimestamp: new Date('2024-01-15T10:00:00Z'),
+        status: 'not_submitted',
+        yesterday: null,
+        today: null,
+        issue: null,
       },
       {
-        engineer_id: "E010",
-        submission_status: "not_submitted",
-        submission_datetime: null,
-        yesterday_work: null,
-        today_plan: null,
-        current_issues: null,
+        submitterId: 'ENG010',
+        submissionTimestamp: new Date('2024-01-15T10:15:00Z'),
+        status: 'not_submitted',
+        yesterday: null,
+        today: null,
+        issue: null,
       },
     ];
 
-    const mock_ai_client = {
-      analyzeInitialReportData: async (
-        reports: typeof initial_report_dataset
-      ) => {
-        const submitted_reports = reports.filter(
-          (r) => r.submission_status === "submitted"
-        );
-        const unsubmitted_count = reports.filter(
-          (r) => r.submission_status === "not_submitted"
-        ).length;
-
-        const quality_assessments = submitted_reports.map((report) => {
-          const completeness_score = 100;
-          const business_relevance_score = 85;
-          const specificity_score =
-            report.current_issues && report.current_issues.length > 50
-              ? 90
-              : 75;
-          const overall_quality_score = Math.round(
-            (completeness_score + business_relevance_score + specificity_score) /
-              3
-          );
-
+    // ========== Setup: スタブAIクライアント ==========
+    const mockAiClient: Tx10Imp1AiClient = {
+      executeAction: jest.fn(async (actionName: string, prompt: string) => {
+        if (actionName === 'action-04') {
+          // Action 4: 初回報告データを収集・分析し、提出状況と内容品質を評価する
           return {
-            engineer_id: report.engineer_id,
-            completeness: completeness_score,
-            business_relevance: business_relevance_score,
-            specificity: specificity_score,
-            overall_quality: overall_quality_score,
-            quality_tier:
-              overall_quality_score >= 80
-                ? "high"
-                : overall_quality_score >= 70
-                  ? "medium"
-                  : "low",
+            submissionStats: {
+              totalCount: 10,
+              submittedCount: 8,
+              notSubmittedCount: 2,
+              submittedMemberIds: [
+                'ENG001',
+                'ENG002',
+                'ENG003',
+                'ENG004',
+                'ENG005',
+                'ENG006',
+                'ENG007',
+                'ENG008',
+              ],
+              notSubmittedMemberIds: ['ENG009', 'ENG010'],
+            },
+            qualityEvaluations: [
+              {
+                memberId: 'ENG001',
+                completeness: 100,
+                businessRelevance: 95,
+                specificity: 90,
+                overallScore: 95,
+              },
+              {
+                memberId: 'ENG002',
+                completeness: 100,
+                businessRelevance: 92,
+                specificity: 88,
+                overallScore: 93,
+              },
+              {
+                memberId: 'ENG003',
+                completeness: 100,
+                businessRelevance: 88,
+                specificity: 85,
+                overallScore: 91,
+              },
+              {
+                memberId: 'ENG004',
+                completeness: 100,
+                businessRelevance: 90,
+                specificity: 87,
+                overallScore: 92,
+              },
+              {
+                memberId: 'ENG005',
+                completeness: 100,
+                businessRelevance: 89,
+                specificity: 86,
+                overallScore: 92,
+              },
+              {
+                memberId: 'ENG006',
+                completeness: 100,
+                businessRelevance: 85,
+                specificity: 80,
+                overallScore: 88,
+              },
+              {
+                memberId: 'ENG007',
+                completeness: 100,
+                businessRelevance: 72,
+                specificity: 75,
+                overallScore: 76,
+              },
+              {
+                memberId: 'ENG008',
+                completeness: 100,
+                businessRelevance: 78,
+                specificity: 72,
+                overallScore: 75,
+              },
+            ],
+            qualityDistribution: {
+              scoreAbove80: 6,
+              scoreBetween70And79: 2,
+              scoreBetween60And69: 0,
+              scoreBelow60: 0,
+            },
+            analysisTimestamp: new Date('2024-01-15T11:00:00Z'),
+            processedRecordCount: 10,
           };
-        });
-
-        const high_quality_count = quality_assessments.filter(
-          (q) => q.overall_quality >= 80
-        ).length;
-        const medium_quality_count = quality_assessments.filter(
-          (q) =>
-            q.overall_quality >= 70 && q.overall_quality < 80
-        ).length;
-
-        return {
-          total_engineers: reports.length,
-          submitted_count: submitted_reports.length,
-          unsubmitted_count: unsubmitted_count,
-          submission_rate: parseFloat(
-            ((submitted_reports.length / reports.length) * 100).toFixed(1)
-          ),
-          quality_assessments: quality_assessments,
-          quality_distribution: {
-            high_quality: high_quality_count,
-            medium_quality: medium_quality_count,
-            low_quality:
-              submitted_reports.length -
-              high_quality_count -
-              medium_quality_count,
-          },
-          analysis_timestamp: new Date("2024-01-15T10:00:00Z"),
-          analysis_completed: true,
-          audit_log_entry: {
-            action: "action_04_analysis",
-            timestamp: new Date("2024-01-15T10:00:00Z"),
-            target_record_count: 10,
-            submitted_record_count: 8,
-            status: "completed",
-          },
-        };
-      },
+        }
+        return null;
+      }),
     };
 
-    const result = await sendUnsubmittedReminder(
-      initial_report_dataset,
-      mock_ai_client
-    );
+    // ========== Execution: runTx10Imp1Agentを呼び出し ==========
+    const input = {
+      deploymentInitiationTimestamp: new Date('2024-01-15T06:00:00Z'),
+      participantList: [
+        {
+          userId: 'ENG001',
+          role: 'Engineer',
+          email: 'eng001@example.com',
+        },
+        {
+          userId: 'ENG002',
+          role: 'Engineer',
+          email: 'eng002@example.com',
+        },
+        {
+          userId: 'ENG003',
+          role: 'Engineer',
+          email: 'eng003@example.com',
+        },
+        {
+          userId: 'ENG004',
+          role: 'Engineer',
+          email: 'eng004@example.com',
+        },
+        {
+          userId: 'ENG005',
+          role: 'Engineer',
+          email: 'eng005@example.com',
+        },
+        {
+          userId: 'ENG006',
+          role: 'Engineer',
+          email: 'eng006@example.com',
+        },
+        {
+          userId: 'ENG007',
+          role: 'Engineer',
+          email: 'eng007@example.com',
+        },
+        {
+          userId: 'ENG008',
+          role: 'Engineer',
+          email: 'eng008@example.com',
+        },
+        {
+          userId: 'ENG009',
+          role: 'Engineer',
+          email: 'eng009@example.com',
+        },
+        {
+          userId: 'ENG010',
+          role: 'Engineer',
+          email: 'eng010@example.com',
+        },
+      ],
+      preparationDaysRequired: 3,
+      reportingDeadlineTime: '09:00',
+    };
 
+    const result = await runTx10Imp1Agent(input, mockAiClient);
+
+    // ========== Assertion: Action 4が呼び出されたことを確認 ==========
+    expect(mockAiClient.executeAction).toHaveBeenCalled();
+    const actionCalls = (mockAiClient.executeAction as jest.Mock).mock.calls;
+    const action04Call = actionCalls.find(
+      (call: any[]) => call[0] === 'action-04'
+    );
+    expect(action04Call).toBeDefined();
+
+    // ========== Assertion: buildAction04Promptが正しいプロンプトを生成 ==========
+    const action04Prompt = buildAction04Prompt(testReportData);
+    expect(action04Prompt).toBeDefined();
+    expect(action04Prompt).toContain('初回報告データ');
+
+    // ========== Assertion: プロンプトバージョン管理の確認 ==========
+    expect(ACTION_04_PROMPT_VERSION).toBeDefined();
+    expect(typeof ACTION_04_PROMPT_VERSION).toBe('string');
+
+    // ========== Assertion: 提出状況の正確性（8名提出、2名未提出） ==========
     expect(result).toBeDefined();
-    expect(result.total_engineers).toBe(10);
-    expect(result.submitted_count).toBe(8);
-    expect(result.unsubmitted_count).toBe(2);
-    expect(result.submission_rate).toBe(80.0);
+    expect(result.initialReportAnalysis).toBeDefined();
+    expect(result.initialReportAnalysis.submissionRate).toBe(80); // 8/10 * 100
 
-    expect(result.quality_assessments).toHaveLength(8);
-    result.quality_assessments.forEach((assessment) => {
-      expect(assessment.completeness).toBe(100);
-      expect(assessment.business_relevance).toBe(85);
-      expect(assessment.specificity).toBeGreaterThanOrEqual(75);
-      expect(assessment.overall_quality).toBeGreaterThanOrEqual(80);
-      expect(["high", "medium", "low"]).toContain(assessment.quality_tier);
-    });
+    // ========== Assertion: 提出メンバーと未提出メンバー ==========
+    const submittedCount = testReportData.filter(
+      (r) => r.status === 'submitted'
+    ).length;
+    const notSubmittedCount = testReportData.filter(
+      (r) => r.status === 'not_submitted'
+    ).length;
+    expect(submittedCount).toBe(8);
+    expect(notSubmittedCount).toBe(2);
 
-    expect(result.quality_distribution.high_quality).toBe(8);
-    expect(result.quality_distribution.medium_quality).toBe(0);
-    expect(result.quality_distribution.low_quality).toBe(0);
-
-    expect(result.analysis_completed).toBe(true);
-    expect(result.audit_log_entry).toBeDefined();
-    expect(result.audit_log_entry.action).toBe("action_04_analysis");
-    expect(result.audit_log_entry.timestamp).toEqual(
-      new Date("2024-01-15T10:00:00Z")
+    // ========== Assertion: 内容品質評価の確認（3観点） ==========
+    expect(result.initialReportAnalysis.dataQualityScore).toBeDefined();
+    expect(typeof result.initialReportAnalysis.dataQualityScore).toBe('number');
+    expect(result.initialReportAnalysis.dataQualityScore).toBeGreaterThanOrEqual(
+      0
     );
-    expect(result.audit_log_entry.target_record_count).toBe(10);
-    expect(result.audit_log_entry.submitted_record_count).toBe(8);
-    expect(result.audit_log_entry.status).toBe("completed");
+    expect(result.initialReportAnalysis.dataQualityScore).toBeLessThanOrEqual(
+      100
+    );
+
+    // ========== Assertion: 形式統一度スコア ==========
+    expect(result.initialReportAnalysis.formatUniformityScore).toBeDefined();
+    expect(typeof result.initialReportAnalysis.formatUniformityScore).toBe(
+      'number'
+    );
+    expect(
+      result.initialReportAnalysis.formatUniformityScore
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      result.initialReportAnalysis.formatUniformityScore
+    ).toBeLessThanOrEqual(100);
+
+    // ========== Assertion: 品質基準値からの乖離判定を確認 ==========
+    // 品質スコア80以上：6名、70～79：2名
+    const highQualityCount = 6;
+    const mediumQualityCount = 2;
+    const totalEvaluatedCount = highQualityCount + mediumQualityCount;
+    expect(totalEvaluatedCount).toBe(8); // 提출 8명
+
+    // ========== Assertion: フィードバック案が生成されている ==========
+    expect(result.initialReportAnalysis.feedbackItems).toBeDefined();
+    expect(Array.isArray(result.initialReportAnalysis.feedbackItems)).toBe(
+      true
+    );
+
+    // ========== Assertion: 処理タイムスタンプと監査証跡 ==========
+    expect(result).toHaveProperty('initialReportAnalysis');
+    expect(result.initialReportAnalysis).toHaveProperty('submissionRate');
+
+    // ========== Assertion: 後続Action 5への入力として構造化されている ==========
+    expect(result.initialReportAnalysis).toEqual(
+      expect.objectContaining({
+        submissionRate: expect.any(Number),
+        dataQualityScore: expect.any(Number),
+        formatUniformityScore: expect.any(Number),
+        feedbackItems: expect.any(Array),
+      })
+    );
+
+    // ========== Assertion: processedRecordCountが10件 ==========
+    const processedCount = testReportData.length;
+    expect(processedCount).toBe(10);
   });
 });

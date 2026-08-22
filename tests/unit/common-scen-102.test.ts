@@ -1,97 +1,113 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { getDashboardData } from '../../src/logic/dashboard-display';
-import type { DashboardDataRequest, DashboardData, AuthorizationError as DashboardAuthorizationError } from '../../src/logic/dashboard-display';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx5Imp1Agent } from '../../src/agents/tx-5-imp-1/orchestrator';
+import type { Tx5Imp1AiClient } from '../../src/agents/tx-5-imp-1/orchestrator';
 
-describe('getDashboardData', () => {
-  // SCEN-102: [error] 課題抽出から既存ツール連携・確認までの自律実行 AIエージェント - 権限外のデータ参照とツール操作を拒否する
-  test('should throw AuthorizationError and record audit log when non-admin user attempts to access restricted data and perform unauthorized tool operations', () => {
-    const restrictedUserId = 'user_general_001';
-    const sessionToken = 'session_token_restricted_user_xyz';
-    const restrictedDataAccessScope = 'restricted_readonly';
-    const unauthorizedDepartmentId = 'dept_admin_only_789';
-    const forbiddenToolOperation = 'jira_organization_setting_modify';
-    const forbiddenAsanaOperation = 'asana_project_delete';
-    const currentTimestamp = new Date('2024-01-15T11:00:00Z');
+describe('tx-5-imp-1 orchestrator', () => {
+  let mockAiClient: Tx5Imp1AiClient;
+  let auditLog: Array<{
+    eventType: string;
+    timestamp: string;
+    userId: string;
+    attemptedOperation: string;
+    denialReason: string;
+  }>;
 
-    const requestPayload: DashboardDataRequest = {
-      userId: restrictedUserId,
-      sessionToken: sessionToken,
-      dataAccessScope: restrictedDataAccessScope,
-      requestedDatasets: [
-        {
-          datasetType: 'issue_extraction_results',
-          departmentId: unauthorizedDepartmentId,
-          filterCriteria: {
-            priorityRange: { min: 1, max: 5 },
-            statusFilter: 'all',
-          },
-        },
-        {
-          datasetType: 'administrative_statistics',
-          departmentId: unauthorizedDepartmentId,
-          filterCriteria: {
-            timeRange: { start: '2024-01-01', end: '2024-01-15' },
-          },
-        },
-      ],
-      toolOperations: [
-        {
-          operationType: forbiddenToolOperation,
-          tool: 'jira',
-          targetResourceId: 'org_jira_prod_config_001',
-          actionType: 'modify',
-        },
-        {
-          operationType: forbiddenAsanaOperation,
-          tool: 'asana',
-          targetResourceId: 'project_asana_strategic_999',
-          actionType: 'delete',
-        },
-      ],
-      requestTimestamp: currentTimestamp.toISOString(),
-      auditLoggingEnabled: true,
+  beforeEach(() => {
+    auditLog = [];
+    mockAiClient = {
+      dataAccessScope: 'restricted_readonly',
+      validateExtractedIssueData: jest.fn(async () => {
+        const error = new Error(
+          'Access denied: insufficient permission scope for data_type_extracted_issues'
+        );
+        (error as any).code = 'AUTHORIZATION_DENIED';
+        auditLog.push({
+          eventType: 'AUTHORIZATION_DENIED',
+          timestamp: new Date('2024-01-15T09:00:00Z').toISOString(),
+          userId: 'user_general_001',
+          attemptedOperation: 'validate_extracted_issue_data',
+          denialReason: 'restricted_readonly scope cannot access full extracted issues dataset'
+        });
+        throw error;
+      }),
+      determinePriorityAndCategory: jest.fn(),
+      executeToolIntegrationConfig: jest.fn(),
+      registerToJira: jest.fn(),
+      registerToAsana: jest.fn(),
+      recordToolIntegrationResult: jest.fn()
+    };
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // SCEN-102
+  it('should deny authorization when restricted scope attempts to access unauthorized data and tool operations', async () => {
+    const testUserId = 'user_general_001';
+    const extractedIssueData = [
+      {
+        issueId: 'extracted_issue_001',
+        title: 'Test Issue',
+        description: 'Test description',
+        reportedBy: 'user_general_001',
+        reportDate: '2024-01-15'
+      }
+    ];
+    const toolIntegrationConfig = {
+      toolType: 'jira' as const,
+      apiEndpoint: 'https://jira.example.com/api/v3',
+      credentialId: 'cred_jira_001'
+    };
+    const priorityRules = {
+      frequencyWeight: 0.4,
+      impactWeight: 0.6
+    };
+    const categoryMappings = [
+      {
+        systemCategory: 'quality',
+        jiraCategory: 'Bug',
+        asanaCategory: 'Quality Issue'
+      }
+    ];
+
+    const input = {
+      extractedIssueData,
+      toolIntegrationConfig,
+      priorityRules,
+      categoryMappings
     };
 
-    let thrownError: DashboardAuthorizationError | null = null;
-    let auditLogRecorded: boolean = false;
-    let toolOperationsExecuted: number = 0;
-    let notificationMessage: string = '';
-
+    // Action 1 should fail on authorization check
+    let authorizationError: Error | null = null;
     try {
-      const result = getDashboardData(requestPayload);
-      toolOperationsExecuted = result.toolOperationsExecuted ?? 0;
-      notificationMessage = result.notificationMessage ?? '';
-      auditLogRecorded = result.auditLogsRecorded ?? false;
+      await runTx5Imp1Agent(input, mockAiClient);
     } catch (error) {
-      if (error instanceof Error && 'errorCode' in error) {
-        thrownError = error as DashboardAuthorizationError;
-      } else {
-        throw error;
-      }
+      authorizationError = error as Error;
     }
 
-    expect(thrownError).not.toBeNull();
-    expect(thrownError?.errorCode).toBe('AUTHORIZATION_ERROR');
-    expect(thrownError?.message).toMatch(/Access denied: insufficient permission scope for/);
-    expect(thrownError?.message).toMatch(/(?:issue_extraction_results|administrative_statistics|jira_organization_setting_modify|asana_project_delete)/);
+    expect(authorizationError).not.toBeNull();
+    expect(authorizationError?.message).toMatch(/Access denied/);
+    expect(authorizationError?.message).toMatch(/insufficient permission scope/);
+    expect((authorizationError as any)?.code).toBe('AUTHORIZATION_DENIED');
 
-    expect(toolOperationsExecuted).toBe(0);
-
-    expect(notificationMessage).toMatch(/権限不足のため処理を中断しました/);
-
-    expect(thrownError?.auditLogEntry).toBeDefined();
-    expect(thrownError?.auditLogEntry?.eventType).toBe('AUTHORIZATION_DENIED');
-    expect(thrownError?.auditLogEntry?.userId).toBe(restrictedUserId);
-    expect(thrownError?.auditLogEntry?.attemptedOperation).toMatch(
-      /(?:issue_extraction_results|administrative_statistics|jira_organization_setting_modify|asana_project_delete)/
+    // Verify mock client methods were called for Action 1 validation attempt
+    expect(mockAiClient.validateExtractedIssueData).toHaveBeenCalledWith(
+      extractedIssueData
     );
-    expect(thrownError?.auditLogEntry?.denialReason).toBeDefined();
-    expect(thrownError?.auditLogEntry?.denialReason).toBeTruthy();
-    expect(thrownError?.auditLogEntry?.timestamp).toBeDefined();
-    expect(new Date(thrownError?.auditLogEntry?.timestamp ?? '').getTime()).toBeGreaterThan(0);
 
-    expect(thrownError?.requestMetadata).toBeDefined();
-    expect(thrownError?.requestMetadata?.dataAccessScope).toBe(restrictedDataAccessScope);
-    expect(thrownError?.requestMetadata?.departmentId).toBe(unauthorizedDepartmentId);
+    // Verify that subsequent tool operations (Actions 3-5) were NOT called
+    expect(mockAiClient.executeToolIntegrationConfig).not.toHaveBeenCalled();
+    expect(mockAiClient.registerToJira).not.toHaveBeenCalled();
+    expect(mockAiClient.registerToAsana).not.toHaveBeenCalled();
+
+    // Verify audit log entry
+    expect(auditLog).toHaveLength(1);
+    const auditEntry = auditLog[0];
+    expect(auditEntry.eventType).toBe('AUTHORIZATION_DENIED');
+    expect(auditEntry.userId).toBe('user_general_001');
+    expect(auditEntry.attemptedOperation).toBe('validate_extracted_issue_data');
+    expect(auditEntry.denialReason).toMatch(/restricted_readonly/);
+    expect(auditEntry.timestamp).toBe('2024-01-15T09:00:00Z');
   });
 });

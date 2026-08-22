@@ -1,501 +1,314 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import {
-  generateWeeklyAnalysisReport,
-  type WeeklyAnalysisReportInput,
-  type WeeklyAnalysisReportOutput,
-} from "../../src/logic/analysis-reporting";
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { runTx6Imp1Agent, type Tx6Imp1AiClient } from '../../src/agents/tx-6-imp-1/orchestrator';
 
-describe("generateWeeklyAnalysisReport", () => {
-  let mockAiClient: any;
-  let mockAuditLog: any;
-  let mockRollbackTransaction: any;
+describe('Tx6Imp1Agent', () => {
+  // SCEN-116: [error] 日報収集から分析レポート生成までの自動実行 AIエージェント - 「日報収集から分析レポート生成までの自動実行」が「経営判断が必要な課題が特定された場合」の場合に副作用の確定前に人へ引き継ぐ
+  it('should escalate to human review when business judgment required issue is detected at Action 6', async () => {
+    // Initialize test data: previous week daily reports from 10 members
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
 
-  beforeEach(() => {
-    mockAuditLog = {
-      events: [] as any[],
-      record: function (event: any) {
-        this.events.push(event);
-      },
+    const input = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    mockRollbackTransaction = {
-      isRolledBack: false,
-      execute: function () {
-        this.isRolledBack = true;
-      },
-    };
-
-    mockAiClient = {
-      action01CollectPreviousWeekReports: jest.fn(),
-      action02ExtractAndClassifyIssues: jest.fn(),
-      action03AnalyzeTrendPatterns: jest.fn(),
-      action04CalculatePriorityScores: jest.fn(),
-      action05GenerateAnalysisReport: jest.fn(),
-      action06ValidateAndEscalate: jest.fn(),
-      action07DeliverReportToStakeholders: jest.fn(),
-    };
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  // SCEN-116: [error] 日報収集から分析レポート生成までの自動実行 AIエージェント - 経営判断が必要な課題が特定された場合に副作用確定前に人へ引き継ぐ
-  test("should escalate to human review when executive decision required issue detected in Action 6, before side effects are committed", async () => {
-    const testStartTime = new Date("2024-01-15T09:00:00Z");
-    const previousWeekEndDate = new Date("2024-01-14T23:59:59Z");
-
-    const mockReportsData = [
-      {
-        reportId: "rpt_001",
-        memberId: "mem_001",
-        reportDate: "2024-01-08",
-        issuesReported: [
+    // Mock AI client that returns business judgment required signal at Action 6
+    const mockAiClient: Tx6Imp1AiClient = {
+      callAction01CollectDailyReports: jest.fn().mockResolvedValue({
+        collected_report_count: 10,
+        collection_status: 'completed',
+        reports: [
           {
-            issueId: "iss_001",
-            description: "Database performance degradation in production",
-            impactScope: "critical_business_process",
-            detectedAt: "2024-01-08T14:30:00Z",
+            member_id: 'member-001',
+            report_date: '2024-01-07',
+            content: 'Completed feature A, found performance issue',
+            issues_extracted: ['performance_degradation'],
+          },
+          {
+            member_id: 'member-002',
+            report_date: '2024-01-07',
+            content: 'Customer escalation: data loss incident',
+            issues_extracted: ['data_loss_critical'],
+          },
+          {
+            member_id: 'member-003',
+            report_date: '2024-01-07',
+            content: 'Completed routine maintenance',
+            issues_extracted: [],
+          },
+          {
+            member_id: 'member-004',
+            report_date: '2024-01-07',
+            content: 'Security vulnerability detected in API',
+            issues_extracted: ['security_vulnerability'],
+          },
+          {
+            member_id: 'member-005',
+            report_date: '2024-01-07',
+            content: 'Project delay due to resource constraint',
+            issues_extracted: ['resource_shortage'],
+          },
+          {
+            member_id: 'member-006',
+            report_date: '2024-01-07',
+            content: 'Completed testing phase',
+            issues_extracted: [],
+          },
+          {
+            member_id: 'member-007',
+            report_date: '2024-01-07',
+            content: 'Market competition analysis completed',
+            issues_extracted: ['market_risk'],
+          },
+          {
+            member_id: 'member-008',
+            report_date: '2024-01-07',
+            content: 'Budget overrun forecast for Q1',
+            issues_extracted: ['budget_concern'],
+          },
+          {
+            member_id: 'member-009',
+            report_date: '2024-01-07',
+            content: 'System outage 2 hours impact production',
+            issues_extracted: ['system_outage'],
+          },
+          {
+            member_id: 'member-010',
+            report_date: '2024-01-07',
+            content: 'Routine daily work completed',
+            issues_extracted: [],
           },
         ],
-      },
-      {
-        reportId: "rpt_002",
-        memberId: "mem_002",
-        reportDate: "2024-01-09",
-        issuesReported: [
-          {
-            issueId: "iss_002",
-            description: "Payment gateway API timeout errors",
-            impactScope: "revenue_critical",
-            detectedAt: "2024-01-09T11:20:00Z",
-          },
-        ],
-      },
-      {
-        reportId: "rpt_003",
-        memberId: "mem_003",
-        reportDate: "2024-01-10",
-        issuesReported: [],
-      },
-      {
-        reportId: "rpt_004",
-        memberId: "mem_004",
-        reportDate: "2024-01-11",
-        issuesReported: [
-          {
-            issueId: "iss_003",
-            description: "Customer data breach attempt detected",
-            impactScope: "security_and_compliance",
-            detectedAt: "2024-01-11T16:45:00Z",
-          },
-        ],
-      },
-      {
-        reportId: "rpt_005",
-        memberId: "mem_005",
-        reportDate: "2024-01-12",
-        issuesReported: [],
-      },
-      {
-        reportId: "rpt_006",
-        memberId: "mem_006",
-        reportDate: "2024-01-08",
-        issuesReported: [
-          {
-            issueId: "iss_004",
-            description: "Resource exhaustion in batch processing",
-            impactScope: "operational_efficiency",
-            detectedAt: "2024-01-08T09:15:00Z",
-          },
-        ],
-      },
-      {
-        reportId: "rpt_007",
-        memberId: "mem_007",
-        reportDate: "2024-01-09",
-        issuesReported: [
-          {
-            issueId: "iss_005",
-            description: "Compliance audit finding - missing documentation",
-            impactScope: "regulatory_risk",
-            detectedAt: "2024-01-09T13:00:00Z",
-          },
-        ],
-      },
-      {
-        reportId: "rpt_008",
-        memberId: "mem_008",
-        reportDate: "2024-01-10",
-        issuesReported: [
-          {
-            issueId: "iss_006",
-            description: "Team productivity decline - recruitment lag",
-            impactScope: "team_capacity",
-            detectedAt: "2024-01-10T10:30:00Z",
-          },
-        ],
-      },
-      {
-        reportId: "rpt_009",
-        memberId: "mem_009",
-        reportDate: "2024-01-11",
-        issuesReported: [],
-      },
-      {
-        reportId: "rpt_010",
-        memberId: "mem_010",
-        reportDate: "2024-01-12",
-        issuesReported: [
-          {
-            issueId: "iss_007",
-            description: "Strategic technology stack migration blocker",
-            impactScope: "strategic_initiative",
-            detectedAt: "2024-01-12T15:20:00Z",
-          },
-        ],
-      },
-    ];
+      }),
 
-    const action01Result = {
-      collectedReportCount: 10,
-      unsubmittedMemberIds: [] as string[],
-      collectionCompletedAt: testStartTime.toISOString(),
-      reportsPeriod: {
-        startDate: "2024-01-08",
-        endDate: "2024-01-14",
-      },
+      callAction02ClassifyAndExtractIssues: jest.fn().mockResolvedValue({
+        extraction_status: 'completed',
+        total_issues_extracted: 7,
+        classified_issues: [
+          {
+            issue_keyword: 'performance_degradation',
+            occurrence_count: 1,
+            category: 'technical',
+          },
+          {
+            issue_keyword: 'data_loss_critical',
+            occurrence_count: 1,
+            category: 'critical',
+          },
+          {
+            issue_keyword: 'security_vulnerability',
+            occurrence_count: 1,
+            category: 'security',
+          },
+          {
+            issue_keyword: 'resource_shortage',
+            occurrence_count: 1,
+            category: 'operational',
+          },
+          {
+            issue_keyword: 'market_risk',
+            occurrence_count: 1,
+            category: 'strategic',
+          },
+          {
+            issue_keyword: 'budget_concern',
+            occurrence_count: 1,
+            category: 'financial',
+          },
+          {
+            issue_keyword: 'system_outage',
+            occurrence_count: 1,
+            category: 'critical',
+          },
+        ],
+      }),
+
+      callAction03AnalyzeTrends: jest.fn().mockResolvedValue({
+        analysis_status: 'completed',
+        trend_summary: {
+          critical_issues_count: 2,
+          security_issues_count: 1,
+          operational_issues_count: 1,
+          strategic_issues_count: 1,
+          financial_issues_count: 1,
+          technical_issues_count: 1,
+          recurrence_detected: false,
+          trend_direction: 'increasing',
+        },
+      }),
+
+      callAction04ScoringAndPrioritization: jest.fn().mockResolvedValue({
+        scoring_status: 'completed',
+        prioritized_issues: [
+          {
+            issue_keyword: 'data_loss_critical',
+            occurrence_count: 1,
+            priority_score: 95,
+            priority_rank: '高',
+            business_impact: 'critical_data_integrity_risk',
+          },
+          {
+            issue_keyword: 'system_outage',
+            occurrence_count: 1,
+            priority_score: 90,
+            priority_rank: '高',
+            business_impact: 'service_availability_2hour_loss',
+          },
+          {
+            issue_keyword: 'security_vulnerability',
+            occurrence_count: 1,
+            priority_score: 85,
+            priority_rank: '高',
+            business_impact: 'potential_breach_risk',
+          },
+          {
+            issue_keyword: 'budget_concern',
+            occurrence_count: 1,
+            priority_score: 75,
+            priority_rank: '中',
+            business_impact: 'q1_financial_impact',
+          },
+          {
+            issue_keyword: 'market_risk',
+            occurrence_count: 1,
+            priority_score: 70,
+            priority_rank: '中',
+            business_impact: 'competitive_position_threat',
+          },
+        ],
+      }),
+
+      callAction05GenerateReport: jest.fn().mockResolvedValue({
+        report_generation_status: 'completed',
+        report_id: 'report-2024-01-08-001',
+        total_issues_in_report: 5,
+        critical_section_summary:
+          '2件の重大課題（データ損失インシデント、システム障害2時間）が検出されました',
+      }),
+
+      callAction06ValidateAndEscalate: jest.fn().mockResolvedValue({
+        validation_status: 'escalation_condition_triggered',
+        escalation_condition_triggered: true,
+        escalation_reason: 'business_judgment_required',
+        business_judgment_required_issues: [
+          {
+            issue_keyword: 'data_loss_critical',
+            priority_score: 95,
+            priority_rank: '高',
+            analysis_basis: 'customer_data_loss_impact_to_sla_compliance',
+            management_decision_rationale:
+              'SLA違反による顧客補償・契約見直しの経営判断が必要',
+            recommended_action:
+              '緊急対策チーム編成、顧客対応方針、補償額決定',
+          },
+          {
+            issue_keyword: 'budget_concern',
+            priority_score: 75,
+            priority_rank: '中',
+            analysis_basis: 'q1_forecast_exceeds_budget_by_15_percent',
+            management_decision_rationale:
+              'Q1予算超過15%、経営戦略変更が必要な可能性',
+            recommended_action: '予算配分見直し、事業計画修正の検討',
+          },
+        ],
+        audit_event_id: 'audit-escalation-2024-01-08-001',
+        escalation_initiated_timestamp: new Date('2024-01-08T09:15:30Z'),
+      }),
+
+      callAction07DistributeReport: jest
+        .fn()
+        .mockRejectedValue(
+          new Error('Should not be called due to escalation at Action 6')
+        ),
     };
 
-    const action02Result = {
-      extractedIssuesCount: 7,
-      classificationSummary: {
-        critical_business_process: 1,
-        revenue_critical: 1,
-        security_and_compliance: 1,
-        operational_efficiency: 1,
-        regulatory_risk: 1,
-        team_capacity: 1,
-        strategic_initiative: 1,
-      },
-      extractionCompletedAt: testStartTime.toISOString(),
-    };
+    // Execute agent with escalation condition
+    const result = await runTx6Imp1Agent(input, mockAiClient);
 
-    const action03Result = {
-      trendPatternsIdentified: 3,
-      recurrencePatterns: [
-        {
-          patternId: "pat_001",
-          description: "Production stability issues increasing",
-          affectedIssueIds: ["iss_001", "iss_002"],
-          occurrenceCount: 2,
-          trendDirection: "increasing",
-        },
-        {
-          patternId: "pat_002",
-          description: "Compliance and security concerns",
-          affectedIssueIds: ["iss_003", "iss_005"],
-          occurrenceCount: 2,
-          trendDirection: "stable",
-        },
-        {
-          patternId: "pat_003",
-          description: "Strategic execution challenges",
-          affectedIssueIds: ["iss_007"],
-          occurrenceCount: 1,
-          trendDirection: "emerging",
-        },
-      ],
-      analysisCompletedAt: testStartTime.toISOString(),
-    };
+    // Verify escalation status code
+    expect(result.status_code).toBe('ESCALATION_PENDING_HUMAN_REVIEW');
 
-    const action04Result = {
-      priorityScoringCompleted: true,
-      scoredIssuesCount: 7,
-      scoreDistribution: {
-        high: 3,
-        medium: 3,
-        low: 1,
-      },
-      scoringCompletedAt: testStartTime.toISOString(),
-      issueScores: [
-        {
-          issueId: "iss_001",
-          priorityScore: 92,
-          priorityRank: "high",
-          businessImpactScore: 95,
-          urgencyScore: 89,
-          recurrenceRiskScore: 85,
-        },
-        {
-          issueId: "iss_002",
-          priorityScore: 88,
-          priorityRank: "high",
-          businessImpactScore: 94,
-          urgencyScore: 86,
-          recurrenceRiskScore: 78,
-        },
-        {
-          issueId: "iss_003",
-          priorityScore: 96,
-          priorityRank: "high",
-          businessImpactScore: 99,
-          urgencyScore: 97,
-          recurrenceRiskScore: 91,
-        },
-        {
-          issueId: "iss_004",
-          priorityScore: 65,
-          priorityRank: "medium",
-          businessImpactScore: 62,
-          urgencyScore: 68,
-          recurrenceRiskScore: 60,
-        },
-        {
-          issueId: "iss_005",
-          priorityScore: 78,
-          priorityRank: "medium",
-          businessImpactScore: 81,
-          urgencyScore: 75,
-          recurrenceRiskScore: 72,
-        },
-        {
-          issueId: "iss_006",
-          priorityScore: 72,
-          priorityRank: "medium",
-          businessImpactScore: 70,
-          urgencyScore: 75,
-          recurrenceRiskScore: 68,
-        },
-        {
-          issueId: "iss_007",
-          priorityScore: 45,
-          priorityRank: "low",
-          businessImpactScore: 52,
-          urgencyScore: 38,
-          recurrenceRiskScore: 40,
-        },
-      ],
-    };
+    // Verify escalation reason
+    expect(result.escalation_condition_triggered).toBe(true);
+    expect(result.escalation_reason).toBe('business_judgment_required');
 
-    const action05Result = {
-      reportGenerationCompleted: true,
-      reportContentStructure: {
-        executiveSummary: {
-          totalIssuesIdentified: 7,
-          criticalIssuesCount: 3,
-          trendSummary:
-            "Production stability concerns are increasing with 2 critical issues detected",
-          keyFindingsCount: 5,
-        },
-        detailedAnalysis: {
-          issuesByPriority: {
-            high: [
-              {
-                issueId: "iss_001",
-                title: "Database performance degradation in production",
-                impactScope: "critical_business_process",
-                priorityScore: 92,
-                rootCauseSuspection: "Unoptimized query patterns",
-                recommendedAction: "Query optimization and index review",
-              },
-              {
-                issueId: "iss_002",
-                title: "Payment gateway API timeout errors",
-                impactScope: "revenue_critical",
-                priorityScore: 88,
-                rootCauseSuspection: "Third-party API latency",
-                recommendedAction: "Circuit breaker implementation",
-              },
-              {
-                issueId: "iss_003",
-                title: "Customer data breach attempt detected",
-                impactScope: "security_and_compliance",
-                priorityScore: 96,
-                rootCauseSuspection: "Insufficient access controls",
-                recommendedAction:
-                  "Security audit and access control enhancement",
-              },
-            ],
-            medium: [
-              {
-                issueId: "iss_004",
-                title: "Resource exhaustion in batch processing",
-                impactScope: "operational_efficiency",
-                priorityScore: 65,
-                rootCauseSuspection: "Memory leak in job scheduler",
-                recommendedAction: "Memory profiling and optimization",
-              },
-              {
-                issueId: "iss_005",
-                title: "Compliance audit finding - missing documentation",
-                impactScope: "regulatory_risk",
-                priorityScore: 78,
-                rootCauseSuspection: "Process documentation gaps",
-                recommendedAction: "Documentation audit and update",
-              },
-              {
-                issueId: "iss_006",
-                title: "Team productivity decline - recruitment lag",
-                impactScope: "team_capacity",
-                priorityScore: 72,
-                rootCauseSuspection: "Resource constraints",
-                recommendedAction: "Recruitment acceleration or task reallocation",
-              },
-            ],
-            low: [
-              {
-                issueId: "iss_007",
-                title: "Strategic technology stack migration blocker",
-                impactScope: "strategic_initiative",
-                priorityScore: 45,
-                rootCauseSuspection: "Dependency management complexity",
-                recommendedAction: "Migration roadmap refinement",
-              },
-            ],
-          },
-          trendAnalysis: {
-            patternsIdentified: 3,
-            emergingConcerns: [
-              "Production stability deteriorating",
-              "Security posture under pressure",
-            ],
-          },
-        },
-      },
-      reportGeneratedAt: testStartTime.toISOString(),
-    };
+    // Verify escalation payload contains business judgment required issues
+    expect(result.business_judgment_required_issues).toBeDefined();
+    expect(result.business_judgment_required_issues).toHaveLength(2);
 
-    mockAiClient.action01CollectPreviousWeekReports.mockResolvedValue(
-      action01Result
+    const dataLossIssue = result.business_judgment_required_issues?.find(
+      (i) => i.issue_keyword === 'data_loss_critical'
     );
-    mockAiClient.action02ExtractAndClassifyIssues.mockResolvedValue(
-      action02Result
+    expect(dataLossIssue).toBeDefined();
+    expect(dataLossIssue?.priority_score).toBe(95);
+    expect(dataLossIssue?.priority_rank).toBe('高');
+    expect(dataLossIssue?.analysis_basis).toContain(
+      'customer_data_loss_impact_to_sla'
     );
-    mockAiClient.action03AnalyzeTrendPatterns.mockResolvedValue(
-      action03Result
+    expect(dataLossIssue?.management_decision_rationale).toContain(
+      'SLA違反'
     );
-    mockAiClient.action04CalculatePriorityScores.mockResolvedValue(
-      action04Result
+    expect(dataLossIssue?.recommended_action).toContain('緊急対策チーム');
+
+    const budgetIssue = result.business_judgment_required_issues?.find(
+      (i) => i.issue_keyword === 'budget_concern'
     );
-    mockAiClient.action05GenerateAnalysisReport.mockResolvedValue(
-      action05Result
+    expect(budgetIssue).toBeDefined();
+    expect(budgetIssue?.priority_score).toBe(75);
+    expect(budgetIssue?.analysis_basis).toContain('q1_forecast_exceeds');
+
+    // Verify Action 6 was called
+    expect(mockAiClient.callAction06ValidateAndEscalate).toHaveBeenCalled();
+
+    // Verify Action 7 was NOT called (side effect not committed)
+    expect(mockAiClient.callAction07DistributeReport).not.toHaveBeenCalled();
+
+    // Verify audit event is present
+    expect(result.audit_event_id).toBe('audit-escalation-2024-01-08-001');
+    expect(result.escalation_initiated_timestamp).toEqual(
+      new Date('2024-01-08T09:15:30Z')
     );
 
-    const escalationDetectedAt = new Date("2024-01-15T09:15:00Z");
-    mockAiClient.action06ValidateAndEscalate.mockResolvedValue({
-      escalationConditionTriggered: true,
-      escalationConditionType: "executive_decision_required",
-      escalationReason:
-        "Security breach attempt (iss_003) requires immediate executive decision for incident response protocol",
-      triggeringIssueIds: ["iss_003"],
-      escalationDetectedAt: escalationDetectedAt.toISOString(),
-      executiveDecisionRequiredIssues: [
-        {
-          issueId: "iss_003",
-          title: "Customer data breach attempt detected",
-          impactScope: "security_and_compliance",
-          priorityScore: 96,
-          businessCriticalityLevel: "critical",
-          escalationReason:
-            "Potential customer data security incident requires executive oversight and legal/compliance coordination",
-          recommendedExecutiveActions: [
-            "Activate security incident response team",
-            "Notify legal and compliance departments",
-            "Prepare customer communication if breach confirmed",
-          ],
-          timelinessRequirement: "immediate",
-        },
-      ],
-      shouldProceedToAction07: false,
+    // Verify stakeholder notification queue entry is included
+    expect(result.stakeholder_notification_queued).toBe(true);
+    expect(result.notification_queue_entry_id).toBeDefined();
+
+    // Verify Actions 1-5 were completed successfully before escalation
+    expect(mockAiClient.callAction01CollectDailyReports).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysis_start_date: analysisStartDate,
+        analysis_end_date: analysisEndDate,
+        team_id: teamId,
+      })
+    );
+    expect(mockAiClient.callAction02ClassifyAndExtractIssues).toHaveBeenCalled();
+    expect(mockAiClient.callAction03AnalyzeTrends).toHaveBeenCalled();
+    expect(mockAiClient.callAction04ScoringAndPrioritization).toHaveBeenCalled();
+    expect(mockAiClient.callAction05GenerateReport).toHaveBeenCalled();
+
+    // Verify report distribution did NOT occur (side effect rollback)
+    expect(result.report_distributed).toBe(false);
+    expect(result.report_distribution_rolled_back).toBe(true);
+
+    // Verify returned payload structure
+    expect(result).toMatchObject({
+      status_code: 'ESCALATION_PENDING_HUMAN_REVIEW',
+      escalation_condition_triggered: true,
+      escalation_reason: 'business_judgment_required',
+      report_id: 'report-2024-01-08-001',
+      report_distributed: false,
+      report_distribution_rolled_back: true,
+      audit_event_id: 'audit-escalation-2024-01-08-001',
+      stakeholder_notification_queued: true,
     });
 
-    const input: WeeklyAnalysisReportInput = {
-      executionRequestId: "exec_req_116",
-      reportingWeekEndDate: previousWeekEndDate.toISOString(),
-      triggeringUserId: "user_director_001",
-      auditLogContext: {
-        sessionId: "session_116",
-        requestTimestamp: testStartTime.toISOString(),
-      },
-      transactionControl: {
-        rollbackOnEscalation: true,
-      },
-    };
-
-    const result = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient,
-      mockAuditLog,
-      mockRollbackTransaction
-    );
-
-    expect(result.statusCode).toBe("ESCALATION_PENDING_HUMAN_REVIEW");
-    expect(result.escalationTriggered).toBe(true);
-    expect(result.escalationCondition).toBe("executive_decision_required");
-    expect(result.escalationSummary).toEqual({
-      reason:
-        "Security breach attempt (iss_003) requires immediate executive decision for incident response protocol",
-      detectedAtAction: "action_06",
-      triggeringIssueIds: ["iss_003"],
-    });
-
-    expect(result.escalationPayload).toBeDefined();
-    expect(result.escalationPayload.executiveDecisionRequiredIssues).toHaveLength(
-      1
-    );
-    expect(
-      result.escalationPayload.executiveDecisionRequiredIssues[0].issueId
-    ).toBe("iss_003");
-    expect(
-      result.escalationPayload.executiveDecisionRequiredIssues[0].title
-    ).toBe("Customer data breach attempt detected");
-    expect(
-      result.escalationPayload.executiveDecisionRequiredIssues[0]
-        .escalationReason
-    ).toContain("executive oversight");
-    expect(
-      result.escalationPayload.executiveDecisionRequiredIssues[0]
-        .recommendedExecutiveActions
-    ).toHaveLength(3);
-
-    expect(mockAiClient.action07DeliverReportToStakeholders).not.toHaveBeenCalled();
-
-    expect(mockRollbackTransaction.isRolledBack).toBe(true);
-
-    const escalationAuditEvent = mockAuditLog.events.find(
-      (event: any) =>
-        event.eventType === "escalation_initiated_at_action_06_human_decision_required"
-    );
-    expect(escalationAuditEvent).toBeDefined();
-    expect(escalationAuditEvent.executionRequestId).toBe("exec_req_116");
-    expect(escalationAuditEvent.escalationCondition).toBe(
-      "executive_decision_required"
-    );
-    expect(escalationAuditEvent.triggeringIssueIds).toContain("iss_003");
-
-    expect(result.stakeholderNotificationQueued).toBe(true);
-    expect(result.stakeholderNotificationQueueEntry).toEqual({
-      notificationType: "escalation_alert",
-      targetRole: "executive_decision_maker",
-      issueId: "iss_003",
-      escalationLevel: "critical",
-      actionRequired: true,
-    });
-
-    expect(result.reportDeliveryRolledBack).toBe(true);
-    expect(result.reportDeliveryRollbackReason).toContain(
-      "escalation_pending_human_review"
-    );
-
-    expect(result.actionCompletionStatus).toEqual({
-      action01_collect: true,
-      action02_extract_classify: true,
-      action03_analyze_trends: true,
-      action04_score_priorities: true,
-      action05_generate_report: true,
-      action06_validate_escalate: true,
-      action07_deliver: false,
-    });
+    // Verify execution flow halted before Action 7
+    expect(result.current_action_completed).toBe(6);
+    expect(result.next_action_awaiting_human_decision).toBe(7);
   });
 });

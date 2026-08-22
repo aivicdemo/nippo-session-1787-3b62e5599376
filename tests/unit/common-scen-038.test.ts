@@ -1,449 +1,305 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import type { Tx1Imp1AiClient } from '../../src/agents/tx-1-imp-1/types';
-import { runTx1Imp1Agent } from '../../src/agents/tx-1-imp-1/orchestrator';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx1Imp1Agent } from "../../src/agents/tx-1-imp-1/orchestrator";
+import type {
+  Tx1Imp1AgentInput,
+  Tx1Imp1AgentOutput,
+} from "../../src/agents/tx-1-imp-1/orchestrator";
 
-describe('Tx1Imp1Agent - 日報集約から課題優先順位付けと未提出通知までの自律実行', () => {
-  let audit_log: Array<{
-    event_type: string;
-    timestamp: string;
-    data: Record<string, unknown>;
-  }>;
+interface AuditEvent {
+  eventType: string;
+  timestamp: Date;
+  data: Record<string, unknown>;
+}
 
-  let mock_ai_client: Tx1Imp1AiClient;
-  let mock_email_sent: Array<{ recipient: string; subject: string; body: string }>;
-  let mock_reports_fetched: Array<{ user_id: string; submitted: boolean }>;
-  let mock_extracted_issues: Array<{ id: string; title: string; category: string }>;
-  let mock_priority_issues: Array<{
-    id: string;
-    title: string;
-    priority_score: number;
-  }>;
-  let mock_generated_report: string;
+interface MockAiClientResponse {
+  actionId: string;
+  result: unknown;
+}
 
-  beforeEach(() => {
-    audit_log = [];
-    mock_email_sent = [];
-    mock_reports_fetched = [
-      { user_id: 'user1', submitted: false },
-      { user_id: 'user2', submitted: false },
-      { user_id: 'user3', submitted: false },
-      { user_id: 'user4', submitted: true },
-      { user_id: 'user5', submitted: true },
-      { user_id: 'user6', submitted: true },
-      { user_id: 'user7', submitted: true },
-      { user_id: 'user8', submitted: true },
-      { user_id: 'user9', submitted: true },
-      { user_id: 'user10', submitted: true },
-    ];
-    mock_extracted_issues = [
-      {
-        id: 'issue_1',
-        title: 'システム障害対応',
-        category: 'システム障害',
-      },
-      { id: 'issue_2', title: '工程遅延', category: '工程遅延' },
-      {
-        id: 'issue_3',
-        title: 'リソース不足',
-        category: 'リソース不足',
-      },
-      { id: 'issue_4', title: 'データベース遅延', category: 'システム障害' },
-      { id: 'issue_5', title: 'スケジュール調整', category: '工程遅延' },
-    ];
-    mock_priority_issues = [
-      { id: 'issue_1', title: 'システム障害対応', priority_score: 5 },
-      { id: 'issue_2', title: '工程遅延', priority_score: 4 },
-      { id: 'issue_3', title: 'リソース不足', priority_score: 3 },
-      { id: 'issue_4', title: 'データベース遅延', priority_score: 5 },
-      { id: 'issue_5', title: 'スケジュール調整', priority_score: 2 },
-    ];
-    mock_generated_report = `# 朝会資料
-## 優先度別課題一覧
-### 優先度5
-- 課題A: システム障害対応
-- 課題B: データベース遅延
+const createMockAiClient = () => {
+  const auditLog: AuditEvent[] = [];
 
-### 優先度4
-- 課題C: 工程遅延
-
-### 優先度3
-- 課題D: リソース不足
-
-### 優先度2
-- 課題E: スケジュール調整
-`;
-
-    mock_ai_client = {
-      async executeAction01(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_1_STARTED',
-          timestamp: new Date('2024-01-15T09:00:00Z').toISOString(),
-          data: { params },
-        });
-        return {
-          total_count: 10,
-          submitted_count: 7,
-          unsubmitted_count: 3,
-          unsubmitted_users: [
-            { user_id: 'user1' },
-            { user_id: 'user2' },
-            { user_id: 'user3' },
-          ],
-        };
-      },
-
-      async executeAction02(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_2_STARTED',
-          timestamp: new Date('2024-01-15T09:05:00Z').toISOString(),
-          data: { params },
-        });
-        const unsubmitted_users = params as Array<{ user_id: string }>;
-        for (const user of unsubmitted_users) {
-          mock_email_sent.push({
-            recipient: user.user_id,
-            subject: '日報提出のお願い',
-            body: `${user.user_id}さんの日報がまだ提出されていません。至急お願いします。`,
-          });
-        }
-        return {
-          notification_sent_count: unsubmitted_users.length,
-          target_user_ids: unsubmitted_users.map((u) => u.user_id),
-        };
-      },
-
-      async executeAction03(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_3_STARTED',
-          timestamp: new Date('2024-01-15T09:10:00Z').toISOString(),
-          data: { params },
-        });
-        return {
-          extracted_issue_count: 5,
-          issues: mock_extracted_issues,
-          categories: ['システム障害', '工程遅延', 'リソース不足'],
-        };
-      },
-
-      async executeAction04(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_4_STARTED',
-          timestamp: new Date('2024-01-15T09:15:00Z').toISOString(),
-          data: { params },
-        });
-        return {
-          priority_assignment_count: 5,
-          prioritized_issues: mock_priority_issues,
-          rule_version: 'ACTION_04_PROMPT_VERSION_v1',
-        };
-      },
-
-      async executeAction05(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_5_STARTED',
-          timestamp: new Date('2024-01-15T09:20:00Z').toISOString(),
-          data: { params },
-        });
-        return {
-          report_generated: true,
-          report_size_bytes: Buffer.byteLength(mock_generated_report, 'utf8'),
-          priority_order: [
-            '課題A',
-            '課題B',
-            '課題C',
-            '課題D',
-            '課題E',
-          ],
-          report_content: mock_generated_report,
-        };
-      },
-
-      async executeAction06(params: unknown): Promise<unknown> {
-        audit_log.push({
-          event_type: 'ACTION_6_STARTED',
-          timestamp: new Date('2024-01-15T09:25:00Z').toISOString(),
-          data: { params },
-        });
-        mock_email_sent.push({
-          recipient: 'director@company.com',
-          subject: '朝会資料が完成しました',
-          body: '朝会用資料の生成が完了しました。以下のURLから確認してください: https://report.company.com/morning-briefing-2024-01-15',
-        });
-        return {
-          completion_notification_sent: true,
-          recipient: 'director@company.com',
-          report_reference_url:
-            'https://report.company.com/morning-briefing-2024-01-15',
-        };
-      },
-    };
-  });
-
-  afterEach(() => {
-    audit_log = [];
-    mock_email_sent = [];
-  });
-
-  // SCEN-038: [normal] 日報集約から課題優先順位付けと未提出通知までの自律実行 AIエージェント
-  test('日報集約から課題優先順位付けと未提出通知までの自律実行 - 各処理が監査ログに記録される', async () => {
-    const agent_start_timestamp = new Date('2024-01-15T09:00:00Z').toISOString();
-
-    audit_log.push({
-      event_type: 'STARTED',
-      timestamp: agent_start_timestamp,
-      data: {
-        agent_name: 'Tx1Imp1Agent',
-        trigger: 'scheduled',
-        scheduled_time: '09:00:00',
-      },
-    });
-
-    await runTx1Imp1Agent(
-      {
-        scheduled_execution_time: new Date('2024-01-15T09:00:00Z'),
-        report_system_url: 'https://report.company.com/api',
-        email_service_url: 'https://email.company.com/api',
-        director_email: 'director@company.com',
-      },
-      mock_ai_client
-    );
-
-    const action_01_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_1_STARTED'
-    );
-    expect(action_01_completed).toBeDefined();
-
-    audit_log.push({
-      event_type: 'ACTION_1_COMPLETED',
-      timestamp: new Date('2024-01-15T09:01:00Z').toISOString(),
-      data: {
-        total_count: 10,
-        submitted_count: 7,
-        unsubmitted_count: 3,
-        unsubmitted_user_ids: ['user1', 'user2', 'user3'],
-      },
-    });
-
-    const action_01_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_1_COMPLETED'
-    );
-    expect(action_01_log?.data.total_count).toBe(10);
-    expect(action_01_log?.data.submitted_count).toBe(7);
-    expect(action_01_log?.data.unsubmitted_count).toBe(3);
-
-    const action_02_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_2_STARTED'
-    );
-    expect(action_02_completed).toBeDefined();
-
-    audit_log.push({
-      event_type: 'ACTION_2_COMPLETED',
-      timestamp: new Date('2024-01-15T09:06:00Z').toISOString(),
-      data: {
-        notification_sent_count: 3,
-        target_user_ids: ['user1', 'user2', 'user3'],
-      },
-    });
-
-    const action_02_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_2_COMPLETED'
-    );
-    expect(action_02_log?.data.notification_sent_count).toBe(3);
-    expect(action_02_log?.data.target_user_ids).toEqual([
-      'user1',
-      'user2',
-      'user3',
-    ]);
-
-    const action_03_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_3_STARTED'
-    );
-    expect(action_03_completed).toBeDefined();
-
-    audit_log.push({
-      event_type: 'ACTION_3_COMPLETED',
-      timestamp: new Date('2024-01-15T09:11:00Z').toISOString(),
-      data: {
-        extracted_issue_count: 5,
-        classification_categories: [
-          'システム障害',
-          '工程遅延',
-          'リソース不足',
+  return {
+    auditLog,
+    async executeAction01GetReportStatus(): Promise<{
+      totalMembers: number;
+      submittedCount: number;
+      unsubmittedCount: number;
+      unsubmittedMemberIds: string[];
+    }> {
+      auditLog.push({
+        eventType: "ACTION_1_CALLED",
+        timestamp: new Date("2024-01-15T09:00:00Z"),
+        data: { actionId: "action-01" },
+      });
+      return {
+        totalMembers: 10,
+        submittedCount: 7,
+        unsubmittedCount: 3,
+        unsubmittedMemberIds: ["user1", "user2", "user3"],
+      };
+    },
+    async executeAction02SendReminders(
+      unsubmittedMemberIds: string[]
+    ): Promise<{ notificationsSent: number; targetUserIds: string[] }> {
+      auditLog.push({
+        eventType: "ACTION_2_CALLED",
+        timestamp: new Date("2024-01-15T09:05:00Z"),
+        data: { actionId: "action-02", count: unsubmittedMemberIds.length },
+      });
+      return {
+        notificationsSent: unsubmittedMemberIds.length,
+        targetUserIds: unsubmittedMemberIds,
+      };
+    },
+    async executeAction03ExtractIssues(): Promise<{
+      extractedIssueCount: number;
+      issues: Array<{
+        id: string;
+        description: string;
+        category: string;
+      }>;
+    }> {
+      auditLog.push({
+        eventType: "ACTION_3_CALLED",
+        timestamp: new Date("2024-01-15T09:10:00Z"),
+        data: { actionId: "action-03" },
+      });
+      return {
+        extractedIssueCount: 5,
+        issues: [
+          {
+            id: "issue-001",
+            description: "システム障害",
+            category: "インシデント",
+          },
+          {
+            id: "issue-002",
+            description: "工程遅延",
+            category: "スケジュール",
+          },
+          {
+            id: "issue-003",
+            description: "リソース不足",
+            category: "リソース",
+          },
+          {
+            id: "issue-004",
+            description: "品質問題",
+            category: "品質",
+          },
+          {
+            id: "issue-005",
+            description: "顧客要望対応",
+            category: "要件",
+          },
         ],
-      },
-    });
+      };
+    },
+    async executeAction04PrioritizeIssues(issues: Array<{
+      id: string;
+      description: string;
+      category: string;
+    }>): Promise<{
+      prioritizedIssueCount: number;
+      prioritizedIssues: Array<{
+        id: string;
+        priority: number;
+        description: string;
+      }>;
+    }> {
+      auditLog.push({
+        eventType: "ACTION_4_CALLED",
+        timestamp: new Date("2024-01-15T09:15:00Z"),
+        data: { actionId: "action-04", issueCount: issues.length },
+      });
+      return {
+        prioritizedIssueCount: issues.length,
+        prioritizedIssues: issues.map((issue, index) => ({
+          id: issue.id,
+          priority: index + 1,
+          description: issue.description,
+        })),
+      };
+    },
+    async executeAction05GenerateMorningMeetingMaterial(prioritizedIssues: Array<{
+      id: string;
+      priority: number;
+      description: string;
+    }>): Promise<{
+      materialGenerated: boolean;
+      materialContent: string;
+      materialSizeBytes: number;
+      priorityOrder: string[];
+    }> {
+      const content = `# 朝会報告資料\n## 優先課題\n${prioritizedIssues
+        .map((issue) => `- [P${issue.priority}] ${issue.description}`)
+        .join("\n")}`;
+      const sizeBytes = Buffer.byteLength(content, "utf8");
+      const priorityOrder = prioritizedIssues.map((issue) => issue.id);
 
-    const action_03_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_3_COMPLETED'
-    );
-    expect(action_03_log?.data.extracted_issue_count).toBe(5);
-    expect(action_03_log?.data.classification_categories).toContain(
-      'システム障害'
-    );
+      auditLog.push({
+        eventType: "ACTION_5_CALLED",
+        timestamp: new Date("2024-01-15T09:20:00Z"),
+        data: { actionId: "action-05", sizeBytes },
+      });
+      return {
+        materialGenerated: true,
+        materialContent: content,
+        materialSizeBytes: sizeBytes,
+        priorityOrder,
+      };
+    },
+    async executeAction06NotifyManager(
+      managerEmail: string,
+      materialUrl: string
+    ): Promise<{
+      notificationSent: boolean;
+      targetEmail: string;
+      materialUrl: string;
+    }> {
+      auditLog.push({
+        eventType: "ACTION_6_CALLED",
+        timestamp: new Date("2024-01-15T09:25:00Z"),
+        data: { actionId: "action-06", targetEmail: managerEmail },
+      });
+      return {
+        notificationSent: true,
+        targetEmail: managerEmail,
+        materialUrl,
+      };
+    },
+  };
+};
 
-    const action_04_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_4_STARTED'
-    );
-    expect(action_04_completed).toBeDefined();
+describe("Tx1Imp1Agent - 日報集約から課題優先順位付けと未提出通知までの自律実行", () => {
+  // SCEN-038
+  test("should execute complete orchestration flow with audit logging and complete lifecycle management", async () => {
+    const mockAiClient = createMockAiClient();
 
-    audit_log.push({
-      event_type: 'ACTION_4_COMPLETED',
-      timestamp: new Date('2024-01-15T09:16:00Z').toISOString(),
-      data: {
-        priority_assignment_count: 5,
-        rule_applied_version: 'ACTION_04_PROMPT_VERSION_v1',
-      },
-    });
+    const input: Tx1Imp1AgentInput = {
+      executionTimestamp: new Date("2024-01-15T09:00:00Z"),
+      reportDeadlineTime: "09:00",
+      morningMeetingStartTime: "09:30",
+      teamMemberIds: [
+        "user1",
+        "user2",
+        "user3",
+        "user4",
+        "user5",
+        "user6",
+        "user7",
+        "user8",
+        "user9",
+        "user10",
+      ],
+      managerEmail: "manager@example.com",
+    };
 
-    const action_04_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_4_COMPLETED'
-    );
-    expect(action_04_log?.data.priority_assignment_count).toBe(5);
-    expect(action_04_log?.data.rule_applied_version).toBe(
-      'ACTION_04_PROMPT_VERSION_v1'
-    );
+    const output = await runTx1Imp1Agent(input, mockAiClient);
 
-    const action_05_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_5_STARTED'
-    );
-    expect(action_05_completed).toBeDefined();
+    // Verify output structure and key metrics
+    expect(output.executionStatus).toBe("success");
+    expect(output.aggregatedReportCount).toBe(7);
+    expect(output.unsubmittedMemberCount).toBe(3);
+    expect(output.extractedIssueCount).toBe(5);
+    expect(output.prioritizedIssueList).toBeDefined();
+    expect(output.prioritizedIssueList.length).toBeGreaterThan(0);
+    expect(output.summaryEmailSent).toBe(true);
+    expect(output.completionTimestamp).toBeDefined();
 
-    const report_size_bytes = Buffer.byteLength(mock_generated_report, 'utf8');
-    audit_log.push({
-      event_type: 'ACTION_5_COMPLETED',
-      timestamp: new Date('2024-01-15T09:21:00Z').toISOString(),
-      data: {
-        report_generated_successfully: true,
-        report_size_bytes: report_size_bytes,
-        priority_order: ['課題A', '課題B', '課題C', '課題D', '課題E'],
-      },
-    });
+    // Verify audit log exists and contains expected events
+    const auditLog = mockAiClient.auditLog;
+    expect(auditLog.length).toBeGreaterThan(0);
 
-    const action_05_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_5_COMPLETED'
-    );
-    expect(action_05_log?.data.report_generated_successfully).toBe(true);
-    expect(action_05_log?.data.report_size_bytes).toBe(report_size_bytes);
-    expect(action_05_log?.data.priority_order).toEqual([
-      '課題A',
-      '課題B',
-      '課題C',
-      '課題D',
-      '課題E',
-    ]);
+    // Verify audit log event sequence
+    const eventTypes = auditLog.map((event) => event.eventType);
+    expect(eventTypes).toContain("ACTION_1_CALLED");
+    expect(eventTypes).toContain("ACTION_2_CALLED");
+    expect(eventTypes).toContain("ACTION_3_CALLED");
+    expect(eventTypes).toContain("ACTION_4_CALLED");
+    expect(eventTypes).toContain("ACTION_5_CALLED");
+    expect(eventTypes).toContain("ACTION_6_CALLED");
 
-    const action_06_completed = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_6_STARTED'
-    );
-    expect(action_06_completed).toBeDefined();
-
-    audit_log.push({
-      event_type: 'ACTION_6_COMPLETED',
-      timestamp: new Date('2024-01-15T09:26:00Z').toISOString(),
-      data: {
-        completion_notification_recipient: 'director@company.com',
-        report_reference_url:
-          'https://report.company.com/morning-briefing-2024-01-15',
-      },
-    });
-
-    const action_06_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_6_COMPLETED'
-    );
-    expect(action_06_log?.data.completion_notification_recipient).toBe(
-      'director@company.com'
-    );
-    expect(action_06_log?.data.report_reference_url).toContain(
-      'morning-briefing'
-    );
-
-    audit_log.push({
-      event_type: 'COMPLETED',
-      timestamp: new Date('2024-01-15T09:27:00Z').toISOString(),
-      data: {
-        total_execution_time_ms: 27 * 60 * 1000,
-        status: 'success',
-      },
-    });
-
-    const completion_log = audit_log.find(
-      (evt) => evt.event_type === 'COMPLETED'
-    );
-    expect(completion_log?.data.status).toBe('success');
-
-    const started_log = audit_log.find((evt) => evt.event_type === 'STARTED');
-    const completed_log = audit_log.find(
-      (evt) => evt.event_type === 'COMPLETED'
-    );
-    const action_1_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_1_COMPLETED'
-    );
-    const action_2_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_2_COMPLETED'
-    );
-    const action_3_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_3_COMPLETED'
-    );
-    const action_4_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_4_COMPLETED'
-    );
-    const action_5_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_5_COMPLETED'
-    );
-    const action_6_log = audit_log.find(
-      (evt) => evt.event_type === 'ACTION_6_COMPLETED'
-    );
-
-    expect(started_log).toBeDefined();
-    expect(action_1_log).toBeDefined();
-    expect(action_2_log).toBeDefined();
-    expect(action_3_log).toBeDefined();
-    expect(action_4_log).toBeDefined();
-    expect(action_5_log).toBeDefined();
-    expect(action_6_log).toBeDefined();
-    expect(completed_log).toBeDefined();
-
-    const event_sequence = audit_log.map((evt) => evt.event_type);
-    const expected_sequence = [
-      'STARTED',
-      'ACTION_1_STARTED',
-      'ACTION_1_COMPLETED',
-      'ACTION_2_STARTED',
-      'ACTION_2_COMPLETED',
-      'ACTION_3_STARTED',
-      'ACTION_3_COMPLETED',
-      'ACTION_4_STARTED',
-      'ACTION_4_COMPLETED',
-      'ACTION_5_STARTED',
-      'ACTION_5_COMPLETED',
-      'ACTION_6_STARTED',
-      'ACTION_6_COMPLETED',
-      'COMPLETED',
-    ];
-
-    for (let i = 0; i < expected_sequence.length; i++) {
-      const expected_event = expected_sequence[i];
-      const actual_event = event_sequence.includes(expected_event);
-      expect(actual_event).toBe(true);
+    // Verify chronological ordering of audit events
+    for (let i = 1; i < auditLog.length; i++) {
+      expect(auditLog[i].timestamp.getTime()).toBeGreaterThanOrEqual(
+        auditLog[i - 1].timestamp.getTime()
+      );
     }
 
-    for (let i = 1; i < audit_log.length; i++) {
-      const prev_timestamp = new Date(audit_log[i - 1].timestamp).getTime();
-      const curr_timestamp = new Date(audit_log[i].timestamp).getTime();
-      expect(curr_timestamp).toBeGreaterThanOrEqual(prev_timestamp);
-    }
-
-    expect(mock_email_sent.length).toBe(4);
-    const unsubmitted_notifications = mock_email_sent.filter((email) =>
-      ['user1', 'user2', 'user3'].includes(email.recipient)
+    // Verify Action 1 specifics (report status retrieval)
+    const action1Event = auditLog.find(
+      (event) => event.eventType === "ACTION_1_CALLED"
     );
-    expect(unsubmitted_notifications.length).toBe(3);
+    expect(action1Event).toBeDefined();
+    expect(action1Event?.data.actionId).toBe("action-01");
 
-    const director_notification = mock_email_sent.find(
-      (email) => email.recipient === 'director@company.com'
+    // Verify Action 2 specifics (unsubmitted member notifications)
+    const action2Event = auditLog.find(
+      (event) => event.eventType === "ACTION_2_CALLED"
     );
-    expect(director_notification).toBeDefined();
-    expect(director_notification?.subject).toContain('完成');
+    expect(action2Event).toBeDefined();
+    expect(action2Event?.data.actionId).toBe("action-02");
+    expect(action2Event?.data.count).toBe(3);
+
+    // Verify Action 3 specifics (issue extraction)
+    const action3Event = auditLog.find(
+      (event) => event.eventType === "ACTION_3_CALLED"
+    );
+    expect(action3Event).toBeDefined();
+    expect(action3Event?.data.actionId).toBe("action-03");
+
+    // Verify Action 4 specifics (issue prioritization)
+    const action4Event = auditLog.find(
+      (event) => event.eventType === "ACTION_4_CALLED"
+    );
+    expect(action4Event).toBeDefined();
+    expect(action4Event?.data.actionId).toBe("action-04");
+    expect(action4Event?.data.issueCount).toBe(5);
+
+    // Verify Action 5 specifics (material generation)
+    const action5Event = auditLog.find(
+      (event) => event.eventType === "ACTION_5_CALLED"
+    );
+    expect(action5Event).toBeDefined();
+    expect(action5Event?.data.actionId).toBe("action-05");
+    expect(typeof action5Event?.data.sizeBytes).toBe("number");
+    expect(action5Event?.data.sizeBytes).toBeGreaterThan(0);
+
+    // Verify Action 6 specifics (manager notification)
+    const action6Event = auditLog.find(
+      (event) => event.eventType === "ACTION_6_CALLED"
+    );
+    expect(action6Event).toBeDefined();
+    expect(action6Event?.data.actionId).toBe("action-06");
+    expect(action6Event?.data.targetEmail).toBe("manager@example.com");
+
+    // Verify audit log data consistency
+    expect(output.aggregatedReportCount).toBe(7);
+    expect(output.unsubmittedMemberCount).toBe(3);
+    expect(output.extractedIssueCount).toBe(5);
+
+    // Verify completion timestamp is after execution timestamp
+    expect(output.completionTimestamp.getTime()).toBeGreaterThanOrEqual(
+      input.executionTimestamp.getTime()
+    );
+
+    // Verify prioritized issue list contains expected structure
+    expect(
+      output.prioritizedIssueList.every(
+        (issue) =>
+          issue.id &&
+          typeof issue.priority === "number" &&
+          issue.description
+      )
+    ).toBe(true);
+
+    // Verify priority scores are in valid range (1-5)
+    expect(
+      output.prioritizedIssueList.every(
+        (issue) => issue.priority >= 1 && issue.priority <= 5
+      )
+    ).toBe(true);
   });
 });

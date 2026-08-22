@@ -1,129 +1,123 @@
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx11Imp1Agent } from "../../src/agents/tx-11-imp-1/orchestrator";
+import type { Tx11Imp1AiClient } from "../../src/agents/tx-11-imp-1/orchestrator";
+import { buildAction01Prompt, ACTION_01_PROMPT_VERSION } from "../../src/agents/tx-11-imp-1/prompts/action-01";
 
-describe("sendUnsubmittedReminder", () => {
-  // SCEN-195: [normal] 日報収集・確認・催促の自動化エージェント AIエージェント
-  test("should send unsubmitted reminder to 2 unsubmitted members out of 10 total members on daily morning execution", async () => {
-    // Arrange: Setup fixed timestamp for today at 06:00 AM
+describe("Tx11Imp1Agent - 日報収集・確認・催促の自動化エージェント", () => {
+  let auditLog: Array<{ timestamp: string; message: string; metadata?: Record<string, unknown> }>;
+  let mockAiClientCallHistory: Array<{ actionNumber: number; promptVersion: string; callTimestamp: string }>;
+
+  beforeEach(() => {
+    auditLog = [];
+    mockAiClientCallHistory = [];
+  });
+
+  afterEach(() => {
+    auditLog = [];
+    mockAiClientCallHistory = [];
+  });
+
+  // SCEN-195: [normal] 日報収集・確認・催促の自動化エージェント - Action 1 実行確認
+  test("should execute Action 1 to verify daily submission status and record audit log with correct counts", async () => {
     const executionTimestamp = new Date("2024-01-15T06:00:00Z");
-    const today = "2024-01-15";
+    const teamId = "team-001";
+    const reportDeadlineTime = "09:00";
+    const managerEmail = "manager@example.com";
 
-    // All 10 team members
-    const allMemberIds = [
-      "M001",
-      "M002",
-      "M003",
-      "M004",
-      "M005",
-      "M006",
-      "M007",
-      "M008",
-      "M009",
-      "M010",
+    const mockTeamMembers = [
+      { memberId: "member-001", name: "Alice" },
+      { memberId: "member-002", name: "Bob" },
+      { memberId: "member-003", name: "Charlie" },
+      { memberId: "member-004", name: "David" },
+      { memberId: "member-005", name: "Eve" },
+      { memberId: "member-006", name: "Frank" },
+      { memberId: "member-007", name: "Grace" },
+      { memberId: "member-008", name: "Henry" },
+      { memberId: "member-009", name: "Iris" },
+      { memberId: "member-010", name: "Jack" },
     ];
-    const submittedMemberIds = ["M001", "M002", "M003", "M004", "M005", "M006"];
-    const unsubmittedMemberIds = ["M007", "M008"];
 
-    // Mock submission status response structure
-    const submissionStatus = {
-      date: today,
-      totalMembers: 10,
-      submittedCount: 8,
-      unsubmittedCount: 2,
-      submittedMemberIds: submittedMemberIds.concat(["M009", "M010"]),
-      unsubmittedMemberIds: unsubmittedMemberIds,
-      submittedReportIds: [
-        "R001",
-        "R002",
-        "R003",
-        "R004",
-        "R005",
-        "R006",
-        "R007",
-        "R008",
-      ],
-    };
+    const submittedMemberIds = ["member-001", "member-002", "member-003", "member-004", "member-005", "member-006", "member-007", "member-008"];
+    const unsubmittedMemberIds = ["member-009", "member-010"];
 
-    // Mock AI client that matches Tx11Imp1AiClient structure
-    const mockAiClient = {
-      submitCheckSubmissionStatus: jest.fn(async () => ({
-        status: "success",
-        data: submissionStatus,
-      })),
-      sendUnsubmittedNotifications: jest.fn(async () => ({
-        status: "success",
-        sentCount: 2,
-        failedCount: 0,
-      })),
-      extractChallenges: jest.fn(async () => ({
-        status: "success",
-        data: { challenges: [] },
-      })),
-      assignPriorities: jest.fn(async () => ({
-        status: "success",
-        data: { prioritizedChallenges: [] },
-      })),
-      generateMorningBriefing: jest.fn(async () => ({
-        status: "success",
-        data: { briefingContent: "" },
-      })),
-      notifyManager: jest.fn(async () => ({
-        status: "success",
-        notificationSent: true,
-      })),
-      logAuditEvent: jest.fn(async () => ({
-        status: "success",
-        eventId: "AUD001",
-      })),
-    };
+    const mockAiClient: Tx11Imp1AiClient = {
+      callAction01_VerifySubmissionStatus: async (input) => {
+        mockAiClientCallHistory.push({
+          actionNumber: 1,
+          promptVersion: ACTION_01_PROMPT_VERSION,
+          callTimestamp: new Date().toISOString(),
+        });
 
-    // Act: Execute sendUnsubmittedReminder with mock AI client
-    const result = await sendUnsubmittedReminder(
-      {
-        executionTime: executionTimestamp,
-        targetDate: today,
-        allMemberIds: allMemberIds,
-        reminderDeadlineHour: 9,
+        auditLog.push({
+          timestamp: new Date().toISOString(),
+          message: "Action 1 called: VerifySubmissionStatus",
+          metadata: {
+            teamId: input.teamId,
+            targetMemberCount: mockTeamMembers.length,
+            deadlineTime: input.reportDeadlineTime,
+          },
+        });
+
+        return {
+          submittedMemberIds,
+          unsubmittedMemberIds,
+          totalMembersVerified: mockTeamMembers.length,
+          verificationTimestamp: executionTimestamp,
+        };
       },
-      mockAiClient
-    );
 
-    // Assert: Verify the reminder was sent to unsubmitted members
-    expect(result.success).toBe(true);
-    expect(result.totalMembers).toBe(10);
-    expect(result.submittedCount).toBe(8);
-    expect(result.unsubmittedCount).toBe(2);
-    expect(result.unsubmittedMemberIds).toEqual(["M007", "M008"]);
+      callAction02_SendReminder: async () => {
+        return { notificationsSent: [] };
+      },
 
-    // Verify AI client was called with correct parameters
-    expect(mockAiClient.submitCheckSubmissionStatus).toHaveBeenCalledWith({
-      date: today,
-      memberIds: allMemberIds,
-      deadlineHour: 9,
-    });
+      callAction03_ExtractIssues: async () => {
+        return { extractedIssues: [] };
+      },
 
-    // Verify notifications were sent to unsubmitted members
-    expect(mockAiClient.sendUnsubmittedNotifications).toHaveBeenCalledWith({
-      unsubmittedMemberIds: ["M007", "M008"],
-      targetDate: today,
-      reminderType: "morning",
-    });
+      callAction04_RankIssues: async () => {
+        return { prioritizedIssues: [] };
+      },
 
-    // Verify audit log records the correct metrics
-    expect(mockAiClient.logAuditEvent).toHaveBeenCalledWith({
-      eventType: "UNSUBMITTED_REMINDER_SENT",
-      timestamp: executionTimestamp.toISOString(),
-      targetDate: today,
-      totalMembersChecked: 10,
-      submittedCount: 8,
-      unsubmittedCount: 2,
-      unsubmittedMemberIds: ["M007", "M008"],
-      executionTime: "06:00:00",
-    });
+      callAction05_GenerateSummary: async () => {
+        return {
+          summaryEmailContent: "",
+          recipientEmail: managerEmail,
+        };
+      },
 
-    // Verify sent notifications count matches
-    expect(result.remindersAttempted).toBe(2);
-    expect(result.remindersSent).toBe(2);
-    expect(result.remindersFailed).toBe(0);
+      callAction06_ProvidePastContext: async () => {
+        return { contextItems: [] };
+      },
+
+      callAction07_SendNotification: async () => {
+        return { sent: true };
+      },
+    };
+
+    const agentInput = {
+      executionTimestamp,
+      teamId,
+      reportDeadlineTime,
+      managerEmail,
+    };
+
+    const result = await runTx11Imp1Agent(agentInput, mockAiClient);
+
+    expect(mockAiClientCallHistory).toHaveLength(1);
+    expect(mockAiClientCallHistory[0].actionNumber).toBe(1);
+    expect(mockAiClientCallHistory[0].promptVersion).toBe(ACTION_01_PROMPT_VERSION);
+
+    expect(result.submissionStatus.totalMembers).toBe(10);
+    expect(result.submissionStatus.submittedCount).toBe(8);
+    expect(result.submissionStatus.unsubmittedMembers).toEqual(["member-009", "member-010"]);
+
+    expect(auditLog.length).toBeGreaterThanOrEqual(1);
+    const action1AuditEntry = auditLog.find((entry) => entry.message.includes("Action 1 called"));
+    expect(action1AuditEntry).toBeDefined();
+    if (action1AuditEntry) {
+      expect(action1AuditEntry.metadata?.teamId).toBe(teamId);
+      expect(action1AuditEntry.metadata?.targetMemberCount).toBe(10);
+      expect(action1AuditEntry.metadata?.deadlineTime).toBe(reportDeadlineTime);
+    }
   });
 });

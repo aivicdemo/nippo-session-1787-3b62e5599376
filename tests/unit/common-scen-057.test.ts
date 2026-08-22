@@ -1,202 +1,204 @@
-import { extractAndRankIssues } from '../../src/logic/issue-extraction-prioritization';
+import { runTx3Imp1Agent } from '../../src/agents/tx-3-imp-1/orchestrator';
+import type { Tx3Imp1AiClient } from '../../src/agents/tx-3-imp-1/orchestrator';
+import * as action01Module from '../../src/agents/tx-3-imp-1/prompts/action-01';
+import * as action02Module from '../../src/agents/tx-3-imp-1/prompts/action-02';
+import * as action03Module from '../../src/agents/tx-3-imp-1/prompts/action-03';
+import * as action04Module from '../../src/agents/tx-3-imp-1/prompts/action-04';
+import * as action05Module from '../../src/agents/tx-3-imp-1/prompts/action-05';
 
-describe('Issue Extraction and Prioritization', () => {
-  // SCEN-057
-  test('should extract and rank issues from aggregated daily reports without manager approval', async () => {
-    // Arrange: モック日報集約データ（3件の通常案件）
-    const aggregated_report_data = [
+describe('Tx3Imp1Agent - Normal Case Workflow', () => {
+  // SCEN-057: [normal] 日報集約から優先度別課題一覧提示までの自動判定・配信 AIエージェント
+  test('should complete end-to-end issue prioritization and email delivery for normal aggregated reports without manual review', async () => {
+    // Setup: Mock aggregated report data with 3 normal issues
+    const aggregatedReportId = 'agg_20240115_001';
+    const analysisExecutionTime = new Date('2024-01-15T08:00:00Z');
+    const managerEmail = 'manager@example.com';
+    const priorityThresholds = {
+      highPriorityMinScore: 75,
+      mediumPriorityMinScore: 50,
+    };
+
+    // Mock aggregated reports containing 3 normal issues
+    const mockAggregatedReports = [
       {
-        report_id: 'rep_001',
-        member_id: 'mem_001',
-        submitted_at: '2024-01-15T09:00:00Z',
-        content: {
-          results: 'Completed API integration testing',
-          issues: 'Database connection timeout occurred twice',
-          tomorrow_plan: 'Deploy to staging environment',
-        },
+        reportId: 'rpt_001',
+        content: 'データベース接続タイムアウトが発生し、朝9時から30分間サービス利用不可',
+        team: 'Engineering',
+        submittedAt: '2024-01-15T07:00:00Z',
       },
       {
-        report_id: 'rep_002',
-        member_id: 'mem_002',
-        submitted_at: '2024-01-15T09:15:00Z',
-        content: {
-          results: 'Code review completed for authentication module',
-          issues: 'Need more resources for regression testing',
-          tomorrow_plan: 'Finalize authentication implementation',
-        },
+        reportId: 'rpt_002',
+        content: 'APIレスポンスタイムが3秒を超過している。キャッシュヒット率の向上が必要',
+        team: 'Backend',
+        submittedAt: '2024-01-15T07:15:00Z',
       },
       {
-        report_id: 'rep_003',
-        member_id: 'mem_003',
-        submitted_at: '2024-01-15T09:30:00Z',
-        content: {
-          results: 'Process documentation updated',
-          issues: 'Same deployment process issue as last week',
-          tomorrow_plan: 'Implement automated deployment workflow',
-        },
+        reportId: 'rpt_003',
+        content: 'テストカバレッジが60%に低下。新規機能開発時のテストコード品質が低い',
+        team: 'QA',
+        submittedAt: '2024-01-15T07:30:00Z',
       },
     ];
 
-    // モック AI クライアント実装
-    const mock_ai_client = {
-      // Action 1: 課題キーワード抽出
-      callAction01ExtractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'Database connection timeout', report_id: 'rep_001' },
-        { keyword: 'Resource shortage', report_id: 'rep_002' },
-        { keyword: 'Deployment process problem', report_id: 'rep_003' },
-      ]),
+    // Track prompt builder calls
+    let action01PromptBuilt = false;
+    let action02PromptBuilt = false;
+    let action03PromptBuilt = false;
+    let action04PromptBuilt = false;
+    let action05PromptBuilt = false;
 
-      // Action 2: カテゴリ分類
-      callAction02ClassifyCategory: jest.fn().mockResolvedValue([
-        {
-          keyword: 'Database connection timeout',
-          category: 'System Failure',
-          report_id: 'rep_001',
-        },
-        {
-          keyword: 'Resource shortage',
-          category: 'Resource Shortage',
-          report_id: 'rep_002',
-        },
-        {
-          keyword: 'Deployment process problem',
-          category: 'Process Improvement',
-          report_id: 'rep_003',
-        },
-      ]),
+    // Track action execution order
+    const executionOrder: string[] = [];
 
-      // Action 3: 優先度自動判定
-      callAction03JudgePriority: jest.fn().mockResolvedValue([
-        {
-          keyword: 'Database connection timeout',
-          category: 'System Failure',
-          priority: 'high',
-          impact_scope: 'API service availability',
-          urgency_score: 9,
-          recurrence_risk: 'medium',
-          report_id: 'rep_001',
-        },
-        {
-          keyword: 'Resource shortage',
-          category: 'Resource Shortage',
-          priority: 'medium',
-          impact_scope: 'Testing coverage',
-          urgency_score: 6,
-          recurrence_risk: 'low',
-          report_id: 'rep_002',
-        },
-        {
-          keyword: 'Deployment process problem',
-          category: 'Process Improvement',
-          priority: 'medium',
-          impact_scope: 'Deployment efficiency',
-          urgency_score: 5,
-          recurrence_risk: 'high',
-          report_id: 'rep_003',
-        },
-      ]),
+    // Mock AI Client implementation
+    const mockAiClient: Tx3Imp1AiClient = {
+      async executeAction01(prompt: string): Promise<{ keywords: Array<{ keyword: string; frequency: number; impactScore: number }> }> {
+        action01PromptBuilt = true;
+        executionOrder.push('action_01');
+        expect(prompt).toBeTruthy();
+        return {
+          keywords: [
+            { keyword: 'システム障害', frequency: 1, impactScore: 85 },
+            { keyword: 'パフォーマンス低下', frequency: 1, impactScore: 70 },
+            { keyword: 'テスト品質', frequency: 1, impactScore: 60 },
+          ],
+        };
+      },
 
-      // Action 4: 優先度別一覧生成
-      callAction04GenerateList: jest.fn().mockResolvedValue({
-        high: [
-          {
-            keyword: 'Database connection timeout',
-            category: 'System Failure',
-            priority: 'high',
-            impact_scope: 'API service availability',
-            urgency_score: 9,
-            recurrence_risk: 'medium',
-            report_id: 'rep_001',
+      async executeAction02(prompt: string): Promise<{ categories: Array<{ keyword: string; category: string; categoryDescription: string }> }> {
+        action02PromptBuilt = true;
+        executionOrder.push('action_02');
+        expect(prompt).toBeTruthy();
+        return {
+          categories: [
+            { keyword: 'システム障害', category: 'System Failure', categoryDescription: 'Critical infrastructure failure' },
+            { keyword: 'パフォーマンス低下', category: 'Performance', categoryDescription: 'System performance degradation' },
+            { keyword: 'テスト品質', category: 'Quality', categoryDescription: 'Test coverage and quality issues' },
+          ],
+        };
+      },
+
+      async executeAction03(prompt: string): Promise<{ prioritizedIssues: Array<{ keyword: string; priority: 'high' | 'medium' | 'low'; priorityScore: number; rationale: string }> }> {
+        action03PromptBuilt = true;
+        executionOrder.push('action_03');
+        expect(prompt).toBeTruthy();
+        return {
+          prioritizedIssues: [
+            { keyword: 'システム障害', priority: 'high', priorityScore: 85, rationale: '全ユーザーに影響、即座の対応が必須' },
+            { keyword: 'パフォーマンス低下', priority: 'medium', priorityScore: 70, rationale: 'ユーザー体験に影響、24時間以内の対応推奨' },
+            { keyword: 'テスト品質', priority: 'medium', priorityScore: 60, rationale: '長期的なリスク、今週中の対応' },
+          ],
+        };
+      },
+
+      async executeAction04(prompt: string): Promise<{ prioritizedList: { high: Array<{ keyword: string; frequency: number; priorityScore: number }>; medium: Array<{ keyword: string; frequency: number; priorityScore: number }>; low: Array<{ keyword: string; frequency: number; priorityScore: number }> } }> {
+        action04PromptBuilt = true;
+        executionOrder.push('action_04');
+        expect(prompt).toBeTruthy();
+        return {
+          prioritizedList: {
+            high: [{ keyword: 'システム障害', frequency: 1, priorityScore: 85 }],
+            medium: [
+              { keyword: 'パフォーマンス低下', frequency: 1, priorityScore: 70 },
+              { keyword: 'テスト品質', frequency: 1, priorityScore: 60 },
+            ],
+            low: [],
           },
-        ],
-        medium: [
-          {
-            keyword: 'Resource shortage',
-            category: 'Resource Shortage',
-            priority: 'medium',
-            impact_scope: 'Testing coverage',
-            urgency_score: 6,
-            recurrence_risk: 'low',
-            report_id: 'rep_002',
-          },
-          {
-            keyword: 'Deployment process problem',
-            category: 'Process Improvement',
-            priority: 'medium',
-            impact_scope: 'Deployment efficiency',
-            urgency_score: 5,
-            recurrence_risk: 'high',
-            report_id: 'rep_003',
-          },
-        ],
-        low: [],
-      }),
+        };
+      },
 
-      // Action 5: メール送信
-      callAction05SendEmail: jest.fn().mockResolvedValue({
-        to: 'manager@company.com',
-        subject: 'Priority-Ranked Issue List',
-        body: 'High Priority: Database connection timeout (API service availability, urgency: 9/10)\nMedium Priority: Resource shortage (Testing coverage, urgency: 6/10), Deployment process problem (Deployment efficiency, urgency: 5/10)',
-        status: 'sent',
-        sent_at: '2024-01-15T10:00:00Z',
-      }),
+      async executeAction05(prompt: string): Promise<{ sendStatus: 'sent' | 'failed'; deliveredAt: string; recipientEmail: string; messageId: string }> {
+        action05PromptBuilt = true;
+        executionOrder.push('action_05');
+        expect(prompt).toBeTruthy();
+        expect(prompt).toContain(managerEmail);
+        return {
+          sendStatus: 'sent',
+          deliveredAt: '2024-01-15T08:05:00Z',
+          recipientEmail: managerEmail,
+          messageId: 'msg_20240115_001',
+        };
+      },
     };
 
-    // Act: extractAndRankIssues 実行
-    const result = await extractAndRankIssues(
-      aggregated_report_data,
-      mock_ai_client
+    // Spy on prompt builder functions to verify they are called
+    jest.spyOn(action01Module, 'buildAction01Prompt');
+    jest.spyOn(action02Module, 'buildAction02Prompt');
+    jest.spyOn(action03Module, 'buildAction03Prompt');
+    jest.spyOn(action04Module, 'buildAction04Prompt');
+    jest.spyOn(action05Module, 'buildAction05Prompt');
+
+    // Execute agent
+    const result = await runTx3Imp1Agent(
+      {
+        reportAggregationId: aggregatedReportId,
+        analysisExecutionTime,
+        managerEmail,
+        priorityThresholds,
+      },
+      mockAiClient,
     );
 
-    // Assert: 各 Action が正しい順序で呼ばれたことを確認
-    expect(mock_ai_client.callAction01ExtractKeywords).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.callAction02ClassifyCategory).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.callAction03JudgePriority).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.callAction04GenerateList).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.callAction05SendEmail).toHaveBeenCalledTimes(1);
+    // Verify execution order: all actions executed in sequence
+    expect(executionOrder).toEqual(['action_01', 'action_02', 'action_03', 'action_04', 'action_05']);
 
-    // 抽出課題が3件であること
-    expect(result.processed_issue_count).toBe(3);
+    // Verify all prompt builders were called
+    expect(action01Module.buildAction01Prompt).toHaveBeenCalled();
+    expect(action02Module.buildAction02Prompt).toHaveBeenCalled();
+    expect(action03Module.buildAction03Prompt).toHaveBeenCalled();
+    expect(action04Module.buildAction04Prompt).toHaveBeenCalled();
+    expect(action05Module.buildAction05Prompt).toHaveBeenCalled();
 
-    // 優先度別分類が正しく行われたことを確認
-    expect(result.prioritized_list.high).toHaveLength(1);
-    expect(result.prioritized_list.high[0].keyword).toBe(
-      'Database connection timeout'
-    );
-    expect(result.prioritized_list.high[0].priority).toBe('high');
-    expect(result.prioritized_list.high[0].urgency_score).toBe(9);
+    // Verify all mock AI client methods were invoked
+    expect(action01PromptBuilt).toBe(true);
+    expect(action02PromptBuilt).toBe(true);
+    expect(action03PromptBuilt).toBe(true);
+    expect(action04PromptBuilt).toBe(true);
+    expect(action05PromptBuilt).toBe(true);
 
-    expect(result.prioritized_list.medium).toHaveLength(2);
-    expect(result.prioritized_list.medium[0].keyword).toBe('Resource shortage');
-    expect(result.prioritized_list.medium[0].priority).toBe('medium');
-    expect(result.prioritized_list.medium[1].keyword).toBe(
-      'Deployment process problem'
-    );
-    expect(result.prioritized_list.medium[1].priority).toBe('medium');
+    // Verify result structure and content
+    expect(result).toBeDefined();
+    expect(result.extractedIssues).toBeDefined();
+    expect(result.extractedIssues).toHaveLength(3);
+    expect(result.extractedIssues[0].keyword).toBe('システム障害');
+    expect(result.extractedIssues[1].keyword).toBe('パフォーマンス低下');
+    expect(result.extractedIssues[2].keyword).toBe('テスト品質');
 
-    expect(result.prioritized_list.low).toHaveLength(0);
+    // Verify prioritized issue list structure
+    expect(result.prioritizedIssueList).toBeDefined();
+    expect(result.prioritizedIssueList).toHaveLength(3);
 
-    // メール送信ステータスが 'sent' であること
-    expect(result.email_status).toBe('sent');
-    expect(result.email_sent_at).toBe('2024-01-15T10:00:00Z');
+    // Verify high priority issue
+    const highPriorityIssue = result.prioritizedIssueList.find((i) => i.priority === 'high');
+    expect(highPriorityIssue).toBeDefined();
+    expect(highPriorityIssue?.keyword).toBe('システム障害');
+    expect(highPriorityIssue?.priorityScore).toBe(85);
 
-    // 監査情報が記録されたことを確認
-    expect(result.audit_info).toBeDefined();
-    expect(result.audit_info.executed_at).toBe('2024-01-15T10:00:00Z');
-    expect(result.audit_info.user_id).toBe('system_agent');
-    expect(result.audit_info.action_results).toHaveLength(5);
-    expect(result.audit_info.action_results[0].action_number).toBe(1);
-    expect(result.audit_info.action_results[0].status).toBe('completed');
-    expect(result.audit_info.action_results[1].action_number).toBe(2);
-    expect(result.audit_info.action_results[1].status).toBe('completed');
-    expect(result.audit_info.action_results[2].action_number).toBe(3);
-    expect(result.audit_info.action_results[2].status).toBe('completed');
-    expect(result.audit_info.action_results[3].action_number).toBe(4);
-    expect(result.audit_info.action_results[3].status).toBe('completed');
-    expect(result.audit_info.action_results[4].action_number).toBe(5);
-    expect(result.audit_info.action_results[4].status).toBe('completed');
+    // Verify medium priority issues
+    const mediumPriorityIssues = result.prioritizedIssueList.filter((i) => i.priority === 'medium');
+    expect(mediumPriorityIssues).toHaveLength(2);
+    expect(mediumPriorityIssues[0].keyword).toBe('パフォーマンス低下');
+    expect(mediumPriorityIssues[0].priorityScore).toBe(70);
+    expect(mediumPriorityIssues[1].keyword).toBe('テスト品質');
+    expect(mediumPriorityIssues[1].priorityScore).toBe(60);
 
-    // 全処理が管理者承認を待たずに完結したことを確認
-    expect(result.completion_status).toBe('completed_without_approval');
+    // Verify email send status
+    expect(result.emailSendStatus).toBeDefined();
+    expect(result.emailSendStatus.sendStatus).toBe('sent');
+    expect(result.emailSendStatus.recipientEmail).toBe(managerEmail);
+    expect(result.emailSendStatus.deliveredAt).toBe('2024-01-15T08:05:00Z');
+    expect(result.emailSendStatus.messageId).toBe('msg_20240115_001');
+
+    // Verify execution timestamp
+    expect(result.executionTimestamp).toBeDefined();
+    expect(result.executionTimestamp).toBeInstanceOf(Date);
+
+    // Verify processed issue count in audit info
+    expect(result.auditInfo).toBeDefined();
+    expect(result.auditInfo.processedIssueCount).toBe(3);
+    expect(result.auditInfo.allActionsCompleted).toBe(true);
+
+    // Restore spies
+    jest.restoreAllMocks();
   });
 });

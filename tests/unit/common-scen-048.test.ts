@@ -1,197 +1,313 @@
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
-import { generateMonthlyAnalysisReport } from "../../src/logic/analysis-reporting";
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx2Imp1Agent } from "../../src/agents/tx-2-imp-1/orchestrator";
+import type {
+  Tx2Imp1AgentInput,
+  Tx2Imp1AgentOutput,
+} from "../../src/agents/tx-2-imp-1/orchestrator";
+import type { Tx2Imp1AiClient } from "../../src/agents/tx-2-imp-1/orchestrator";
 
-describe("generateMonthlyAnalysisReport", () => {
+interface MockAuditEvent {
+  escalation_reason: string;
+  timestamp: string;
+  actor: string;
+  target_actor: string;
+  status: string;
+}
+
+interface MockEmailCall {
+  method: string;
+  args: unknown[];
+}
+
+interface MockDailyReportData {
+  memberId: string;
+  memberName: string;
+  achievements: string;
+  issues: string;
+  risks: string;
+}
+
+interface MockHumanReviewData {
+  unified_report_content: MockDailyReportData[];
+  uncertain_priority_tasks: Array<{
+    task_id: string;
+    description: string;
+    confidence_score: number;
+  }>;
+  extraction_basis: string;
+  confidence_scores: number[];
+}
+
+describe("tx-2-imp-1: 日報収集から課題抽出・配信までの自律実行", () => {
+  let mockAuditLog: MockAuditEvent[] = [];
+  let mockEmailCalls: MockEmailCall[] = [];
+  let mockHumanReviewHandoff: MockHumanReviewData | null = null;
+
+  const createMockAiClient = (
+    priorityConfidenceScores: number[]
+  ): Tx2Imp1AiClient => ({
+    action01_receiveReports: async () => {
+      return {
+        received_count: 10,
+        reports: [
+          {
+            memberId: "M001",
+            memberName: "Alice",
+            achievements:
+              "Feature A completed successfully and deployed to production",
+            issues: "Database performance was slow during peak hours",
+            risks: "No significant risks identified",
+          },
+          {
+            memberId: "M002",
+            memberName: "Bob",
+            achievements: "Code review completed for 5 pull requests",
+            issues: "Something unclear happened with the API",
+            risks: "Possible connectivity issue",
+          },
+          {
+            memberId: "M003",
+            memberName: "Carol",
+            achievements: "Documentation updated for new API endpoints",
+            issues: "There might be a problem somewhere in the system",
+            risks: "Unknown potential risk detected",
+          },
+          {
+            memberId: "M004",
+            memberName: "Dave",
+            achievements: "Unit tests increased coverage to 85%",
+            issues: "Network latency affecting CI/CD pipeline",
+            risks: "No risks",
+          },
+          {
+            memberId: "M005",
+            memberName: "Eve",
+            achievements: "Security audit completed for auth module",
+            issues: "Minor authentication delay in staging environment",
+            risks: "Staging environment risk only",
+          },
+          {
+            memberId: "M006",
+            memberName: "Frank",
+            achievements: "Performance optimization implemented",
+            issues: "Memory usage increase after deployment",
+            risks: "Potential memory leak in production",
+          },
+          {
+            memberId: "M007",
+            memberName: "Grace",
+            achievements: "Infrastructure scaling completed",
+            issues: "Load balancer configuration needs review",
+            risks: "No immediate risks",
+          },
+          {
+            memberId: "M008",
+            memberName: "Henry",
+            achievements: "Backup system tested and verified",
+            issues: "Backup process took longer than expected",
+            risks: "Recovery time objective may be exceeded",
+          },
+          {
+            memberId: "M009",
+            memberName: "Ivy",
+            achievements: "Monitoring dashboard implemented",
+            issues: "Dashboard occasionally becomes unresponsive",
+            risks: "Monitoring blind spots possible",
+          },
+          {
+            memberId: "M010",
+            memberName: "Jack",
+            achievements: "Release notes prepared for v2.1",
+            issues: "Release notes unclear about breaking changes",
+            risks: "User confusion during upgrade",
+          },
+        ] as MockDailyReportData[],
+      };
+    },
+
+    action02_unifyFormat: async (reports) => {
+      return {
+        unified_reports: reports.map((r) => ({
+          ...r,
+          formatted_timestamp: "2024-01-15T08:00:00Z",
+        })),
+      };
+    },
+
+    action03_extractIssues: async (unifiedReports) => {
+      return {
+        extracted_issues: [
+          {
+            task_id: "TASK001",
+            source_member: "M001",
+            description: "Database performance was slow during peak hours",
+            category: "performance",
+            raw_extraction: "Database performance was slow during peak hours",
+          },
+          {
+            task_id: "TASK002",
+            source_member: "M002",
+            description: "Something unclear happened with the API",
+            category: "unknown",
+            raw_extraction: "Something unclear happened with the API",
+          },
+          {
+            task_id: "TASK003",
+            source_member: "M003",
+            description: "There might be a problem somewhere in the system",
+            category: "unknown",
+            raw_extraction: "There might be a problem somewhere in the system",
+          },
+          {
+            task_id: "TASK004",
+            source_member: "M004",
+            description: "Network latency affecting CI/CD pipeline",
+            category: "infrastructure",
+            raw_extraction: "Network latency affecting CI/CD pipeline",
+          },
+          {
+            task_id: "TASK005",
+            source_member: "M006",
+            description: "Memory usage increase after deployment",
+            category: "performance",
+            raw_extraction: "Memory usage increase after deployment",
+          },
+          {
+            task_id: "TASK006",
+            source_member: "M008",
+            description: "Backup process took longer than expected",
+            category: "infrastructure",
+            raw_extraction: "Backup process took longer than expected",
+          },
+          {
+            task_id: "TASK007",
+            source_member: "M009",
+            description: "Dashboard occasionally becomes unresponsive",
+            category: "performance",
+            raw_extraction: "Dashboard occasionally becomes unresponsive",
+          },
+          {
+            task_id: "TASK008",
+            source_member: "M010",
+            description: "Release notes unclear about breaking changes",
+            category: "documentation",
+            raw_extraction: "Release notes unclear about breaking changes",
+          },
+        ],
+      };
+    },
+
+    action04_prioritizeIssues: async (extractedIssues) => {
+      const priorityResults = extractedIssues.map((issue, index) => ({
+        task_id: issue.task_id,
+        priority_level: index < priorityConfidenceScores.length ? "high" : "low",
+        confidence_score:
+          index < priorityConfidenceScores.length
+            ? priorityConfidenceScores[index]
+            : 0.8,
+        reasoning: `Priority determined based on category: ${issue.category}`,
+      }));
+      return { prioritized_issues: priorityResults };
+    },
+
+    action05_generateEmail: async () => {
+      return {
+        email_content:
+          "Subject: Daily Report Summary\n\nPrioritized Issues:\n...",
+        recipient: "manager@example.com",
+      };
+    },
+
+    action06_sendEmail: async () => {
+      return { send_status: "sent", timestamp: "2024-01-15T08:15:00Z" };
+    },
+  });
+
+  beforeEach(() => {
+    mockAuditLog = [];
+    mockEmailCalls = [];
+    mockHumanReviewHandoff = null;
+  });
+
+  afterEach(() => {
+    mockAuditLog = [];
+    mockEmailCalls = [];
+    mockHumanReviewHandoff = null;
+  });
+
   // SCEN-048
-  test("should escalate to human review when priority confidence is below 0.45 threshold", async () => {
-    const unifiedReportContent = [
-      {
-        employee_id: "EMP001",
-        date: "2024-01-15",
-        report_text:
-          "Completed database migration. Some connection issues observed.",
-        issues: [
-          {
-            description: "Database connection timeout",
-            impact: "medium",
-            frequency: "occasional",
-          },
-        ],
-      },
-      {
-        employee_id: "EMP002",
-        date: "2024-01-15",
-        report_text: "API endpoint optimization in progress.",
-        issues: [
-          {
-            description: "Response time degradation",
-            impact: "low",
-            frequency: "rare",
-          },
-        ],
-      },
-      {
-        employee_id: "EMP003",
-        date: "2024-01-15",
-        report_text:
-          "Customer reported unclear behavior in the system. Details need clarification.",
-        issues: [
-          {
-            description: "Unclear system behavior report",
-            impact: "uncertain",
-            frequency: "unclear",
-          },
-        ],
-      },
-      {
-        employee_id: "EMP004",
-        date: "2024-01-15",
-        report_text: "Deployment completed successfully.",
-        issues: [],
-      },
-      {
-        employee_id: "EMP005",
-        date: "2024-01-15",
-        report_text: "Testing phase started with ambiguous requirements.",
-        issues: [
-          {
-            description: "Ambiguous test requirements",
-            impact: "medium",
-            frequency: "persistent",
-          },
-        ],
-      },
-      {
-        employee_id: "EMP006",
-        date: "2024-01-15",
-        report_text: "Code review in progress.",
-        issues: [],
-      },
-      {
-        employee_id: "EMP007",
-        date: "2024-01-15",
-        report_text: "Documentation update completed.",
-        issues: [],
-      },
-      {
-        employee_id: "EMP008",
-        date: "2024-01-15",
-        report_text:
-          "Possibly problematic but unclear behavior noticed in staging.",
-        issues: [
-          {
-            description: "Unclear staging environment behavior",
-            impact: "unknown",
-            frequency: "undetermined",
-          },
-        ],
-      },
-      {
-        employee_id: "EMP009",
-        date: "2024-01-15",
-        report_text: "Meeting with stakeholders completed.",
-        issues: [],
-      },
-      {
-        employee_id: "EMP010",
-        date: "2024-01-15",
-        report_text: "Regular maintenance tasks finished.",
-        issues: [],
-      },
-    ];
+  test("should escalate to human review when priority confidence is below 0.45 without sending confirmation email", async () => {
+    const confidenceScoresWithUncertainty = [0.42, 0.43, 0.44, 0.8, 0.9];
 
-    const uncertaintyIssuesWithLowConfidence = [
-      {
-        issue_id: "ISSUE_003_001",
-        employee_id: "EMP003",
-        extracted_text: "Customer reported unclear behavior in the system.",
-        priority_confidence_score: 0.42,
-        suggested_priority: "MEDIUM",
-        category: "system_behavior",
-      },
-      {
-        issue_id: "ISSUE_008_001",
-        employee_id: "EMP008",
-        extracted_text:
-          "Possibly problematic but unclear behavior noticed in staging.",
-        priority_confidence_score: 0.38,
-        suggested_priority: "LOW",
-        category: "staging_issue",
-      },
-    ];
+    const mockAiClient = createMockAiClient(confidenceScoresWithUncertainty);
 
-    const handoverData = {
-      unified_reports: unifiedReportContent,
-      uncertain_priority_issues: uncertaintyIssuesWithLowConfidence,
-      escalation_reason: "priority_uncertainty",
-      timestamp: "2024-01-15T09:30:00Z",
-      actor: "ai_agent_tx2_imp1",
-      target_actor: "department_manager",
-      status: "awaiting_human_decision",
+    const input: Tx2Imp1AgentInput = {
+      executionTimestamp: new Date("2024-01-15T08:00:00Z"),
+      teamId: "TEAM001",
+      reportingDeadline: new Date("2024-01-15T09:00:00Z"),
+      managerEmail: "manager@example.com",
     };
 
-    const auditLog = {
-      event_id: `audit_${Date.now()}`,
-      escalation_reason: "priority_uncertainty",
-      timestamp: "2024-01-15T09:30:00Z",
-      actor: "ai_agent_tx2_imp1",
-      target_actor: "department_manager",
-      status: "awaiting_human_decision",
-      issue_count: 2,
-      confidence_scores: [0.42, 0.38],
-    };
-
-    const result = await generateMonthlyAnalysisReport({
-      unified_reports: unifiedReportContent,
-      uncertain_priority_issues: uncertaintyIssuesWithLowConfidence,
-      escalation_trigger: true,
-      confidence_threshold: 0.45,
-      audit_logger: jest.fn().mockResolvedValue({ logged: true }),
-      email_service_stub: {
-        sendConfirmationEmail: jest.fn(),
-        recordAttempt: jest.fn(),
-      },
+    const mockSendEmail = jest.fn(async () => {
+      mockEmailCalls.push({
+        method: "sendConfirmationEmail",
+        args: ["manager@example.com"],
+      });
+      return { send_status: "sent" };
     });
 
-    expect(result.escalation_triggered).toBe(true);
-    expect(result.escalation_reason).toBe("priority_uncertainty");
-    expect(result.handover_data).toEqual(
-      expect.objectContaining({
-        escalation_reason: "priority_uncertainty",
-        status: "awaiting_human_decision",
-        actor: "ai_agent_tx2_imp1",
-        target_actor: "department_manager",
-      })
+    const mockRecordAuditLog = jest.fn((event: MockAuditEvent) => {
+      mockAuditLog.push(event);
+    });
+
+    const mockHandoffToHuman = jest.fn((data: MockHumanReviewData) => {
+      mockHumanReviewHandoff = data;
+    });
+
+    await runTx2Imp1Agent(input, {
+      ...mockAiClient,
+      _internal_sendEmail: mockSendEmail,
+      _internal_recordAuditLog: mockRecordAuditLog,
+      _internal_handoffToHuman: mockHandoffToHuman,
+    } as any);
+
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockEmailCalls).toHaveLength(0);
+
+    expect(mockRecordAuditLog).toHaveBeenCalled();
+    const auditEvent = mockAuditLog.find(
+      (e) => e.escalation_reason === "priority_uncertainty"
     );
+    expect(auditEvent).toBeDefined();
+    expect(auditEvent).toMatchObject({
+      escalation_reason: "priority_uncertainty",
+      actor: "ai_agent_tx2_imp1",
+      target_actor: "department_manager",
+      status: "awaiting_human_decision",
+    });
+    expect(auditEvent?.timestamp).toBeDefined();
 
-    expect(result.email_sent).toBe(false);
-    expect(result.email_service_stub.sendConfirmationEmail).not.toHaveBeenCalled();
+    expect(mockHandoffToHuman).toHaveBeenCalled();
+    expect(mockHumanReviewHandoff).toBeDefined();
 
-    expect(result.audit_log_recorded).toBe(true);
-    expect(result.audit_logger).toHaveBeenCalledWith(
-      expect.objectContaining({
-        escalation_reason: "priority_uncertainty",
-        actor: "ai_agent_tx2_imp1",
-        target_actor: "department_manager",
-        status: "awaiting_human_decision",
-      })
+    expect(mockHumanReviewHandoff?.unified_report_content).toHaveLength(10);
+    expect(mockHumanReviewHandoff?.unified_report_content[0]).toMatchObject({
+      memberId: "M001",
+      memberName: "Alice",
+    });
+
+    expect(mockHumanReviewHandoff?.uncertain_priority_tasks).toBeDefined();
+    expect(mockHumanReviewHandoff?.uncertain_priority_tasks.length).toBeGreaterThan(
+      0
     );
+    const uncertainTasks = mockHumanReviewHandoff?.uncertain_priority_tasks ?? [];
+    uncertainTasks.forEach((task) => {
+      expect(task.confidence_score).toBeLessThan(0.45);
+    });
 
-    expect(result.uncertain_issues_count).toBe(2);
-    expect(result.uncertain_issues_list).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          issue_id: "ISSUE_003_001",
-          priority_confidence_score: 0.42,
-        }),
-        expect.objectContaining({
-          issue_id: "ISSUE_008_001",
-          priority_confidence_score: 0.38,
-        }),
-      ])
-    );
-
-    expect(result.sideeffects_committed).toBe(false);
-    expect(result.human_review_awaiting).toBe(true);
+    expect(mockHumanReviewHandoff?.extraction_basis).toBeDefined();
+    expect(mockHumanReviewHandoff?.confidence_scores).toContain(0.42);
+    expect(mockHumanReviewHandoff?.confidence_scores).toContain(0.43);
+    expect(mockHumanReviewHandoff?.confidence_scores).toContain(0.44);
   });
 });

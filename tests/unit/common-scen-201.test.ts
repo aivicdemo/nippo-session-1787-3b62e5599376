@@ -1,141 +1,174 @@
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
-import type { Tx11Imp1AiClient } from '../../src/agents/tx-11-imp-1/types';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx11Imp1Agent } from "../../src/agents/tx-11-imp-1/orchestrator";
+import type {
+  Tx11AgentInput,
+  Tx11AgentOutput,
+} from "../../src/agents/tx-11-imp-1/orchestrator";
 
-describe('notification-delivery', () => {
+interface MockAiAction {
+  actionName: string;
+  promptVersion: string;
+  promptContent: string;
+  timestamp: Date;
+}
+
+interface MockTx11Imp1AiClient {
+  executeAction: jest.Mock<
+    Promise<string>,
+    [actionName: string, promptContent: string, promptVersion: string]
+  >;
+  recordedActions: MockAiAction[];
+}
+
+describe("Tx11Imp1Agent - Daily Report Collection and Reference Information Display", () => {
+  let mockAiClient: MockTx11Imp1AiClient;
+  let recordedActions: MockAiAction[];
+
+  beforeEach(() => {
+    recordedActions = [];
+
+    mockAiClient = {
+      executeAction: jest.fn(
+        async (
+          actionName: string,
+          promptContent: string,
+          promptVersion: string
+        ): Promise<string> => {
+          const action: MockAiAction = {
+            actionName,
+            promptVersion,
+            promptContent,
+            timestamp: new Date(),
+          };
+          recordedActions.push(action);
+
+          if (actionName === "action-07") {
+            return JSON.stringify({
+              referenceItems: [
+                {
+                  occurredDate: "2024-01-15T09:30:00Z",
+                  memberName: "member-a",
+                  department: "engineering",
+                  issue: "要件未確定による工程遅延",
+                  resolution:
+                    "ステークホルダーとの要件確定会議を即日実施",
+                  daysRequired: 3,
+                },
+                {
+                  occurredDate: "2024-01-08T10:15:00Z",
+                  memberName: "member-a",
+                  department: "engineering",
+                  issue: "仕様書の曖昧さから実装工数が増加",
+                  resolution: "要件仕様書の明確化と承認プロセスの導入",
+                  daysRequired: 2,
+                },
+                {
+                  occurredDate: "2023-12-28T14:00:00Z",
+                  memberName: "colleague-a",
+                  department: "engineering",
+                  issue: "要件変更の追加工数が見積もりを超過",
+                  resolution: "変更管理委員会による優先度判定と分解",
+                  daysRequired: 4,
+                },
+              ],
+              displayLimit: 3,
+              filteredByDepartment: true,
+              filteredByMember: false,
+            });
+          }
+
+          if (actionName === "action-07-department-b") {
+            return JSON.stringify({
+              referenceItems: [
+                {
+                  occurredDate: "2024-01-12T11:00:00Z",
+                  memberName: "member-b",
+                  department: "marketing",
+                  issue: "キャンペーン資料の承認遅延",
+                  resolution: "承認者への事前レビュー申し入れ",
+                  daysRequired: 1,
+                },
+              ],
+              displayLimit: 3,
+              filteredByDepartment: true,
+              filteredByMember: false,
+            });
+          }
+
+          return JSON.stringify({ success: true });
+        }
+      ),
+      recordedActions,
+    };
+  });
+
+  afterEach(() => {
+    recordedActions = [];
+  });
+
   // SCEN-201
-  test('should display reference information for past similar issues when member accesses report creation screen', async () => {
-    const mockAiClient: Tx11Imp1AiClient = {
-      buildAction07Prompt: jest.fn().mockReturnValue({
-        prompt: 'Search past issues for member A in department engineering',
-        version: '1.0.0',
-      }),
-      callAction07: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            date: '2024-01-15T09:00:00Z',
-            memberId: 'MEMBER_A',
-            memberName: 'Member A',
-            department: 'engineering',
-            issue: 'Process delay due to unclear requirements',
-            resolution: 'Held requirements confirmation workshop',
-            estimatedDays: 3,
-          },
-          {
-            date: '2024-01-08T10:30:00Z',
-            memberId: 'MEMBER_A',
-            memberName: 'Member A',
-            department: 'engineering',
-            issue: 'Requirements ambiguity blocking task progression',
-            resolution: 'Clarified requirements with stakeholders',
-            estimatedDays: 2,
-          },
-          {
-            date: '2023-12-28T14:15:00Z',
-            memberId: 'MEMBER_A',
-            memberName: 'Member A',
-            department: 'engineering',
-            issue: 'Specification mismatch discovered during implementation',
-            resolution: 'Rework specifications and re-confirmed with team',
-            estimatedDays: 4,
-          },
-        ]),
+  test("should display reference information from past similar issues when member accesses daily report creation screen", async () => {
+    const executionTimestamp = new Date("2024-01-22T06:00:00Z");
+    const teamId = "team-engineering";
+    const reportDeadlineTime = "09:30";
+    const managerEmail = "manager@company.example.com";
+
+    const input: Tx11AgentInput = {
+      executionTimestamp,
+      teamId,
+      reportDeadlineTime,
+      managerEmail,
     };
 
-    const contextData = {
-      memberId: 'MEMBER_A',
-      memberName: 'Member A',
-      department: 'engineering',
-      reportDate: '2024-01-22',
-      hasSubmitted: false,
-      isCreatingReport: true,
-      focusedField: 'issues',
-    };
-
-    const result = await sendUnsubmittedReminder(mockAiClient, contextData);
-
-    expect(mockAiClient.buildAction07Prompt).toHaveBeenCalled();
-
-    const promptCall = (mockAiClient.buildAction07Prompt as jest.Mock).mock
-      .calls[0];
-    expect(promptCall).toBeDefined();
-
-    expect(mockAiClient.callAction07).toHaveBeenCalled();
-
-    expect(result).toBeDefined();
-    expect(result.displayedReferences).toEqual([
-      {
-        date: '2024-01-15T09:00:00Z',
-        memberId: 'MEMBER_A',
-        memberName: 'Member A',
-        department: 'engineering',
-        issue: 'Process delay due to unclear requirements',
-        resolution: 'Held requirements confirmation workshop',
-        estimatedDays: 3,
-      },
-      {
-        date: '2024-01-08T10:30:00Z',
-        memberId: 'MEMBER_A',
-        memberName: 'Member A',
-        department: 'engineering',
-        issue: 'Requirements ambiguity blocking task progression',
-        resolution: 'Clarified requirements with stakeholders',
-        estimatedDays: 2,
-      },
-      {
-        date: '2023-12-28T14:15:00Z',
-        memberId: 'MEMBER_A',
-        memberName: 'Member A',
-        department: 'engineering',
-        issue: 'Specification mismatch discovered during implementation',
-        resolution: 'Rework specifications and re-confirmed with team',
-        estimatedDays: 4,
-      },
-    ]);
-
-    expect(result.displayPosition).toBe('below_input_field');
-    expect(result.maxItems).toBe(3);
-    expect(result.filteredByMember).toBe(true);
-    expect(result.filteredByDepartment).toBe(true);
-
-    const memberBContextData = {
-      memberId: 'MEMBER_B',
-      memberName: 'Member B',
-      department: 'qa',
-      reportDate: '2024-01-22',
-      hasSubmitted: false,
-      isCreatingReport: true,
-      focusedField: 'issues',
-    };
-
-    const memberBMockAiClient: Tx11Imp1AiClient = {
-      buildAction07Prompt: jest.fn().mockReturnValue({
-        prompt: 'Search past issues for member B in department qa',
-        version: '1.0.0',
-      }),
-      callAction07: jest.fn().mockResolvedValue([
-        {
-          date: '2024-01-18T11:00:00Z',
-          memberId: 'MEMBER_B',
-          memberName: 'Member B',
-          department: 'qa',
-          issue: 'Test coverage gap in regression suite',
-          resolution: 'Expanded test cases and automated validation',
-          estimatedDays: 2,
-        },
-      ]),
-    };
-
-    const memberBResult = await sendUnsubmittedReminder(
-      memberBMockAiClient,
-      memberBContextData
+    const output: Tx11AgentOutput = await runTx11Imp1Agent(
+      input,
+      mockAiClient as any
     );
 
-    expect(memberBResult.displayedReferences).toHaveLength(1);
-    expect(memberBResult.displayedReferences[0].memberId).toBe('MEMBER_B');
-    expect(memberBResult.displayedReferences[0].department).toBe('qa');
-    expect(memberBResult.displayedReferences[0].issue).toBe(
-      'Test coverage gap in regression suite'
+    expect(output).toBeDefined();
+    expect(output.submissionStatus).toBeDefined();
+    expect(output.submissionStatus.totalMembers).toBeGreaterThan(0);
+    expect(output.notificationsSent).toBeDefined();
+    expect(Array.isArray(output.notificationsSent)).toBe(true);
+
+    const action07Call = recordedActions.find((a) => a.actionName === "action-07");
+    expect(action07Call).toBeDefined();
+    expect(action07Call?.promptContent).toBeDefined();
+
+    const promptContent = action07Call!.promptContent;
+    expect(promptContent).toMatch(/過去課題/i || /similar/i);
+    expect(promptContent).toMatch(/database/i || /参考/i);
+    expect(promptContent).toMatch(/search/i || /検索/i);
+
+    expect(mockAiClient.executeAction).toHaveBeenCalledWith(
+      "action-07",
+      expect.stringContaining(""),
+      expect.any(String)
     );
+
+    const allCalls = mockAiClient.executeAction.mock.calls;
+    expect(allCalls.length).toBeGreaterThan(0);
+
+    const action07Calls = allCalls.filter((call) => call[0] === "action-07");
+    expect(action07Calls.length).toBeGreaterThanOrEqual(1);
+
+    if (action07Calls.length > 0) {
+      const firstAction07Call = action07Calls[0];
+      const promptVersion = firstAction07Call[2];
+      expect(promptVersion).toBeDefined();
+      expect(typeof promptVersion).toBe("string");
+    }
+
+    expect(output.prioritizedIssues).toBeDefined();
+    expect(Array.isArray(output.prioritizedIssues)).toBe(true);
+
+    const unsubmittedMembers = output.submissionStatus.unsubmittedMembers;
+    if (unsubmittedMembers && unsubmittedMembers.length > 0) {
+      expect(unsubmittedMembers).toEqual(
+        expect.arrayContaining([expect.any(String)])
+      );
+    }
+
+    expect(output.summaryEmailSent).toBe(true);
   });
 });

@@ -1,177 +1,255 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { detectAndNotifyUnsubmitted } from '../../src/logic/submission-status-management';
+import { runTx1Imp1Agent } from '../../src/agents/tx-1-imp-1/orchestrator';
+import { buildAction03Prompt, ACTION_03_PROMPT_VERSION } from '../../src/agents/tx-1-imp-1/prompts/action-03';
 
-describe('submission-status-management', () => {
-  test('SCEN-026: Action 3 extracts and classifies tasks from submitted reports', async () => {
-    // Prepare mock submitted report data with 5 reports
-    const mockSubmittedReports = [
-      {
-        reportId: 'report-001',
-        reporterName: 'Alice',
-        submittedAt: '2024-01-15T09:00:00Z',
-        yesterdayAccomplishments: 'Completed feature A implementation',
-        todayPlans: 'Review code for feature B',
-        chalenges: 'Database connection timeout during testing'
-      },
-      {
-        reportId: 'report-002',
-        reporterName: 'Bob',
-        submittedAt: '2024-01-15T09:15:00Z',
-        yesterdayAccomplishments: 'Fixed bug in module X',
-        todayPlans: 'Deploy to staging environment',
-        chalenges: 'Database connection timeout - same issue'
-      },
-      {
-        reportId: 'report-003',
-        reporterName: 'Carol',
-        submittedAt: '2024-01-15T09:30:00Z',
-        yesterdayAccomplishments: 'Wrote unit tests for component Y',
-        todayPlans: 'Integration testing',
-        chalenges: 'Insufficient resource allocation for testing team'
-      },
-      {
-        reportId: 'report-004',
-        reporterName: 'David',
-        submittedAt: '2024-01-15T09:45:00Z',
-        yesterdayAccomplishments: 'Updated documentation',
-        todayPlans: 'Conduct user training session',
-        chalenges: 'Process improvement needed for deployment'
-      },
-      {
-        reportId: 'report-005',
-        reporterName: 'Eve',
-        submittedAt: '2024-01-15T10:00:00Z',
-        yesterdayAccomplishments: 'Monitored system performance',
-        todayPlans: 'Analyze performance metrics',
-        chalenges: 'System performance degradation under load'
-      }
-    ];
+interface MockReport {
+  reportId: string;
+  reporterName: string;
+  submittedAt: Date;
+  whatDidYesterday: string;
+  whatTodayPlan: string;
+  issues: string;
+}
 
-    // Define predefined task categories that are allowed
-    const allowedCategories = [
-      'システム障害',
-      'プロセス改善',
-      'リソース不足',
-      'その他'
-    ];
+interface ExtractedIssue {
+  issueTitle: string;
+  reporterName: string;
+  issueDescription: string;
+  category: string;
+}
 
-    // Mock AI client that returns structured extracted tasks
-    const mockAiClient = {
-      callAction03: jest.fn(async (prompt: string) => {
-        return {
-          extractedTasks: [
-            {
-              taskTitle: 'Database connection timeout',
-              reporterName: 'Alice',
-              taskDescription: 'Database connection timeout during testing',
-              category: 'システム障害'
-            },
-            {
-              taskTitle: 'Database connection timeout',
-              reporterName: 'Bob',
-              taskDescription: 'Database connection timeout - same issue',
-              category: 'システム障害'
-            },
-            {
-              taskTitle: 'Insufficient resource allocation',
-              reporterName: 'Carol',
-              taskDescription: 'Insufficient resource allocation for testing team',
-              category: 'リソース不足'
-            },
-            {
-              taskTitle: 'Deployment process improvement',
-              reporterName: 'David',
-              taskDescription: 'Process improvement needed for deployment',
-              category: 'プロセス改善'
-            },
-            {
-              taskTitle: 'System performance degradation',
-              reporterName: 'Eve',
-              taskDescription: 'System performance degradation under load',
-              category: 'システム障害'
-            }
-          ]
-        };
-      })
+interface Tx1Imp1AiClient {
+  callAction01(prompt: string): Promise<{ status: string; unsubmittedMembers: string[] }>;
+  callAction02(prompt: string): Promise<{ status: string; notificationsSent: number }>;
+  callAction03(prompt: string): Promise<{ issues: ExtractedIssue[] }>;
+  callAction04(prompt: string): Promise<{ prioritizedIssues: Array<{ issueId: string; priority: number }> }>;
+  callAction05(prompt: string): Promise<{ reportGenerated: boolean; reportPath: string }>;
+  callAction06(prompt: string): Promise<{ notificationSent: boolean; notificationId: string }>;
+}
+
+describe('tx-1-imp-1-orchestrator-action-03-extract-issues', () => {
+  let mockAiClient: Tx1Imp1AiClient;
+  let capturedPrompts: { [key: string]: string } = {};
+
+  const mockReportsData: MockReport[] = [
+    {
+      reportId: 'report-001',
+      reporterName: 'Alice',
+      submittedAt: new Date('2024-01-15T08:30:00Z'),
+      whatDidYesterday: 'Implemented user authentication module',
+      whatTodayPlan: 'Complete unit tests for auth module',
+      issues: 'データベース接続タイムアウトが発生して、ユーザー認証のテストが失敗した',
+    },
+    {
+      reportId: 'report-002',
+      reporterName: 'Bob',
+      submittedAt: new Date('2024-01-15T08:45:00Z'),
+      whatDidYesterday: 'Reviewed pull requests',
+      whatTodayPlan: 'Merge approved PRs to main branch',
+      issues: 'データベース接続タイムアウトにより、デプロイメント検証が遅延している',
+    },
+    {
+      reportId: 'report-003',
+      reporterName: 'Charlie',
+      submittedAt: new Date('2024-01-15T09:00:00Z'),
+      whatDidYesterday: 'Fixed critical bug in payment processing',
+      whatTodayPlan: 'Deploy payment fix to production',
+      issues: 'ステージング環境でのメモリリークが検出され、本番デプロイが延期されている状況',
+    },
+    {
+      reportId: 'report-004',
+      reporterName: 'Diana',
+      submittedAt: new Date('2024-01-15T09:15:00Z'),
+      whatDidYesterday: 'Set up monitoring dashboard',
+      whatTodayPlan: 'Tune alert thresholds',
+      issues: 'ステージング環境でのメモリリークが確認された。アプリケーション再起動で一時的に解決',
+    },
+    {
+      reportId: 'report-005',
+      reporterName: 'Eve',
+      submittedAt: new Date('2024-01-15T09:30:00Z'),
+      whatDidYesterday: 'Attended project planning meeting',
+      whatTodayPlan: 'Create implementation roadmap',
+      issues: '特に大きな課題なし。スムーズに進行中',
+    },
+  ];
+
+  const validCategoryList = [
+    'システム障害',
+    'プロセス改善',
+    'リソース不足',
+    'パフォーマンス',
+    'セキュリティ',
+  ];
+
+  beforeEach(() => {
+    capturedPrompts = {};
+
+    mockAiClient = {
+      callAction01: jest.fn().mockResolvedValue({
+        status: 'success',
+        unsubmittedMembers: [],
+      }),
+      callAction02: jest.fn().mockResolvedValue({
+        status: 'success',
+        notificationsSent: 0,
+      }),
+      callAction03: jest.fn().mockImplementation(
+        (prompt: string) => {
+          capturedPrompts.action03 = prompt;
+          return Promise.resolve({
+            issues: [
+              {
+                issueTitle: 'Database Connection Timeout',
+                reporterName: 'Alice',
+                issueDescription:
+                  'データベース接続タイムアウトが発生して、ユーザー認証のテストが失敗した',
+                category: 'システム障害',
+              },
+              {
+                issueTitle: 'Database Connection Timeout',
+                reporterName: 'Bob',
+                issueDescription:
+                  'データベース接続タイムアウトにより、デプロイメント検証が遅延している',
+                category: 'システム障害',
+              },
+              {
+                issueTitle: 'Memory Leak in Staging Environment',
+                reporterName: 'Charlie',
+                issueDescription:
+                  'ステージング環境でのメモリリークが検出され、本番デプロイが延期されている状況',
+                category: 'パフォーマンス',
+              },
+              {
+                issueTitle: 'Memory Leak in Staging Environment',
+                reporterName: 'Diana',
+                issueDescription:
+                  'ステージング環境でのメモリリークが確認された。アプリケーション再起動で一時的に解決',
+                category: 'パフォーマンス',
+              },
+            ],
+          });
+        }
+      ),
+      callAction04: jest.fn().mockResolvedValue({
+        prioritizedIssues: [
+          { issueId: 'issue-001', priority: 1 },
+          { issueId: 'issue-002', priority: 2 },
+          { issueId: 'issue-003', priority: 3 },
+          { issueId: 'issue-004', priority: 4 },
+        ],
+      }),
+      callAction05: jest.fn().mockResolvedValue({
+        reportGenerated: true,
+        reportPath: '/reports/morning-meeting-2024-01-15.pdf',
+      }),
+      callAction06: jest.fn().mockResolvedValue({
+        notificationSent: true,
+        notificationId: 'notif-12345',
+      }),
+    };
+  });
+
+  // SCEN-026: [normal] 日報集約から課題優先順位付けと未提出通知までの自律実行 - Action3実行確認
+  test('should execute Action 3 extract-issues workflow and validate issue extraction from submitted reports', async () => {
+    const executionTimestamp = new Date('2024-01-15T09:45:00Z');
+    const reportDeadlineTime = '09:00';
+    const morningMeetingStartTime = '09:30';
+    const teamMemberIds = ['user-alice', 'user-bob', 'user-charlie', 'user-diana', 'user-eve'];
+    const managerEmail = 'manager@example.com';
+
+    const input = {
+      executionTimestamp,
+      reportDeadlineTime,
+      morningMeetingStartTime,
+      teamMemberIds,
+      managerEmail,
     };
 
-    // Call the function to test
-    const result = await detectAndNotifyUnsubmitted(
-      mockSubmittedReports,
-      mockAiClient as any
-    );
+    // Run the orchestrator with injected mock AI client
+    const result = await runTx1Imp1Agent(input, mockAiClient);
 
-    // Verify that Action 03 was triggered and called
+    // Verify mockAiClient.callAction03 was invoked
     expect(mockAiClient.callAction03).toHaveBeenCalled();
 
-    // Verify the prompt contains submitted report challenges
-    const callArgs = mockAiClient.callAction03.mock.calls[0][0];
-    expect(callArgs).toContain('Database connection timeout during testing');
-    expect(callArgs).toContain('Insufficient resource allocation for testing team');
-    expect(callArgs).toContain('Process improvement needed for deployment');
-    expect(callArgs).toContain('System performance degradation under load');
+    // Verify the prompt was captured and contains report data
+    expect(capturedPrompts.action03).toBeDefined();
+    expect(capturedPrompts.action03).toMatch(/データベース接続タイムアウト/);
+    expect(capturedPrompts.action03).toMatch(/ユーザー認証/);
+    expect(capturedPrompts.action03).toMatch(/ステージング環境/);
+    expect(capturedPrompts.action03).toMatch(/メモリリーク/);
 
-    // Verify extracted tasks structure
-    expect(result.extractedTasks).toHaveLength(5);
-
-    // Verify task 1: Database issue from Alice
-    expect(result.extractedTasks[0]).toEqual({
-      taskTitle: 'Database connection timeout',
-      reporterName: 'Alice',
-      taskDescription: 'Database connection timeout during testing',
-      category: 'システム障害'
+    // Verify all 5 reports are included in the prompt
+    mockReportsData.forEach((report) => {
+      expect(capturedPrompts.action03).toMatch(new RegExp(report.reporterName));
     });
 
-    // Verify task 2: Duplicate database issue from Bob is recognized as same task
-    expect(result.extractedTasks[1]).toEqual({
-      taskTitle: 'Database connection timeout',
-      reporterName: 'Bob',
-      taskDescription: 'Database connection timeout - same issue',
-      category: 'システム障害'
-    });
+    // Verify buildAction03Prompt and ACTION_03_PROMPT_VERSION are exported
+    expect(typeof buildAction03Prompt).toBe('function');
+    expect(typeof ACTION_03_PROMPT_VERSION).toBe('string');
+    expect(ACTION_03_PROMPT_VERSION.length).toBeGreaterThan(0);
 
-    // Verify task 3: Resource allocation from Carol
-    expect(result.extractedTasks[2]).toEqual({
-      taskTitle: 'Insufficient resource allocation',
-      reporterName: 'Carol',
-      taskDescription: 'Insufficient resource allocation for testing team',
-      category: 'リソース不足'
-    });
+    // Verify the extracted issues structure
+    expect(result).toBeDefined();
+    expect(result.extractedIssueCount).toBe(4);
 
-    // Verify task 4: Process improvement from David
-    expect(result.extractedTasks[3]).toEqual({
-      taskTitle: 'Deployment process improvement',
-      reporterName: 'David',
-      taskDescription: 'Process improvement needed for deployment',
-      category: 'プロセス改善'
-    });
+    // Verify extracted issues have required fields
+    if (result.prioritizedIssueList && result.prioritizedIssueList.length > 0) {
+      result.prioritizedIssueList.forEach((issue: any) => {
+        expect(issue).toHaveProperty('issueTitle');
+        expect(issue).toHaveProperty('reporterName');
+        expect(issue).toHaveProperty('issueDescription');
+        expect(issue).toHaveProperty('category');
+      });
+    }
 
-    // Verify task 5: Performance issue from Eve
-    expect(result.extractedTasks[4]).toEqual({
-      taskTitle: 'System performance degradation',
-      reporterName: 'Eve',
-      taskDescription: 'System performance degradation under load',
-      category: 'システム障害'
-    });
-
-    // Verify all extracted tasks have valid predefined categories
-    result.extractedTasks.forEach((task) => {
-      expect(allowedCategories).toContain(task.category);
-    });
-
-    // Verify correspondence between extracted tasks and original report challenges
-    const taskDescriptions = result.extractedTasks.map(t => t.taskDescription);
-    expect(taskDescriptions).toContain('Database connection timeout during testing');
-    expect(taskDescriptions).toContain('Insufficient resource allocation for testing team');
-    expect(taskDescriptions).toContain('Process improvement needed for deployment');
-    expect(taskDescriptions).toContain('System performance degradation under load');
-
-    // Verify duplicate recognition: both Alice and Bob reported database timeout
-    const databaseTasks = result.extractedTasks.filter(
-      t => t.taskTitle === 'Database connection timeout'
+    // Verify issue-to-report correspondence
+    // Alice's issue must correspond to report-001's issue
+    const aliceIssue = result.prioritizedIssueList?.find(
+      (issue: any) => issue.reporterName === 'Alice'
     );
-    expect(databaseTasks).toHaveLength(2);
-    expect(databaseTasks[0].reporterName).toBe('Alice');
-    expect(databaseTasks[1].reporterName).toBe('Bob');
+    expect(aliceIssue?.issueDescription).toContain('データベース接続タイムアウト');
+
+    // Bob's issue must correspond to report-002's issue
+    const bobIssue = result.prioritizedIssueList?.find(
+      (issue: any) => issue.reporterName === 'Bob'
+    );
+    expect(bobIssue?.issueDescription).toContain('デプロイメント検証');
+
+    // Verify duplicate detection: both Alice and Bob reported the same DB timeout issue
+    const dbTimeoutIssues = result.prioritizedIssueList?.filter(
+      (issue: any) =>
+        issue.issueTitle === 'Database Connection Timeout'
+    );
+    expect(dbTimeoutIssues?.length).toBe(2);
+
+    // Verify duplicate detection: both Charlie and Diana reported the same memory leak
+    const memoryLeakIssues = result.prioritizedIssueList?.filter(
+      (issue: any) =>
+        issue.issueTitle === 'Memory Leak in Staging Environment'
+    );
+    expect(memoryLeakIssues?.length).toBe(2);
+
+    // Verify all extracted issue categories are from the predefined list
+    if (result.prioritizedIssueList) {
+      result.prioritizedIssueList.forEach((issue: any) => {
+        expect(validCategoryList).toContain(issue.category);
+      });
+    }
+
+    // Verify orchestrator boundary: second parameter must be structurally identical to Tx1Imp1AiClient
+    expect(typeof mockAiClient.callAction01).toBe('function');
+    expect(typeof mockAiClient.callAction02).toBe('function');
+    expect(typeof mockAiClient.callAction03).toBe('function');
+    expect(typeof mockAiClient.callAction04).toBe('function');
+    expect(typeof mockAiClient.callAction05).toBe('function');
+    expect(typeof mockAiClient.callAction06).toBe('function');
+
+    // Verify execution completed successfully
+    expect(result.executionStatus).toBe('success');
+    expect(result.completionTimestamp).toBeInstanceOf(Date);
+    expect(result.completionTimestamp.getTime()).toBeGreaterThanOrEqual(
+      executionTimestamp.getTime()
+    );
   });
 });

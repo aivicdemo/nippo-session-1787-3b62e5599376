@@ -1,179 +1,146 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { generateMonthlyAnalysisReport } from '../../src/logic/analysis-reporting';
+import { runTx7Imp1Agent, type Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/orchestrator';
 
-describe('generateMonthlyAnalysisReport', () => {
-  // SCEN-134: [error] 月次レポート生成から分析完了までの自動実行 AIエージェント - 異常値検出時の人への引き継ぎプロセス
-  test('should escalate to human review when anomalies are detected during analysis', async () => {
-    const fake_ai_client = {
-      action_01_trigger_confirmation: jest.fn(),
-      action_02_data_extraction: jest.fn(),
-      action_03_report_generation: jest.fn(),
-      action_04_timeseries_analysis: jest.fn(),
-      action_05_bottleneck_analysis: jest.fn(),
-      action_06_performance_calculation: jest.fn(),
-      action_07_priority_analysis: jest.fn(),
-      action_08_final_report_creation: jest.fn(),
-    };
-
-    const fake_database = {
+describe('月次レポート生成から分析完了までの自動実行', () => {
+  // SCEN-134
+  test('異常値検出時に副作用確定前に人へ引き継ぐ', async () => {
+    const mockDb = {
       analysisReports: [] as Array<{
-        report_id: string;
+        reportId: string;
         status: string;
         anomaly_details?: Record<string, unknown>;
-        handover_status?: string;
       }>,
-      humanReviewNotifications: [] as Array<{
-        notification_id: string;
-        recipient_role: string;
-        anomaly_summary: string;
-        timestamp: string;
-      }>,
-      auditLogs: [] as Array<{
-        log_id: string;
-        event_type: string;
+      escalationLogs: [] as Array<{
+        timestamp: Date;
         escalation_type: string;
-        timestamp: string;
+        handover_status: string;
+      }>,
+      humanNotifications: [] as Array<{
+        notificationId: string;
+        recipient: string;
+        message: string;
       }>,
     };
 
-    const fake_messaging_service = {
-      send_notification: jest.fn(),
+    const mockAiClient: Tx7Imp1AiClient = {
+      executeAction01TriggerCheck: jest.fn(async () => ({
+        triggered: true,
+        trigger_type: 'schedule',
+      })),
+      executeAction02DataExtraction: jest.fn(async () => ({
+        extracted_data: {
+          report_period: '2024-01',
+          total_reports: 45,
+          total_issues: 89,
+        },
+      })),
+      executeAction03ReportGeneration: jest.fn(async () => ({
+        report_id: 'rpt-202401-001',
+        generated_at: new Date('2024-02-01T09:00:00Z'),
+      })),
+      executeAction04TimeSeriesAnalysis: jest.fn(async () => ({
+        timeSeriesData: [
+          {
+            date: '2024-01-01',
+            bottleneck_severity: 2,
+            issue_count: 8,
+          },
+          {
+            date: '2024-01-15',
+            bottleneck_severity: 5,
+            issue_count: 25,
+          },
+        ],
+        trend_analysis: 'deteriorating',
+      })),
+      executeAction05BottleneckPushTransition: jest.fn(async () => ({
+        bottleneck_transitions: [
+          { date: '2024-01-01', category: 'delivery', severity: 2 },
+          { date: '2024-01-15', category: 'system_incident', severity: 5 },
+        ],
+      })),
+      executeAction06PerformanceMetrics: jest.fn(async () => ({
+        team_metrics: {
+          issue_resolution_speed: 3.5,
+          report_submission_rate: 0.88,
+          issue_recurrence_rate: 0.12,
+        },
+      })),
+      executeAction07PrioritizationAndAnalysis: jest.fn(async () => ({
+        anomaly_detected: true,
+        anomaly_signals: [
+          {
+            type: 'issue_spike_250percent',
+            threshold: 100,
+            observed_value: 250,
+            previous_period_average: 35,
+          },
+          {
+            type: 'new_category_system_incident',
+            detected_at: new Date('2024-01-15T10:30:00Z'),
+          },
+        ],
+        requires_human_review: true,
+        analysis_status: 'PENDING_HUMAN_REVIEW',
+      })),
+      executeAction08ReportDelivery: jest.fn(),
     };
 
-    // Setup Action 1-6 to succeed
-    fake_ai_client.action_01_trigger_confirmation.mockResolvedValue({
-      trigger_confirmed: true,
-      target_month: '2024-01',
-    });
-
-    fake_ai_client.action_02_data_extraction.mockResolvedValue({
-      data_extracted: true,
-      report_count: 120,
-      data_points: 450,
-    });
-
-    fake_ai_client.action_03_report_generation.mockResolvedValue({
-      report_generated: true,
-      report_id: 'rpt_2024_01_001',
-    });
-
-    fake_ai_client.action_04_timeseries_analysis.mockResolvedValue({
-      timeseries_complete: true,
-      issue_trend: 'increasing',
-    });
-
-    fake_ai_client.action_05_bottleneck_analysis.mockResolvedValue({
-      bottleneck_analysis_complete: true,
-      bottleneck_shift_detected: true,
-    });
-
-    fake_ai_client.action_06_performance_calculation.mockResolvedValue({
-      performance_calculated: true,
-      metrics_generated: 5,
-    });
-
-    // Setup Action 7 to return anomaly detection signal
-    fake_ai_client.action_07_priority_analysis.mockResolvedValue({
-      anomaly_detected: true,
-      anomaly_type: 'unexpected_pattern',
-      detected_items: [
-        'issue_spike_250percent',
-        'new_category_system_incident',
-      ],
-      anomaly_details: {
-        issue_spike_percentage: 250,
-        baseline_monthly_issues: 40,
-        current_month_issues: 100,
-        new_categories: ['system_incident_response'],
-        severity: 'high',
-      },
-      confidence_score: 0.95,
-    });
-
-    // Execute the orchestrator with anomaly detection
-    const result = await generateMonthlyAnalysisReport(
+    const result = await runTx7Imp1Agent(
       {
-        execution_id: 'exec_2024_01_001',
-        target_month: '2024-01',
-        triggered_at: '2024-02-01T08:00:00Z',
+        targetMonth: '2024-01',
+        teamId: 'team-engineering',
+        triggeredBy: 'schedule',
       },
-      fake_ai_client,
-      fake_database,
-      fake_messaging_service
+      mockAiClient,
+      mockDb
     );
 
-    // Verify escalation response
     expect(result.escalation_type).toBe('ANOMALY_DETECTED');
     expect(result.handover_status).toBe('AWAITING_HUMAN_REVIEW');
 
-    // Verify anomaly details are included
-    expect(result.anomaly_details).toEqual({
-      detected_items: [
-        'issue_spike_250percent',
-        'new_category_system_incident',
-      ],
-      review_required_by: '部長',
-      issue_spike_percentage: 250,
-      baseline_monthly_issues: 40,
-      current_month_issues: 100,
-      new_categories: ['system_incident_response'],
-      severity: 'high',
-    });
-
-    // Verify no automatic action was taken before human review
-    expect(fake_ai_client.action_08_final_report_creation).not.toHaveBeenCalled();
-
-    // Verify analysis report is saved with PENDING_HUMAN_REVIEW status
-    expect(fake_database.analysisReports.length).toBe(1);
-    const saved_report = fake_database.analysisReports[0];
-    expect(saved_report.status).toBe('PENDING_HUMAN_REVIEW');
-    expect(saved_report.handover_status).toBe('AWAITING_HUMAN_REVIEW');
-    expect(saved_report.anomaly_details).toEqual({
-      detected_items: [
-        'issue_spike_250percent',
-        'new_category_system_incident',
-      ],
-      review_required_by: '部長',
-      issue_spike_percentage: 250,
-      baseline_monthly_issues: 40,
-      current_month_issues: 100,
-      new_categories: ['system_incident_response'],
-      severity: 'high',
-    });
-
-    // Verify human notification is sent
-    expect(fake_database.humanReviewNotifications.length).toBe(1);
-    const notification = fake_database.humanReviewNotifications[0];
-    expect(notification.recipient_role).toBe('部長');
-    expect(notification.anomaly_summary).toContain('issue_spike_250percent');
-    expect(notification.anomaly_summary).toContain('new_category_system_incident');
-    expect(notification.timestamp).toBeDefined();
-
-    // Verify messaging service was called
-    expect(fake_messaging_service.send_notification).toHaveBeenCalledWith(
+    expect(result.anomaly_details).toEqual(
       expect.objectContaining({
-        notification_type: 'ANOMALY_DETECTION',
-        recipient_role: '部長',
-        content: expect.stringContaining('異常値検出'),
+        detected_items: [
+          'issue_spike_250percent',
+          'new_category_system_incident',
+        ],
+        review_required_by: '部長',
       })
     );
 
-    // Verify audit log records the escalation
-    expect(fake_database.auditLogs.length).toBeGreaterThan(0);
-    const escalation_log = fake_database.auditLogs.find(
-      (log) => log.event_type === 'ESCALATION'
+    expect(mockDb.analysisReports).toHaveLength(1);
+    expect(mockDb.analysisReports[0]).toEqual(
+      expect.objectContaining({
+        reportId: 'rpt-202401-001',
+        status: 'PENDING_HUMAN_REVIEW',
+        anomaly_details: expect.objectContaining({
+          detected_items: expect.arrayContaining([
+            'issue_spike_250percent',
+            'new_category_system_incident',
+          ]),
+        }),
+      })
     );
-    expect(escalation_log).toBeDefined();
-    expect(escalation_log?.escalation_type).toBe('ANOMALY_DETECTED');
 
-    // Verify automatic report presentation to manager was not executed
-    const auto_presentation_logs = fake_database.auditLogs.filter(
-      (log) => log.event_type === 'REPORT_AUTO_PRESENTATION'
+    expect(mockDb.escalationLogs).toHaveLength(1);
+    expect(mockDb.escalationLogs[0]).toEqual(
+      expect.objectContaining({
+        escalation_type: 'ANOMALY_DETECTED',
+        handover_status: 'AWAITING_HUMAN_REVIEW',
+      })
     );
-    expect(auto_presentation_logs.length).toBe(0);
 
-    // Verify the response indicates system is awaiting human judgment
-    expect(result.awaiting_human_decision).toBe(true);
-    expect(result.can_proceed_to_auto_presentation).toBe(false);
+    expect(mockDb.humanNotifications.length).toBeGreaterThan(0);
+    const humanNotification = mockDb.humanNotifications[0];
+    expect(humanNotification).toEqual(
+      expect.objectContaining({
+        recipient: '部長',
+        message: expect.stringContaining('異常値'),
+      })
+    );
+
+    expect(mockAiClient.executeAction08ReportDelivery).not.toHaveBeenCalled();
+
+    expect(mockAiClient.executeAction07PrioritizationAndAnalysis).toHaveBeenCalled();
   });
 });

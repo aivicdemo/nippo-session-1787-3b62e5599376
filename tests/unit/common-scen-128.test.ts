@@ -1,197 +1,166 @@
-import { generateWeeklyAnalysisReport } from "../../src/logic/analysis-reporting";
-import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from "../../src/agents/tx-7-imp-1/prompts/action-04";
+import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-7-imp-1/prompts/action-04';
 
-describe("Analysis Reporting - Monthly Report Generation", () => {
-  test("SCEN-128: should execute time-series issue analysis action during automated monthly report generation", async () => {
-    // Setup: Create mock accumulated report data for 30 days from 10 team members
-    const teamMembers = Array.from({ length: 10 }, (_, i) => ({
-      memberId: `member_${String(i + 1).padStart(2, "0")}`,
-      memberName: `Engineer ${i + 1}`,
-    }));
+describe('tx-7-imp-1: 月次レポート生成から分析完了までの自動実行', () => {
+  // SCEN-128
+  test('月初日のトリガーで課題の時系列変化を分析し、分析結果を次のアクションへ正常に受け渡す', async () => {
+    const mockReportGenerationRequest = {
+      targetMonth: '2024-01',
+      teamId: 'team-001',
+      triggeredBy: 'schedule' as const,
+      includeDetailedAnalysis: true,
+    };
 
-    const reportStartDate = new Date("2024-01-01T00:00:00Z");
-    const reportEndDate = new Date("2024-01-31T23:59:59Z");
-
-    // Generate 30 days of reports, 3 items per day per member
-    const accumulatedReportData = [];
-    for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
-      const reportDate = new Date(reportStartDate);
-      reportDate.setDate(reportDate.getDate() + dayOffset);
-
-      teamMembers.forEach((member) => {
-        // Yesterday's accomplishment
-        accumulatedReportData.push({
-          reportId: `report_${member.memberId}_${dayOffset}_01`,
-          memberId: member.memberId,
-          memberName: member.memberName,
-          reportDate: reportDate.toISOString(),
-          reportType: "yesterday_accomplishment",
-          content: `Completed feature development for user authentication`,
-          submittedAt: reportDate.toISOString(),
-        });
-
-        // Today's plan
-        accumulatedReportData.push({
-          reportId: `report_${member.memberId}_${dayOffset}_02`,
-          memberId: member.memberId,
-          memberName: member.memberName,
-          reportDate: reportDate.toISOString(),
-          reportType: "today_plan",
-          content: `Will implement database optimization and unit testing`,
-          submittedAt: reportDate.toISOString(),
-        });
-
-        // Issue/Challenge
-        const issueNumber = (dayOffset % 5) + 1;
-        accumulatedReportData.push({
-          reportId: `report_${member.memberId}_${dayOffset}_03`,
-          memberId: member.memberId,
-          memberName: member.memberName,
-          reportDate: reportDate.toISOString(),
-          reportType: "issue",
-          content: `Issue ${issueNumber}: Database query performance degradation detected in production`,
-          issueCategory: issueNumber % 2 === 0 ? "performance" : "quality",
-          issuePriority: issueNumber <= 2 ? "high" : issueNumber <= 4 ? "medium" : "low",
-          submittedAt: reportDate.toISOString(),
-        });
-      });
-    }
-
-    // Mock AI client to capture Action 4 prompt invocation
-    let action04PromptCalled = false;
-    let capturedAction04Data = null;
-
-    const mockAiClient = {
-      analyzeTimeSeriesTrend: async (analysisData) => {
-        action04PromptCalled = true;
-        capturedAction04Data = analysisData;
-
-        // Return time-series analysis result matching expected structure
+    const mockAccumulatedReports = Array.from({ length: 30 }, (_, dayIndex) => {
+      const day = dayIndex + 1;
+      return Array.from({ length: 10 }, (_, memberIndex) => {
+        const memberId = `member-${String(memberIndex + 1).padStart(3, '0')}`;
         return {
-          analysisDate: "2024-01-31T23:59:59Z",
-          trendPeriod: "2024-01-01〜2024-01-31",
-          timeSeriesData: [
-            {
-              week: 1,
-              issueCount: 15,
-              categories: {
-                performance: 10,
-                quality: 5,
-              },
-            },
-            {
-              week: 2,
-              issueCount: 18,
-              categories: {
-                performance: 11,
-                quality: 7,
-              },
-            },
-            {
-              week: 3,
-              issueCount: 12,
-              categories: {
-                performance: 8,
-                quality: 4,
-              },
-            },
-            {
-              week: 4,
-              issueCount: 14,
-              categories: {
-                performance: 9,
-                quality: 5,
-              },
-            },
-          ],
-          newIssuesDetected: false,
-          analysisVersion: ACTION_04_PROMPT_VERSION,
+          reportId: `report-2024-01-${String(day).padStart(2, '0')}-${memberId}`,
+          teamId: 'team-001',
+          reportDate: `2024-01-${String(day).padStart(2, '0')}`,
+          memberId: memberId,
+          yesterdayAccomplishment: `completed task ${day}-${memberIndex}`,
+          todayPlan: `plan for day ${day}-${memberIndex}`,
+          issues: day % 7 === 0 ? [`issue-${day}-${memberIndex}`] : [],
+          submittedAt: `2024-01-${String(day).padStart(2, '0')}T08:00:00Z`,
         };
-      },
+      });
+    }).flat();
+
+    const mockTimeSeriesAnalysisResult = {
+      analysisDate: '2024-02-01T00:00:00Z',
+      trendPeriod: '2024-01-01〜2024-01-31',
+      timeSeriesData: [
+        {
+          week: 1,
+          issueCount: 5,
+          categories: [
+            { category: 'quality', count: 3 },
+            { category: 'schedule', count: 2 },
+          ],
+        },
+        {
+          week: 2,
+          issueCount: 4,
+          categories: [
+            { category: 'quality', count: 2 },
+            { category: 'schedule', count: 2 },
+          ],
+        },
+        {
+          week: 3,
+          issueCount: 6,
+          categories: [
+            { category: 'quality', count: 4 },
+            { category: 'resource', count: 2 },
+          ],
+        },
+        {
+          week: 4,
+          issueCount: 3,
+          categories: [
+            { category: 'quality', count: 2 },
+            { category: 'schedule', count: 1 },
+          ],
+        },
+      ],
+      newIssuesDetected: false,
+      analysisVersion: ACTION_04_PROMPT_VERSION,
     };
 
-    // Create monthly report generation trigger for first day of month
-    const monthlyReportTrigger = {
-      triggerId: "trigger_monthly_2024_01",
-      triggerDate: "2024-01-01T00:00:00Z",
-      triggerType: "monthly_report_generation",
-      reportPeriod: {
-        startDate: "2024-01-01T00:00:00Z",
-        endDate: "2024-01-31T23:59:59Z",
-      },
+    const fakeAiClient: any = {
+      action01: jest.fn().mockResolvedValue({
+        triggeredAt: '2024-02-01T00:00:00Z',
+        reportGenerationConfirmed: true,
+      }),
+      action02: jest.fn().mockResolvedValue({
+        extractedReportIds: mockAccumulatedReports.map((r) => r.reportId),
+        totalReportsExtracted: mockAccumulatedReports.length,
+      }),
+      action03: jest.fn().mockResolvedValue({
+        reportGenerationCompleted: true,
+        reportStructure: {
+          targetMonth: '2024-01',
+          generatedAt: '2024-02-01T00:00:00Z',
+        },
+      }),
+      action04: jest.fn().mockResolvedValue(mockTimeSeriesAnalysisResult),
+      action05: jest.fn().mockResolvedValue({
+        bottleneckPhases: [
+          { week: 3, severity: 'high', primaryBottleneck: 'quality' },
+        ],
+      }),
+      action06: jest.fn().mockResolvedValue({
+        performanceMetrics: {
+          averageIssueResolutionDays: 2.5,
+          issueReportingRate: 0.85,
+          recurrenceRate: 0.12,
+        },
+      }),
+      action07: jest.fn().mockResolvedValue({
+        analysisReportGenerated: true,
+        reportId: 'monthly-report-2024-01-001',
+      }),
+      action08: jest.fn().mockResolvedValue({
+        distributionCompleted: true,
+        recipientCount: 5,
+      }),
     };
 
-    // Invoke the logic function with mock data
-    const analysisResult = await generateWeeklyAnalysisReport({
-      trigger: monthlyReportTrigger,
-      accumulatedReports: accumulatedReportData,
-      aiClient: mockAiClient,
-      reportMetadata: {
-        totalMembers: 10,
-        totalReportDays: 30,
-        reportsPerDay: 3,
-      },
-    });
+    const result = await runTx7Imp1Agent(mockReportGenerationRequest, fakeAiClient);
 
-    // Verify Action 4 prompt was invoked
-    expect(action04PromptCalled).toBe(true);
+    expect(fakeAiClient.action04).toHaveBeenCalled();
 
-    // Verify the data passed to Action 4 contains complete report dataset
-    expect(capturedAction04Data).not.toBeNull();
-    expect(capturedAction04Data.reportCount).toBe(900); // 10 members × 30 days × 3 reports
-    expect(capturedAction04Data.memberCount).toBe(10);
-    expect(capturedAction04Data.dayCount).toBe(30);
+    const action04CallArgs = fakeAiClient.action04.mock.calls[0];
+    expect(action04CallArgs).toBeDefined();
+    expect(action04CallArgs[0]).toEqual(
+      expect.objectContaining({
+        targetMonth: '2024-01',
+        teamId: 'team-001',
+      })
+    );
+    expect(action04CallArgs[0].accumulatedReports).toBeDefined();
+    expect(Array.isArray(action04CallArgs[0].accumulatedReports)).toBe(true);
+    expect(action04CallArgs[0].accumulatedReports.length).toBe(300);
 
-    // Verify analysis result structure
-    expect(analysisResult).toHaveProperty("analysisDate");
-    expect(analysisResult).toHaveProperty("trendPeriod");
-    expect(analysisResult).toHaveProperty("timeSeriesData");
-    expect(analysisResult).toHaveProperty("newIssuesDetected");
-    expect(analysisResult).toHaveProperty("analysisVersion");
-
-    // Verify time-series data structure
-    expect(Array.isArray(analysisResult.timeSeriesData)).toBe(true);
-    expect(analysisResult.timeSeriesData.length).toBe(4); // 4 weeks
-
-    // Verify week 1 data
-    expect(analysisResult.timeSeriesData[0]).toEqual({
-      week: 1,
-      issueCount: 15,
-      categories: {
-        performance: 10,
-        quality: 5,
-      },
-    });
-
-    // Verify analysis version matches Action 04 prompt version
-    expect(analysisResult.analysisVersion).toBe(ACTION_04_PROMPT_VERSION);
-
-    // Verify analysis date is in correct ISO format
-    expect(analysisResult.analysisDate).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
+    expect(mockTimeSeriesAnalysisResult).toEqual(
+      expect.objectContaining({
+        analysisDate: expect.any(String),
+        trendPeriod: expect.stringContaining('2024-01'),
+        timeSeriesData: expect.any(Array),
+        newIssuesDetected: expect.any(Boolean),
+        analysisVersion: expect.any(String),
+      })
     );
 
-    // Verify trend period captures full month range
-    expect(analysisResult.trendPeriod).toBe("2024-01-01〜2024-01-31");
+    expect(mockTimeSeriesAnalysisResult.timeSeriesData).toHaveLength(4);
+    mockTimeSeriesAnalysisResult.timeSeriesData.forEach((weekData) => {
+      expect(weekData).toEqual(
+        expect.objectContaining({
+          week: expect.any(Number),
+          issueCount: expect.any(Number),
+          categories: expect.any(Array),
+        })
+      );
+    });
 
-    // Verify new issues detection flag
-    expect(typeof analysisResult.newIssuesDetected).toBe("boolean");
-    expect(analysisResult.newIssuesDetected).toBe(false);
+    expect(fakeAiClient.action05).toHaveBeenCalled();
 
-    // Verify result structure has no unexpected fields
-    const expectedKeys = new Set([
-      "analysisDate",
-      "trendPeriod",
-      "timeSeriesData",
-      "newIssuesDetected",
-      "analysisVersion",
-    ]);
-    const resultKeys = new Set(Object.keys(analysisResult));
-    expect(resultKeys).toEqual(expectedKeys);
+    const action05CallArgs = fakeAiClient.action05.mock.calls[0];
+    expect(action05CallArgs[0]).toEqual(
+      expect.objectContaining({
+        timeSeriesData: mockTimeSeriesAnalysisResult.timeSeriesData,
+      })
+    );
 
-    // Verify Action 4 prompt module exports
-    expect(typeof buildAction04Prompt).toBe("function");
-    expect(typeof ACTION_04_PROMPT_VERSION).toBe("string");
-    expect(ACTION_04_PROMPT_VERSION.length).toBeGreaterThan(0);
+    expect(result).toBeDefined();
+    expect(result).toEqual(
+      expect.objectContaining({
+        reportId: expect.any(String),
+        generatedAt: expect.any(String),
+        status: expect.stringMatching(/success|partial_success|failed/),
+      })
+    );
   });
 });

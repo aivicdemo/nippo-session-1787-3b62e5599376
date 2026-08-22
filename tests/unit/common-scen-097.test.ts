@@ -1,125 +1,138 @@
-import { generateWeeklyAnalysisReport } from "../../src/logic/analysis-reporting";
-import type { Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/types";
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { runTx5Imp1Agent } from '../../src/agents/tx-5-imp-1/orchestrator';
 
-describe("generateWeeklyAnalysisReport with escalation for multiple categories", () => {
+describe('tx-5-imp-1 orchestrator', () => {
+  let mockAiClient: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   // SCEN-097
-  test("should escalate to human review when extracted issue matches multiple categories before tool integration", async () => {
-    const extracted_issue_id = "ISSUE-20240115-001";
-    const extracted_issue_text =
-      "Database performance degradation affecting both payment processing and user authentication";
-    const extracted_categories_detected = ["performance", "database", "security"];
+  test('should escalate to human when extracted issue matches multiple categories before confirming side effects', async () => {
+    const extractedIssueId = 'ISSUE-001';
+    const extractedIssueData = [
+      {
+        issueId: extractedIssueId,
+        title: 'API timeout in production',
+        description: 'Customer-facing API experiencing timeout errors',
+        extractedAt: new Date('2024-01-15T10:00:00Z').toISOString(),
+      },
+    ];
 
-    const mock_ai_client: Tx5Imp1AiClient = {
-      action01_validate_format: jest.fn(async () => ({
-        is_valid: true,
-        validation_errors: [],
-      })),
-
-      action02_auto_judge_priority_category: jest.fn(async () => ({
-        priority_score: 8,
-        category_matches: [
-          {
-            category_name: "database_performance",
-            confidence: 0.92,
-          },
-          {
-            category_name: "security_access_control",
-            confidence: 0.88,
-          },
-          {
-            category_name: "payment_system_critical",
-            confidence: 0.85,
-          },
-        ],
-        judgment_reasoning:
-          "Issue text contains keywords matching three distinct business categories",
-        multiple_categories_detected: true,
-      })),
-
-      action03_configure_tool_integration: jest.fn(async () => ({
-        success: false,
-        error_message:
-          "This action should not be called due to escalation at Action 2",
-      })),
-
-      action04_register_to_jira: jest.fn(async () => ({
-        success: false,
-        error_message:
-          "This action should not be called due to escalation at Action 2",
-      })),
-
-      action05_register_to_asana: jest.fn(async () => ({
-        success: false,
-        error_message:
-          "This action should not be called due to escalation at Action 2",
-      })),
-
-      action06_record_integration_status: jest.fn(async () => ({
-        success: false,
-        error_message:
-          "This action should not be called due to escalation at Action 2",
-      })),
+    const toolIntegrationConfig = {
+      toolType: 'jira' as const,
+      apiEndpoint: 'https://jira.example.com',
+      credentials: { token: 'test-token' },
     };
 
-    const escalation_timestamp_start = new Date("2024-01-15T08:00:00Z");
-    const escalation_timestamp_end = new Date("2024-01-15T08:01:00Z");
+    const priorityRules = {
+      highImpactWeight: 0.4,
+      highFrequencyWeight: 0.3,
+      urgencyWeight: 0.3,
+      escalationThreshold: 70,
+    };
 
-    const result = await generateWeeklyAnalysisReport(
+    const categoryMappings = [
+      { systemCategory: 'availability', toolCategory: 'INFRA' },
+      { systemCategory: 'performance', toolCategory: 'PERF' },
+    ];
+
+    const executionTimestampBefore = new Date('2024-01-15T10:30:00Z');
+
+    mockAiClient = {
+      action01_validateExtractedIssues: jest.fn().mockResolvedValue({
+        validationStatus: 'valid',
+        validatedCount: 1,
+        issues: extractedIssueData,
+      }),
+
+      action02_judgeIssuePrioritiesAndCategories: jest.fn().mockResolvedValue({
+        judgedIssues: [
+          {
+            issueId: extractedIssueId,
+            priorityScore: 85,
+            priorityRank: 'high' as const,
+            matchedCategories: ['availability', 'performance'],
+            categoryCount: 2,
+            multipleCategories: true,
+            judgmentConfidence: 0.92,
+            judgmentReason: 'Issue matches both availability and performance categories based on symptom analysis',
+          },
+        ],
+      }),
+
+      action03_executeToolIntegrationSetup: jest.fn(),
+      action04_registerIssueToExistingTool: jest.fn(),
+      action05_recordIntegrationCompletion: jest.fn(),
+      notifyHumanForEscalation: jest.fn().mockResolvedValue({
+        notificationId: 'NOTIF-001',
+        sentAt: new Date('2024-01-15T10:30:05Z').toISOString(),
+      }),
+      recordAuditEvent: jest.fn().mockResolvedValue({
+        eventId: 'AUD-001',
+        recorded: true,
+      }),
+    };
+
+    const result = await runTx5Imp1Agent(
       {
-        issue_id: extracted_issue_id,
-        issue_text: extracted_issue_text,
-        source_date: "2024-01-15",
-        reporter_id: "EMP-12345",
+        extractedIssueData,
+        toolIntegrationConfig,
+        priorityRules,
+        categoryMappings,
       },
-      mock_ai_client
+      mockAiClient
     );
 
-    expect(result.escalation_reason).toBe("multiple_categories");
+    expect(mockAiClient.action01_validateExtractedIssues).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action02_judgeIssuePrioritiesAndCategories).toHaveBeenCalledTimes(1);
+
+    expect(result.escalationDetected).toBe(true);
+    expect(result.escalation_reason).toBe('multiple_categories');
     expect(result.human_review_required).toBe(true);
-    expect(result.escalation_timestamp).toBeDefined();
 
-    const escalation_ts = new Date(result.escalation_timestamp);
-    expect(escalation_ts.getTime()).toBeGreaterThanOrEqual(
-      escalation_timestamp_start.getTime()
-    );
-    expect(escalation_ts.getTime()).toBeLessThanOrEqual(
-      escalation_timestamp_end.getTime()
+    const escalationTimestampStr = result.escalation_timestamp;
+    expect(escalationTimestampStr).toBeDefined();
+    const escalationTimestamp = new Date(escalationTimestampStr as string);
+    expect(escalationTimestamp.getTime()).toBeGreaterThanOrEqual(
+      executionTimestampBefore.getTime()
     );
 
-    expect(result.human_notification).toBeDefined();
-    expect(result.human_notification.issue_id).toBe(extracted_issue_id);
-    expect(result.human_notification.matched_categories).toEqual([
-      "database_performance",
-      "security_access_control",
-      "payment_system_critical",
-    ]);
-    expect(result.human_notification.judgment_reasoning).toContain(
-      "three distinct business categories"
+    expect(result.escalated_issue_id).toBe(extractedIssueId);
+    expect(result.escalated_matched_categories).toEqual(['availability', 'performance']);
+    expect(result.escalation_judgment_reason).toBe(
+      'Issue matches both availability and performance categories based on symptom analysis'
     );
 
-    expect(mock_ai_client.action01_validate_format).toHaveBeenCalled();
-    expect(mock_ai_client.action02_auto_judge_priority_category).toHaveBeenCalled();
-    expect(
-      mock_ai_client.action03_configure_tool_integration
-    ).not.toHaveBeenCalled();
-    expect(mock_ai_client.action04_register_to_jira).not.toHaveBeenCalled();
-    expect(mock_ai_client.action05_register_to_asana).not.toHaveBeenCalled();
-    expect(
-      mock_ai_client.action06_record_integration_status
-    ).not.toHaveBeenCalled();
+    expect(mockAiClient.notifyHumanForEscalation).toHaveBeenCalledTimes(1);
+    const notificationCall = mockAiClient.notifyHumanForEscalation.mock.calls[0];
+    expect(notificationCall[0]).toMatchObject({
+      issueId: extractedIssueId,
+      matchedCategories: ['availability', 'performance'],
+      judgmentReason: expect.stringMatching(/availability|performance/),
+    });
 
-    expect(result.audit_log_entry).toBeDefined();
-    expect(result.audit_log_entry.event_type).toBe("escalation");
-    expect(result.audit_log_entry.escalation_reason).toBe("multiple_categories");
-    expect(result.audit_log_entry.actor).toBe("ai_agent_tx5_imp1");
-    expect(result.audit_log_entry.timestamp).toBeDefined();
+    expect(mockAiClient.action03_executeToolIntegrationSetup).not.toHaveBeenCalled();
+    expect(mockAiClient.action04_registerIssueToExistingTool).not.toHaveBeenCalled();
+    expect(mockAiClient.action05_recordIntegrationCompletion).not.toHaveBeenCalled();
 
-    const audit_ts = new Date(result.audit_log_entry.timestamp);
-    expect(audit_ts.getTime()).toBeGreaterThanOrEqual(
-      escalation_timestamp_start.getTime()
-    );
-    expect(audit_ts.getTime()).toBeLessThanOrEqual(
-      escalation_timestamp_end.getTime()
-    );
+    expect(mockAiClient.recordAuditEvent).toHaveBeenCalledTimes(1);
+    const auditCall = mockAiClient.recordAuditEvent.mock.calls[0];
+    expect(auditCall[0]).toMatchObject({
+      event_type: 'escalation',
+      escalation_reason: 'multiple_categories',
+      actor: 'ai_agent_tx5_imp1',
+      issue_id: extractedIssueId,
+      timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
+    });
+
+    expect(result.integrationResult.successCount).toBe(0);
+    expect(result.integrationResult.failureCount).toBe(0);
+    expect(result.integrationResult.escalatedCount).toBe(1);
+
+    expect(result.executionSummary.totalIssuesProcessed).toBe(1);
+    expect(result.executionSummary.escalationOccurred).toBe(true);
+    expect(result.executionSummary.finalStatus).toBe('escalated');
   });
 });

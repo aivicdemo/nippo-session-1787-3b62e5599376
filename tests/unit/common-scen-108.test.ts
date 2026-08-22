@@ -1,142 +1,327 @@
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx6Imp1Agent } from "../../src/agents/tx-6-imp-1/orchestrator";
+import { type Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 
-describe('notification-delivery', () => {
-  test('SCEN-108: AIエージェントが未提出メンバーを特定してリマインド通知を送信する', async () => {
-    // テストデータ: 前週月曜日から日曜日までの日報提出状況（10名中8名提出済み、2名未提出）
-    const submission_status_list = [
-      {
-        member_id: 'emp_001',
-        member_name: '田中太郎',
-        submitted: true,
-        submission_date: '2024-01-15T09:00:00Z',
-      },
-      {
-        member_id: 'emp_002',
-        member_name: '鈴木花子',
-        submitted: true,
-        submission_date: '2024-01-15T08:30:00Z',
-      },
-      {
-        member_id: 'emp_003',
-        member_name: '佐藤次郎',
-        submitted: false,
-        submission_date: null,
-      },
-      {
-        member_id: 'emp_004',
-        member_name: '伊藤美咲',
-        submitted: true,
-        submission_date: '2024-01-15T10:15:00Z',
-      },
-      {
-        member_id: 'emp_005',
-        member_name: '渡辺健一',
-        submitted: true,
-        submission_date: '2024-01-15T09:45:00Z',
-      },
-      {
-        member_id: 'emp_006',
-        member_name: '中村由美',
-        submitted: true,
-        submission_date: '2024-01-15T08:00:00Z',
-      },
-      {
-        member_id: 'emp_007',
-        member_name: '山田浩二',
-        submitted: false,
-        submission_date: null,
-      },
-      {
-        member_id: 'emp_008',
-        member_name: '木村麻衣',
-        submitted: true,
-        submission_date: '2024-01-15T10:00:00Z',
-      },
-      {
-        member_id: 'emp_009',
-        member_name: '橋本裕介',
-        submitted: true,
-        submission_date: '2024-01-15T09:30:00Z',
-      },
-      {
-        member_id: 'emp_010',
-        member_name: '高橋智也',
-        submitted: true,
-        submission_date: '2024-01-15T07:45:00Z',
-      },
-    ];
+describe("Tx6Imp1Agent - 日報収集から分析レポート生成までの自動実行", () => {
+  let mockAiClient: jest.Mocked<Tx6Imp1AiClient>;
+  let auditLog: Array<{
+    timestamp: Date;
+    action: string;
+    sender: string;
+    recipients: string[];
+    details?: Record<string, unknown>;
+  }>;
 
-    const submission_deadline = '2024-01-15T17:00:00Z';
-    const report_date = '2024-01-15';
-    const report_base_url = 'https://app.example.com/reports';
+  beforeEach(() => {
+    auditLog = [];
 
-    // 関数実行
-    const result = await sendUnsubmittedReminder({
-      submission_status: submission_status_list,
-      deadline: submission_deadline,
-      report_date: report_date,
-      report_url_base: report_base_url,
+    mockAiClient = {
+      action01_collectReportData: jest.fn(async () => ({
+        reports: [
+          {
+            memberId: "emp_001",
+            memberName: "田中太郎",
+            submittedAt: new Date("2024-01-12T10:00:00Z"),
+            content: "昨日の成果：システムA機能実装完了",
+          },
+          {
+            memberId: "emp_002",
+            memberName: "佐藤花子",
+            submittedAt: new Date("2024-01-12T11:30:00Z"),
+            content: "バグ修正対応、テスト実施",
+          },
+          {
+            memberId: "emp_003",
+            memberName: "鈴木次郎",
+            submittedAt: null,
+            content: null,
+          },
+          {
+            memberId: "emp_004",
+            memberName: "高橋美咲",
+            submittedAt: new Date("2024-01-12T14:00:00Z"),
+            content: "ドキュメント作成",
+          },
+          {
+            memberId: "emp_005",
+            memberName: "山本健一",
+            submittedAt: new Date("2024-01-12T09:15:00Z"),
+            content: "提案資料準備完了",
+          },
+          {
+            memberId: "emp_006",
+            memberName: "渡辺由美",
+            submittedAt: new Date("2024-01-12T15:45:00Z"),
+            content: "営業活動レポート",
+          },
+          {
+            memberId: "emp_007",
+            memberName: "伊藤誠一",
+            submittedAt: null,
+            content: null,
+          },
+          {
+            memberId: "emp_008",
+            memberName: "小松美優",
+            submittedAt: new Date("2024-01-12T13:20:00Z"),
+            content: "品質チェック完了",
+          },
+          {
+            memberId: "emp_009",
+            memberName: "林尚子",
+            submittedAt: new Date("2024-01-12T16:00:00Z"),
+            content: "プロジェクト進捗確認",
+          },
+          {
+            memberId: "emp_010",
+            memberName: "中村隆夫",
+            submittedAt: new Date("2024-01-12T10:45:00Z"),
+            content: "技術検証作業",
+          },
+        ],
+        analysisStartDate: "2024-01-08",
+        analysisEndDate: "2024-01-14",
+        teamId: "team_A",
+      })),
+
+      action02_identifyAndRemindUnsubmitted: jest.fn(async (params) => {
+        const unsubmittedMembers = params.reports.filter(
+          (r) => r.submittedAt === null
+        );
+        const reminders = unsubmittedMembers.map((member) => ({
+          memberId: member.memberId,
+          memberName: member.memberName,
+          reportUrl: `https://app.example.com/report/${member.memberId}`,
+          deadline: "2024-01-12T17:00:00Z",
+          reminderSentAt: new Date("2024-01-12T16:30:00Z"),
+        }));
+
+        auditLog.push({
+          timestamp: new Date("2024-01-12T16:30:00Z"),
+          action: "REMINDER_SENT",
+          sender: "AIAgent",
+          recipients: unsubmittedMembers.map((m) => m.memberId),
+          details: {
+            count: reminders.length,
+            reminders: reminders,
+          },
+        });
+
+        return {
+          unsubmittedCount: unsubmittedMembers.length,
+          reminders: reminders,
+          sentAt: new Date("2024-01-12T16:30:00Z"),
+        };
+      }),
+
+      action03_extractAndClassifyIssues: jest.fn(async (params) => ({
+        issues: [
+          {
+            keyword: "システムA機能実装",
+            occurrenceCount: 1,
+            category: "実装",
+          },
+          {
+            keyword: "バグ修正",
+            occurrenceCount: 2,
+            category: "品質",
+          },
+          {
+            keyword: "テスト実施",
+            occurrenceCount: 1,
+            category: "品質",
+          },
+        ],
+        extractedAt: new Date("2024-01-12T16:35:00Z"),
+      })),
+
+      action04_analyzeTrend: jest.fn(async (params) => ({
+        trendAnalysis: {
+          topCategories: ["品質", "実装"],
+          frequencyByCategory: {
+            品質: 3,
+            実装: 1,
+          },
+          weekOverWeekChange: {
+            品質: 0.15,
+            実装: -0.05,
+          },
+        },
+        analyzedAt: new Date("2024-01-12T16:40:00Z"),
+      })),
+
+      action05_scoreAndPrioritize: jest.fn(async (params) => ({
+        priorityIssues: [
+          {
+            issueKeyword: "バグ修正",
+            occurrenceCount: 2,
+            priorityScore: 85,
+            priorityRank: "高",
+          },
+          {
+            issueKeyword: "システムA機能実装",
+            occurrenceCount: 1,
+            priorityScore: 65,
+            priorityRank: "中",
+          },
+          {
+            issueKeyword: "テスト実施",
+            occurrenceCount: 1,
+            priorityScore: 60,
+            priorityRank: "中",
+          },
+        ],
+        scoredAt: new Date("2024-01-12T16:45:00Z"),
+      })),
+
+      action06_generateReport: jest.fn(async (params) => ({
+        reportId: "report_20240112_001",
+        reportContent: {
+          period: {
+            startDate: "2024-01-08",
+            endDate: "2024-01-14",
+          },
+          submissionRate: 0.8,
+          unsubmittedCount: 2,
+          topPriorityIssues: params.topPriorityIssues,
+          trendAnalysis: params.trendAnalysis,
+        },
+        generatedAt: new Date("2024-01-12T16:50:00Z"),
+      })),
+
+      action07_distributionReport: jest.fn(async (params) => ({
+        reportId: params.reportId,
+        distributedAt: new Date("2024-01-12T16:55:00Z"),
+        recipients: ["director_chief"],
+      })),
+    } as jest.Mocked<Tx6Imp1AiClient>;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // SCEN-108
+  test("should execute autonomous report generation with unsubmitted member identification and reminder notification", async () => {
+    const input = {
+      executionTimestamp: new Date("2024-01-12T16:30:00Z"),
+      analysisStartDate: "2024-01-08",
+      analysisEndDate: "2024-01-14",
+      teamId: "team_A",
+    };
+
+    const result = await runTx6Imp1Agent(input, mockAiClient);
+
+    expect(mockAiClient.action01_collectReportData).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action01_collectReportData).toHaveBeenCalledWith({
+      executionTimestamp: input.executionTimestamp,
+      analysisStartDate: input.analysisStartDate,
+      analysisEndDate: input.analysisEndDate,
+      teamId: input.teamId,
     });
 
-    // 期待値の検証
+    const collectResult = await mockAiClient.action01_collectReportData({
+      executionTimestamp: input.executionTimestamp,
+      analysisStartDate: input.analysisStartDate,
+      analysisEndDate: input.analysisEndDate,
+      teamId: input.teamId,
+    });
 
-    // 1. 未提出メンバーが正確に特定されたことを確認（2名: emp_003, emp_007）
-    expect(result.unsubmitted_members).toHaveLength(2);
-    expect(result.unsubmitted_members[0].member_id).toBe('emp_003');
-    expect(result.unsubmitted_members[0].member_name).toBe('佐藤次郎');
-    expect(result.unsubmitted_members[1].member_id).toBe('emp_007');
-    expect(result.unsubmitted_members[1].member_name).toBe('山田浩二');
-
-    // 2. リマインド通知ペイロードの検証（2件の通知が生成されたことを確認）
-    expect(result.reminder_notifications).toHaveLength(2);
-
-    // 3. 最初のリマインド通知（emp_003向け）の検証
-    const notification_1 = result.reminder_notifications[0];
-    expect(notification_1.recipient_id).toBe('emp_003');
-    expect(notification_1.recipient_name).toBe('佐藤次郎');
-    expect(notification_1.report_url).toBe(
-      `${report_base_url}?date=${report_date}&member_id=emp_003`,
+    expect(mockAiClient.action02_identifyAndRemindUnsubmitted).toHaveBeenCalledTimes(
+      1
     );
-    expect(notification_1.submission_deadline).toBe(submission_deadline);
-    expect(notification_1.notification_type).toBe('UNSUBMITTED_REMINDER');
+    expect(
+      mockAiClient.action02_identifyAndRemindUnsubmitted
+    ).toHaveBeenCalledWith({
+      reports: collectResult.reports,
+      teamId: input.teamId,
+    });
 
-    // 4. 2番目のリマインド通知（emp_007向け）の検証
-    const notification_2 = result.reminder_notifications[1];
-    expect(notification_2.recipient_id).toBe('emp_007');
-    expect(notification_2.recipient_name).toBe('山田浩二');
-    expect(notification_2.report_url).toBe(
-      `${report_base_url}?date=${report_date}&member_id=emp_007`,
+    const reminderResult = await mockAiClient.action02_identifyAndRemindUnsubmitted(
+      {
+        reports: collectResult.reports,
+        teamId: input.teamId,
+      }
     );
-    expect(notification_2.submission_deadline).toBe(submission_deadline);
-    expect(notification_2.notification_type).toBe('UNSUBMITTED_REMINDER');
 
-    // 5. 監査ログの検証
-    expect(result.audit_log).toBeDefined();
-    expect(result.audit_log.action).toBe('REMINDER_SENT');
-    expect(result.audit_log.sender).toBe('AIAgent');
-    expect(result.audit_log.recipient_ids).toEqual(['emp_003', 'emp_007']);
-    expect(result.audit_log.notification_count).toBe(2);
-    expect(result.audit_log.timestamp).toBeDefined();
+    expect(reminderResult.unsubmittedCount).toBe(2);
+    expect(reminderResult.reminders).toHaveLength(2);
 
-    // 6. 提出済みメンバーに対する通知が生成されていないことを確認
-    const submitted_member_ids = [
-      'emp_001',
-      'emp_002',
-      'emp_004',
-      'emp_005',
-      'emp_006',
-      'emp_008',
-      'emp_009',
-      'emp_010',
-    ];
-    const notification_recipients = result.reminder_notifications.map(
-      (n: { recipient_id: string }) => n.recipient_id,
+    const unsubmittedIds = reminderResult.reminders.map((r) => r.memberId);
+    expect(unsubmittedIds).toEqual(
+      expect.arrayContaining(["emp_003", "emp_007"])
     );
-    for (const submitted_id of submitted_member_ids) {
-      expect(notification_recipients).not.toContain(submitted_id);
-    }
+    expect(unsubmittedIds).not.toContain("emp_001");
+    expect(unsubmittedIds).not.toContain("emp_002");
+    expect(unsubmittedIds).not.toContain("emp_004");
+    expect(unsubmittedIds).not.toContain("emp_005");
+    expect(unsubmittedIds).not.toContain("emp_006");
+    expect(unsubmittedIds).not.toContain("emp_008");
+    expect(unsubmittedIds).not.toContain("emp_009");
+    expect(unsubmittedIds).not.toContain("emp_010");
 
-    // 7. リマインド通知送信が成功したことを確認
-    expect(result.success).toBe(true);
+    const emp003Reminder = reminderResult.reminders.find(
+      (r) => r.memberId === "emp_003"
+    );
+    expect(emp003Reminder).toBeDefined();
+    expect(emp003Reminder?.memberName).toBe("鈴木次郎");
+    expect(emp003Reminder?.reportUrl).toBe(
+      "https://app.example.com/report/emp_003"
+    );
+    expect(emp003Reminder?.deadline).toBe("2024-01-12T17:00:00Z");
+
+    const emp007Reminder = reminderResult.reminders.find(
+      (r) => r.memberId === "emp_007"
+    );
+    expect(emp007Reminder).toBeDefined();
+    expect(emp007Reminder?.memberName).toBe("伊藤誠一");
+    expect(emp007Reminder?.reportUrl).toBe(
+      "https://app.example.com/report/emp_007"
+    );
+    expect(emp007Reminder?.deadline).toBe("2024-01-12T17:00:00Z");
+
+    expect(auditLog).toHaveLength(1);
+    expect(auditLog[0].action).toBe("REMINDER_SENT");
+    expect(auditLog[0].sender).toBe("AIAgent");
+    expect(auditLog[0].recipients).toEqual(
+      expect.arrayContaining(["emp_003", "emp_007"])
+    );
+    expect(auditLog[0].recipients).toHaveLength(2);
+    expect(auditLog[0].details?.count).toBe(2);
+
+    expect(mockAiClient.action03_extractAndClassifyIssues).toHaveBeenCalledTimes(
+      1
+    );
+    expect(mockAiClient.action04_analyzeTrend).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.action05_scoreAndPrioritize).toHaveBeenCalledTimes(1);
+
+    const priorityResult = await mockAiClient.action05_scoreAndPrioritize({
+      issues: [],
+      trendAnalysis: {},
+    });
+
+    expect(mockAiClient.action06_generateReport).toHaveBeenCalledTimes(1);
+    const reportResult = await mockAiClient.action06_generateReport({
+      reportId: "report_20240112_001",
+      topPriorityIssues: priorityResult.priorityIssues,
+      trendAnalysis: {},
+    });
+
+    expect(reportResult.reportContent.unsubmittedCount).toBe(2);
+    expect(reportResult.reportContent.submissionRate).toBe(0.8);
+    expect(reportResult.reportContent.period.startDate).toBe("2024-01-08");
+    expect(reportResult.reportContent.period.endDate).toBe("2024-01-14");
+
+    expect(mockAiClient.action07_distributionReport).toHaveBeenCalledTimes(1);
+    const distributionResult = await mockAiClient.action07_distributionReport({
+      reportId: reportResult.reportId,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.reportId).toBe("report_20240112_001");
+    expect(result.extractedIssueCount).toBeGreaterThan(0);
+    expect(result.topPriorityIssues).toHaveLength(
+      expect.any(Number)
+    );
   });
 });

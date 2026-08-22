@@ -1,571 +1,393 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { generateWeeklyAnalysisReport } from "../../src/logic/analysis-reporting";
-import type {
-  Tx6Imp1AiClient,
-  WeeklyAnalysisReportInput,
-  WeeklyAnalysisReportOutput,
-} from "../../src/agents/tx-6-imp-1/types";
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx6Imp1Agent } from '../../src/agents/tx-6-imp-1/orchestrator';
+import type { Tx6AgentInput, Tx6AgentOutput } from '../../src/agents/tx-6-imp-1/types';
+import type { Tx6Imp1AiClient } from '../../src/agents/tx-6-imp-1/ai-client';
 
-const fetchMock = require("jest-fetch-mock");
+describe('TX6 日報収集から分析レポート生成までの自動実行 - AI出力検証', () => {
+  let mockAiClient: jest.Mocked<Tx6Imp1AiClient>;
+  let auditLogs: Array<{ event: string; timestamp: Date; details: unknown }>;
 
-describe("generateWeeklyAnalysisReport", () => {
   beforeEach(() => {
-    fetchMock.resetMocks();
+    auditLogs = [];
+
+    mockAiClient = {
+      executeAction01: jest.fn(),
+      executeAction02: jest.fn(),
+      executeAction03: jest.fn(),
+      executeAction04: jest.fn(),
+      executeAction05: jest.fn(),
+      executeAction06: jest.fn(),
+      executeAction07: jest.fn(),
+    };
   });
 
   afterEach(() => {
-    fetchMock.resetMocks();
+    jest.clearAllMocks();
   });
 
-  // SCEN-118: [error] AI出力が不正・曖昧・低確信度の場合、パイプラインを中断してエスカレーション制御を人へ委譲
-  test("should reject malformed AI output and escalate to human review with audit log", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        // (a) JSONスキーマ不適合: 必須フィールド欠落
-        reportDataList: [
-          {
-            reportId: "RPT-20240113-001",
-            memberId: "MEM-001",
-            reportDate: "2024-01-08",
-            // 必須フィールド 'reportContent' が欠落
-            reportContent: undefined as any,
-            isSubmitted: true,
-          },
-        ],
-        totalReports: 1,
-        submittedReports: 1,
-        unsubmittedMembers: [],
-        validationStatus: "partial_data",
-        // (c) confidenceScore < 0.7 (不確信度が低い)
-        confidenceScore: 0.65,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [],
-        confidenceScore: 0.65,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        classifiedIssues: [],
-        confidenceScore: 0.65,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.65,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.65,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Schema validation failed"],
-        confidenceScore: 0.65,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.65,
-      }),
+  // SCEN-118
+  it('should detect malformed AI output and safely escalate without executing subsequent actions', async () => {
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+
+    const input: Tx6AgentInput = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-001",
-      triggerSource: "scheduled",
+    // Mock Action 1 (日報収集) to return malformed output with missing required field
+    mockAiClient.executeAction01.mockResolvedValueOnce({
+      action: 'collect_reports',
+      collectedReportIds: ['report-001', 'report-002'],
+      collectionTimestamp: new Date('2024-01-08T09:05:00Z'),
+      unsubmittedMembers: ['member-003', 'member-004'],
+      // ❌ Missing required field: totalReportCount
+      // totalReportCount intentionally omitted
+    });
+
+    // Action 2, 3, 4, 5, 6, 7 should NOT be called if validation fails
+    mockAiClient.executeAction02.mockResolvedValueOnce({
+      action: 'extract_issues',
+      extractedIssues: [],
+      extractionTimestamp: new Date('2024-01-08T09:10:00Z'),
+    });
+
+    mockAiClient.executeAction03.mockResolvedValueOnce({
+      action: 'classify_issues',
+      classifiedIssues: [],
+      classificationTimestamp: new Date('2024-01-08T09:15:00Z'),
+    });
+
+    mockAiClient.executeAction04.mockResolvedValueOnce({
+      action: 'analyze_trends',
+      trendAnalysis: {},
+      analysisTimestamp: new Date('2024-01-08T09:20:00Z'),
+    });
+
+    mockAiClient.executeAction05.mockResolvedValueOnce({
+      action: 'score_priorities',
+      priorityScores: [],
+      scoringTimestamp: new Date('2024-01-08T09:25:00Z'),
+    });
+
+    mockAiClient.executeAction06.mockResolvedValueOnce({
+      action: 'generate_report',
+      reportContent: '',
+      reportGeneratedAt: new Date('2024-01-08T09:30:00Z'),
+    });
+
+    mockAiClient.executeAction07.mockResolvedValueOnce({
+      action: 'distribute_report',
+      distributionTimestamp: new Date('2024-01-08T09:35:00Z'),
+      recipientCount: 0,
+    });
+
+    // Inject audit logger mock
+    const auditLogger = (event: string, details: unknown) => {
+      auditLogs.push({
+        event,
+        timestamp: new Date('2024-01-08T09:00:00Z'),
+        details,
+      });
     };
 
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
+    const output = await runTx6Imp1Agent(input, mockAiClient, auditLogger);
 
-    // Assert
-
-    // 1. パイプラインが中断されたことを確認（escalationFlag = true）
+    // Assertions: Validation should detect missing field and escalate
     expect(output.escalationFlag).toBe(true);
+    expect(output.escalationReason).toMatch(/必須フィールド|totalReportCount|JSON スキーマ/i);
 
-    // 2. エスカレーション理由が『分析結果に矛盾や異常値が含まれる場合』に該当
-    expect(output.escalationReason).toMatch(/矛盾|異常値|スキーマ/i);
+    // Action 1 (日報収集) should have been called
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
 
-    // 3. 後続アクション（Action 2～7）が実行されていないことを確認
-    // Action 2以降の実行結果が状態に反映されていない
-    expect(output.trendAnalysisResult).toBeUndefined();
-    expect(output.generatedReportContent).toBeUndefined();
-    expect(output.distributionStatus).not.toBe("completed");
+    // Subsequent actions should NOT have been called due to escalation
+    expect(mockAiClient.executeAction02).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction03).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction04).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction05).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction06).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction07).not.toHaveBeenCalled();
 
-    // 4. 配信待ち状態に留まっていることを確認
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 5. 監査ログに『AI出力検証失敗→エスカレーション』イベントが記録されていることを確認
-    expect(output.auditEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventType: "AI_OUTPUT_VALIDATION_FAILED",
-          action: "escalated_to_human_review",
-          timestamp: expect.any(String),
-          details: expect.objectContaining({
-            failureReason: expect.stringMatching(
-              /confidenceScore|schema|required_field/i
-            ),
-          }),
-        }),
-      ])
+    // Verify audit log recorded validation failure and escalation
+    const validationFailureLog = auditLogs.find(
+      (log) => log.event === 'AI_OUTPUT_VALIDATION_FAILED'
+    );
+    expect(validationFailureLog).toBeDefined();
+    expect(validationFailureLog?.details).toEqual(
+      expect.objectContaining({
+        action: 'collect_reports',
+        reason: expect.stringMatching(/必須フィールド|totalReportCount/i),
+      })
     );
 
-    // 6. 日報配信待ちの状態であることを確認
-    expect(output.readyForDistribution).toBe(false);
+    const escalationLog = auditLogs.find(
+      (log) => log.event === 'ESCALATION_TRIGGERED'
+    );
+    expect(escalationLog).toBeDefined();
+    expect(escalationLog?.details).toEqual(
+      expect.objectContaining({
+        escalationCondition: '分析結果に矛盾や異常値が含まれる場合',
+        action: 'collect_reports',
+      })
+    );
+
+    // Report should remain in pending state, not distributed
+    expect(output.reportId).toBeUndefined();
+    expect(output.reportGeneratedAt).toBeUndefined();
+    expect(output.emailSentAt).toBeUndefined();
   });
 
-  // SCEN-118: [error] 矛盾する課題分類が検出される場合、エスカレーション
-  test("should detect contradictory issue classification and escalate", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        reportDataList: [
-          {
-            reportId: "RPT-20240113-002",
-            memberId: "MEM-002",
-            reportDate: "2024-01-08",
-            reportContent: "サーバーダウンが発生した",
-            isSubmitted: true,
-          },
-        ],
-        totalReports: 1,
-        submittedReports: 1,
-        unsubmittedMembers: [],
-        validationStatus: "complete",
-        confidenceScore: 0.95,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [
-          {
-            issueId: "ISSUE-001",
-            title: "サーバーダウン",
-            severity: "critical",
-            extractedText: "サーバーダウンが発生した",
-            sourceReportId: "RPT-20240113-002",
-          },
-        ],
-        confidenceScore: 0.95,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        // (d) 矛盾する課題分類: 同一課題に複数の矛盾するカテゴリを割り当て
-        classifiedIssues: [
-          {
-            issueId: "ISSUE-001",
-            category: "infrastructure",
-            subcategory: "server",
-            priority: "high",
-            impactRange: "team",
-          },
-          {
-            issueId: "ISSUE-001",
-            category: "documentation",
-            subcategory: "process",
-            priority: "low",
-            impactRange: "individual",
-          },
-        ],
-        confidenceScore: 0.72,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.72,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.72,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Contradictory classification detected"],
-        confidenceScore: 0.72,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.72,
-      }),
+  // Additional test case: Low confidence score escalation
+  it('should escalate when AI output confidenceScore is below 0.7 threshold', async () => {
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+
+    const input: Tx6AgentInput = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-002",
-      triggerSource: "manual",
+    // Mock Action 1 with low confidence score
+    mockAiClient.executeAction01.mockResolvedValueOnce({
+      action: 'collect_reports',
+      collectedReportIds: ['report-001', 'report-002'],
+      collectionTimestamp: new Date('2024-01-08T09:05:00Z'),
+      unsubmittedMembers: ['member-003', 'member-004'],
+      totalReportCount: 10,
+      confidenceScore: 0.65, // ❌ Below 0.7 threshold
+    });
+
+    const auditLogger = (event: string, details: unknown) => {
+      auditLogs.push({
+        event,
+        timestamp: new Date('2024-01-08T09:00:00Z'),
+        details,
+      });
     };
 
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
+    const output = await runTx6Imp1Agent(input, mockAiClient, auditLogger);
 
-    // Assert
-
-    // 1. エスカレーションフラグが立つ
     expect(output.escalationFlag).toBe(true);
+    expect(output.escalationReason).toMatch(/信頼度|confidence/i);
 
-    // 2. エスカレーション理由に『矛盾』が含まれる
-    expect(output.escalationReason).toMatch(/矛盾/);
+    // Only Action 1 should be called
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction02).not.toHaveBeenCalled();
 
-    // 3. パイプラインが中断される
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 4. 配信予定状態ではない
-    expect(output.readyForDistribution).toBe(false);
-
-    // 5. 監査ログが記録される
-    expect(output.auditEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventType: "AI_OUTPUT_VALIDATION_FAILED",
-        }),
-      ])
+    const confidenceLog = auditLogs.find(
+      (log) => log.event === 'AI_OUTPUT_VALIDATION_FAILED'
+    );
+    expect(confidenceLog?.details).toEqual(
+      expect.objectContaining({
+        reason: expect.stringMatching(/信頼度|confidence/i),
+      })
     );
   });
 
-  // SCEN-118: [error] 必須フィールド欠落時の検証失敗
-  test("should reject missing required fields in AI output", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        reportDataList: [
-          {
-            reportId: "RPT-20240113-003",
-            memberId: "MEM-003",
-            reportDate: "2024-01-08",
-            reportContent: "日々の業務を進行中",
-            isSubmitted: true,
-          },
-        ],
-        totalReports: 1,
-        submittedReports: 1,
-        unsubmittedMembers: [],
-        validationStatus: "complete",
-        confidenceScore: 0.88,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [
-          {
-            issueId: "ISSUE-002",
-            title: "業務進行",
-            severity: "low",
-            extractedText: "日々の業務を進行中",
-            sourceReportId: "RPT-20240113-003",
-          },
-        ],
-        confidenceScore: 0.88,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        classifiedIssues: [
-          {
-            issueId: "ISSUE-002",
-            category: "routine",
-            // 必須フィールド 'priority' が欠落
-            priority: undefined as any,
-            impactRange: "team",
-          },
-        ],
-        confidenceScore: 0.88,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.88,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.88,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Required field 'priority' is missing"],
-        confidenceScore: 0.88,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.88,
-      }),
+  // Additional test case: Contradictory classification escalation
+  it('should escalate when AI output contains contradictory issue classifications', async () => {
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+
+    const input: Tx6AgentInput = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-003",
-      triggerSource: "scheduled",
+    // Mock successful Action 1
+    mockAiClient.executeAction01.mockResolvedValueOnce({
+      action: 'collect_reports',
+      collectedReportIds: ['report-001'],
+      collectionTimestamp: new Date('2024-01-08T09:05:00Z'),
+      unsubmittedMembers: [],
+      totalReportCount: 5,
+      confidenceScore: 0.85,
+    });
+
+    // Mock Action 2 (issue extraction) - success
+    mockAiClient.executeAction02.mockResolvedValueOnce({
+      action: 'extract_issues',
+      extractedIssues: [
+        {
+          issueId: 'issue-001',
+          content: 'Database connection timeout',
+          extractedAt: new Date('2024-01-08T09:10:00Z'),
+        },
+      ],
+      extractionTimestamp: new Date('2024-01-08T09:10:00Z'),
+      confidenceScore: 0.88,
+    });
+
+    // Mock Action 3 (classification) with contradictory data
+    mockAiClient.executeAction03.mockResolvedValueOnce({
+      action: 'classify_issues',
+      classifiedIssues: [
+        {
+          issueId: 'issue-001',
+          primaryCategory: 'infrastructure',
+          secondaryCategory: 'infrastructure',
+          priority: 'high',
+        },
+        {
+          issueId: 'issue-001', // ❌ Same issue ID but contradictory classification
+          primaryCategory: 'application',
+          secondaryCategory: 'performance',
+          priority: 'low',
+        },
+      ],
+      classificationTimestamp: new Date('2024-01-08T09:15:00Z'),
+      hasContradictions: true, // ❌ Explicit contradiction flag
+    });
+
+    const auditLogger = (event: string, details: unknown) => {
+      auditLogs.push({
+        event,
+        timestamp: new Date('2024-01-08T09:00:00Z'),
+        details,
+      });
     };
 
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
+    const output = await runTx6Imp1Agent(input, mockAiClient, auditLogger);
 
-    // Assert
-
-    // 1. エスカレーションフラグが立つ
     expect(output.escalationFlag).toBe(true);
+    expect(output.escalationReason).toMatch(/矛盾|contradiction/i);
 
-    // 2. エスカレーション理由に欠落フィールドが含まれる
-    expect(output.escalationReason).toMatch(/priority|必須|欠落/i);
+    // Actions 1 and 2 should be called, but 4+ should not
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction02).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction03).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction04).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction05).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction06).not.toHaveBeenCalled();
+    expect(mockAiClient.executeAction07).not.toHaveBeenCalled();
 
-    // 3. パイプラインが停止する
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 4. 後続処理が実行されない
-    expect(output.generatedReportContent).toBeUndefined();
-
-    // 5. 監査ログに失敗イベントが記録される
-    expect(output.auditEvents.length).toBeGreaterThan(0);
-    expect(output.auditEvents[0].eventType).toBe(
-      "AI_OUTPUT_VALIDATION_FAILED"
+    const contradictionLog = auditLogs.find(
+      (log) => log.event === 'AI_OUTPUT_VALIDATION_FAILED'
+    );
+    expect(contradictionLog?.details).toEqual(
+      expect.objectContaining({
+        reason: expect.stringMatching(/矛盾|分類/i),
+      })
     );
   });
 
-  // SCEN-118: [error] confidenceScore が閾値以下の場合
-  test("should escalate when confidence score is below threshold", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        reportDataList: [
-          {
-            reportId: "RPT-20240113-004",
-            memberId: "MEM-004",
-            reportDate: "2024-01-08",
-            reportContent: "複雑な状況が発生",
-            isSubmitted: true,
-          },
-        ],
-        totalReports: 1,
-        submittedReports: 1,
-        unsubmittedMembers: [],
-        validationStatus: "complete",
-        // (c) confidenceScore < 0.7
-        confidenceScore: 0.68,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [],
-        confidenceScore: 0.68,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        classifiedIssues: [],
-        confidenceScore: 0.68,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.68,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.68,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Confidence score below threshold: 0.68 < 0.7"],
-        confidenceScore: 0.68,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.68,
-      }),
+  // Additional test case: Malformed JSON schema escalation
+  it('should escalate when AI output has invalid JSON schema structure', async () => {
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+
+    const input: Tx6AgentInput = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-004",
-      triggerSource: "scheduled",
+    // Mock Action 1 with invalid type for required field
+    mockAiClient.executeAction01.mockResolvedValueOnce({
+      action: 'collect_reports',
+      collectedReportIds: 'invalid-should-be-array', // ❌ Should be array, got string
+      collectionTimestamp: new Date('2024-01-08T09:05:00Z'),
+      unsubmittedMembers: ['member-003'],
+      totalReportCount: 10,
+      confidenceScore: 0.82,
+    } as any);
+
+    const auditLogger = (event: string, details: unknown) => {
+      auditLogs.push({
+        event,
+        timestamp: new Date('2024-01-08T09:00:00Z'),
+        details,
+      });
     };
 
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
+    const output = await runTx6Imp1Agent(input, mockAiClient, auditLogger);
 
-    // Assert
-
-    // 1. エスカレーションフラグが立つ
     expect(output.escalationFlag).toBe(true);
+    expect(output.escalationReason).toMatch(/スキーマ|型|type/i);
 
-    // 2. エスカレーション理由に信頼度の低さが含まれる
-    expect(output.escalationReason).toMatch(
-      /信頼度|confidence|閾値|threshold/i
+    // Only Action 1 should be called
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction02).not.toHaveBeenCalled();
+
+    const schemaLog = auditLogs.find(
+      (log) => log.event === 'AI_OUTPUT_VALIDATION_FAILED'
+    );
+    expect(schemaLog?.details).toEqual(
+      expect.objectContaining({
+        reason: expect.stringMatching(/スキーマ|型/i),
+      })
     );
 
-    // 3. パイプラインが中断される
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 4. 日報配信準備完了状態にならない
-    expect(output.readyForDistribution).toBe(false);
-
-    // 5. 監査ログに信頼度低下イベントが記録される
-    expect(output.auditEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventType: "AI_OUTPUT_VALIDATION_FAILED",
-          details: expect.objectContaining({
-            failureReason: expect.stringMatching(/confidence|信頼度/i),
-          }),
-        }),
-      ])
-    );
+    // Verify no report was generated or distributed
+    expect(output.reportId).toBeUndefined();
+    expect(output.reportGeneratedAt).toBeUndefined();
   });
 
-  // SCEN-118: [error] JSONスキーマ不適合の場合
-  test("should reject JSON schema non-conforming AI output", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        reportDataList: [
-          {
-            reportId: "RPT-20240113-005",
-            memberId: "MEM-005",
-            reportDate: "2024-01-08",
-            reportContent: "スキーマ不適合データ",
-            isSubmitted: true,
-          },
-        ],
-        totalReports: 1,
-        submittedReports: 1,
-        unsubmittedMembers: [],
-        validationStatus: "complete",
-        // スキーマ非準拠: 型の不一致
-        confidenceScore: "high" as any,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [],
-        confidenceScore: 0.9,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        classifiedIssues: [],
-        confidenceScore: 0.9,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.9,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.9,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Invalid confidenceScore type: string instead of number"],
-        confidenceScore: 0.9,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.9,
-      }),
+  // Additional test case: State persists with escalation flag set
+  it('should persist state with escalationFlag=true and prevent further processing', async () => {
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+
+    const input: Tx6AgentInput = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
     };
 
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-005",
-      triggerSource: "scheduled",
+    // Mock Action 1 with missing required field
+    mockAiClient.executeAction01.mockResolvedValueOnce({
+      action: 'collect_reports',
+      collectedReportIds: ['report-001'],
+      collectionTimestamp: new Date('2024-01-08T09:05:00Z'),
+      unsubmittedMembers: [],
+      // ❌ Missing: totalReportCount
+    } as any);
+
+    const auditLogger = (event: string, details: unknown) => {
+      auditLogs.push({
+        event,
+        timestamp: new Date('2024-01-08T09:00:00Z'),
+        details,
+      });
     };
 
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
+    const output = await runTx6Imp1Agent(input, mockAiClient, auditLogger);
 
-    // Assert
-
-    // 1. スキーマエラーが検出される
+    // Verify escalation state
     expect(output.escalationFlag).toBe(true);
+    expect(output.reportPendingManualReview).toBe(true);
 
-    // 2. エスカレーション理由にスキーマエラーが含まれる
-    expect(output.escalationReason).toMatch(/スキーマ|schema|型/i);
+    // Verify no report was created
+    expect(output.reportId).toBeUndefined();
+    expect(output.extractedIssueCount).toBeUndefined();
+    expect(output.topPriorityIssues).toBeUndefined();
 
-    // 3. パイプラインが中断される
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 4. 配信は実行されない
-    expect(output.readyForDistribution).toBe(false);
-
-    // 5. 監査ログが記録される
-    expect(output.auditEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventType: "AI_OUTPUT_VALIDATION_FAILED",
-        }),
-      ])
+    // Verify audit trail
+    expect(auditLogs.length).toBeGreaterThan(0);
+    const escalationEvent = auditLogs.find(
+      (log) => log.event === 'ESCALATION_TRIGGERED'
     );
-  });
+    expect(escalationEvent).toBeDefined();
 
-  // SCEN-118: [error] 人的レビュー待ちの状態が継続される
-  test("should maintain pending_human_review state without auto-proceeding", async () => {
-    // Arrange
-    const mockAiClient: Tx6Imp1AiClient = {
-      executeAction01GetWeeklyReports: async () => ({
-        reportDataList: [],
-        totalReports: 0,
-        submittedReports: 0,
-        unsubmittedMembers: [],
-        validationStatus: "complete",
-        // 低信頼度
-        confidenceScore: 0.65,
-      }),
-      executeAction02ExtractIssues: async () => ({
-        issues: [],
-        confidenceScore: 0.65,
-      }),
-      executeAction03ClassifyIssues: async () => ({
-        classifiedIssues: [],
-        confidenceScore: 0.65,
-      }),
-      executeAction04AnalyzeTrends: async () => ({
-        trendAnalysis: {},
-        confidenceScore: 0.65,
-      }),
-      executeAction05GenerateReport: async () => ({
-        reportContent: "",
-        confidenceScore: 0.65,
-      }),
-      executeAction06ValidateReport: async () => ({
-        isValid: false,
-        errors: ["Confidence below threshold"],
-        confidenceScore: 0.65,
-      }),
-      executeAction07DistributeReport: async () => ({
-        distributionStatus: "pending",
-        confidenceScore: 0.65,
-      }),
-    };
-
-    const input: WeeklyAnalysisReportInput = {
-      weekStartDate: "2024-01-08",
-      weekEndDate: "2024-01-14",
-      targetTeamId: "TEAM-006",
-      triggerSource: "scheduled",
-    };
-
-    // Act
-    const output: WeeklyAnalysisReportOutput = await generateWeeklyAnalysisReport(
-      input,
-      mockAiClient
-    );
-
-    // Assert
-
-    // 1. pending_human_review 状態に留まる
-    expect(output.pipelineStatus).toBe("pending_human_review");
-
-    // 2. エスカレーションフラグが立っている
-    expect(output.escalationFlag).toBe(true);
-
-    // 3. 配信状態は pending のまま
-    expect(output.distributionStatus).toBe("pending");
-
-    // 4. 日報配信は実行されない
-    expect(output.readyForDistribution).toBe(false);
-
-    // 5. Action 7（配信）は実行されない
-    // → distributionStatus が "completed" にならない
-    expect(output.distributionStatus).not.toBe("completed");
+    // Verify pipeline stopped - no report distribution
+    expect(output.emailSentAt).toBeUndefined();
   });
 });

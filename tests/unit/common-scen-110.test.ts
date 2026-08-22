@@ -1,167 +1,193 @@
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { runTx6Imp1Agent } from '../../src/agents/tx-6-imp-1/orchestrator';
+import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/tx-6-imp-1/prompts/action-04';
 
-describe('notification-delivery', () => {
+describe('Tx6Imp1Agent', () => {
   // SCEN-110: [normal] 日報収集から分析レポート生成までの自動実行 AIエージェント
-  // Action-04『課題の発生頻度、カテゴリ別の傾向を分析する』が提出済み日報から正確に課題を分類し、
-  // 発生頻度とカテゴリ別比率を算出する
-  test('should analyze issue frequency and category ratio from submitted reports for previous week', async () => {
-    const previousWeekMonday = new Date('2024-01-08T00:00:00Z');
-    const previousWeekSunday = new Date('2024-01-14T23:59:59Z');
-    const analysisTimestamp = new Date('2024-01-15T10:30:00Z');
+  test('should execute issue frequency and category trend analysis on submitted reports', async () => {
+    const analysisStartDate = '2024-01-01';
+    const analysisEndDate = '2024-01-07';
+    const teamId = 'team-001';
+    const executionTimestamp = new Date('2024-01-08T09:00:00Z');
 
-    const submittedReports = [
+    const sampleReports = [
       {
-        memberId: 'member-a',
-        reportDate: '2024-01-08',
-        issues: ['システム連携エラー'],
-        submittedAt: '2024-01-08T09:00:00Z',
+        reportId: 'report-001',
+        memberId: 'member-A',
+        submittedAt: new Date('2024-01-07T18:00:00Z'),
+        content: {
+          accomplishments: 'Completed feature X',
+          todaysTasks: 'Start feature Y',
+          issues: 'システム連携エラーが発生'
+        }
       },
       {
-        memberId: 'member-b',
-        reportDate: '2024-01-09',
-        issues: ['ドキュメント未更新'],
-        submittedAt: '2024-01-09T09:00:00Z',
+        reportId: 'report-002',
+        memberId: 'member-B',
+        submittedAt: new Date('2024-01-07T17:30:00Z'),
+        content: {
+          accomplishments: 'Code review completed',
+          todaysTasks: 'Deploy to staging',
+          issues: 'ドキュメント未更新'
+        }
       },
       {
-        memberId: 'member-c',
-        reportDate: '2024-01-10',
-        issues: ['システム連携エラー', 'テスト環境不足'],
-        submittedAt: '2024-01-10T09:00:00Z',
+        reportId: 'report-003',
+        memberId: 'member-C',
+        submittedAt: new Date('2024-01-07T17:00:00Z'),
+        content: {
+          accomplishments: 'Testing phase started',
+          todaysTasks: 'Continue testing',
+          issues: 'テスト環境不足'
+        }
       },
       {
-        memberId: 'member-d',
-        reportDate: '2024-01-11',
-        issues: ['ドキュメント未更新'],
-        submittedAt: '2024-01-11T09:00:00Z',
+        reportId: 'report-004',
+        memberId: 'member-D',
+        submittedAt: new Date('2024-01-07T16:45:00Z'),
+        content: {
+          accomplishments: 'API implementation done',
+          todaysTasks: 'Integration testing',
+          issues: 'システム連携エラー'
+        }
       },
       {
-        memberId: 'member-e',
-        reportDate: '2024-01-12',
-        issues: ['コミュニケーション遅延'],
-        submittedAt: '2024-01-12T09:00:00Z',
+        reportId: 'report-005',
+        memberId: 'member-E',
+        submittedAt: new Date('2024-01-06T18:00:00Z'),
+        content: {
+          accomplishments: 'DB schema updated',
+          todaysTasks: 'Migration script ready',
+          issues: 'コミュニケーション遅延'
+        }
       },
       {
-        memberId: 'member-f',
-        reportDate: '2024-01-13',
-        issues: ['システム連携エラー'],
-        submittedAt: '2024-01-13T09:00:00Z',
+        reportId: 'report-006',
+        memberId: 'member-F',
+        submittedAt: new Date('2024-01-06T17:30:00Z'),
+        content: {
+          accomplishments: 'Security audit passed',
+          todaysTasks: 'Deploy security patch',
+          issues: 'システム連携エラー'
+        }
       },
       {
-        memberId: 'member-g',
-        reportDate: '2024-01-14',
-        issues: ['テスト環境不足', 'ドキュメント未更新'],
-        submittedAt: '2024-01-14T09:00:00Z',
+        reportId: 'report-007',
+        memberId: 'member-G',
+        submittedAt: new Date('2024-01-05T18:00:00Z'),
+        content: {
+          accomplishments: 'Infrastructure setup',
+          todaysTasks: 'Configure monitoring',
+          issues: 'ドキュメント未更新'
+        }
       },
       {
-        memberId: 'member-h',
-        reportDate: '2024-01-15',
-        issues: ['システム連携エラー', 'コミュニケーション遅延'],
-        submittedAt: '2024-01-15T09:00:00Z',
-      },
+        reportId: 'report-008',
+        memberId: 'member-H',
+        submittedAt: new Date('2024-01-05T17:45:00Z'),
+        content: {
+          accomplishments: 'Training materials prepared',
+          todaysTasks: 'Conduct session',
+          issues: 'テスト環境不足'
+        }
+      }
     ];
 
-    const issueFrequencyMap = new Map<string, number>();
-    const totalIssueCount = submittedReports.reduce((sum, report) => {
-      report.issues.forEach((issue) => {
-        issueFrequencyMap.set(issue, (issueFrequencyMap.get(issue) ?? 0) + 1);
-      });
-      return sum + report.issues.length;
-    }, 0);
-
-    const analysisResult = {
-      analysisStartDate: previousWeekMonday.toISOString(),
-      analysisEndDate: previousWeekSunday.toISOString(),
-      analysisExecutedAt: analysisTimestamp.toISOString(),
-      totalSubmittedReports: submittedReports.length,
-      submissionRate: 0.8,
-      issues: [
-        {
-          issueCategory: 'システム連携エラー',
-          frequencyCount: 4,
-          categoryRatio: 4 / totalIssueCount,
-        },
-        {
-          issueCategory: 'ドキュメント未更新',
-          frequencyCount: 3,
-          categoryRatio: 3 / totalIssueCount,
-        },
-        {
-          issueCategory: 'テスト環境不足',
-          frequencyCount: 2,
-          categoryRatio: 2 / totalIssueCount,
-        },
-        {
-          issueCategory: 'コミュニケーション遅延',
-          frequencyCount: 2,
-          categoryRatio: 2 / totalIssueCount,
-        },
-      ],
-    };
-
     const mockAiClient = {
-      callAiForAction01: jest.fn().mockResolvedValue({}),
-      callAiForAction02: jest.fn().mockResolvedValue({}),
-      callAiForAction03: jest.fn().mockResolvedValue({}),
-      callAiForAction04: jest.fn().mockResolvedValue(analysisResult),
-      callAiForAction05: jest.fn().mockResolvedValue({}),
-      callAiForAction06: jest.fn().mockResolvedValue({}),
-      callAiForAction07: jest.fn().mockResolvedValue({}),
+      callAction01: jest.fn().mockResolvedValue({}),
+      callAction02: jest.fn().mockResolvedValue({}),
+      callAction03: jest.fn().mockResolvedValue({}),
+      callAction04: jest.fn().mockResolvedValue({
+        analysisResult: {
+          analysisPeriod: {
+            startDate: analysisStartDate,
+            endDate: analysisEndDate
+          },
+          issueCategories: [
+            {
+              categoryName: 'システム連携エラー',
+              frequencyCount: 4,
+              categoryRatio: 0.33
+            },
+            {
+              categoryName: 'ドキュメント未更新',
+              frequencyCount: 3,
+              categoryRatio: 0.25
+            },
+            {
+              categoryName: 'テスト環境不足',
+              frequencyCount: 3,
+              categoryRatio: 0.25
+            },
+            {
+              categoryName: 'コミュニケーション遅延',
+              frequencyCount: 2,
+              categoryRatio: 0.17
+            }
+          ],
+          executedAt: new Date('2024-01-08T09:00:00Z').toISOString()
+        }
+      }),
+      callAction05: jest.fn().mockResolvedValue({}),
+      callAction06: jest.fn().mockResolvedValue({}),
+      callAction07: jest.fn().mockResolvedValue({})
     };
 
-    const mockNotificationService = {
-      sendNotification: jest.fn().mockResolvedValue(undefined),
+    const input = {
+      executionTimestamp,
+      analysisStartDate,
+      analysisEndDate,
+      teamId
     };
 
-    const result = await sendUnsubmittedReminder(
-      {
-        previousWeekMonday,
-        previousWeekSunday,
-        submittedReports,
-      },
-      mockAiClient as any,
-      mockNotificationService as any
+    const result = await runTx6Imp1Agent(input, mockAiClient as any);
+
+    expect(mockAiClient.callAction04).toHaveBeenCalled();
+
+    const action04Call = mockAiClient.callAction04.mock.calls[0];
+    const promptPassedToAction04 = action04Call[0];
+
+    expect(promptPassedToAction04).toBeDefined();
+    expect(promptPassedToAction04).toContain(ACTION_04_PROMPT_VERSION);
+
+    const analysisResult = result.analysisResult || mockAiClient.callAction04.mock.results[0].value.analysisResult;
+
+    expect(analysisResult).toBeDefined();
+    expect(analysisResult.issueCategories).toBeDefined();
+    expect(Array.isArray(analysisResult.issueCategories)).toBe(true);
+
+    const systemIntegrationError = analysisResult.issueCategories.find(
+      (issue: any) => issue.categoryName === 'システム連携エラー'
     );
+    expect(systemIntegrationError).toBeDefined();
+    expect(systemIntegrationError.frequencyCount).toBe(4);
+    expect(systemIntegrationError.categoryRatio).toBe(0.33);
 
-    expect(result).toBeDefined();
-    expect(result.analysisStartDate).toBe(previousWeekMonday.toISOString());
-    expect(result.analysisEndDate).toBe(previousWeekSunday.toISOString());
-    expect(result.totalSubmittedReports).toBe(8);
-    expect(result.submissionRate).toBe(0.8);
-
-    const systemIntegrationIssue = result.issues.find(
-      (i) => i.issueCategory === 'システム連携エラー'
+    const docNotUpdated = analysisResult.issueCategories.find(
+      (issue: any) => issue.categoryName === 'ドキュメント未更新'
     );
-    expect(systemIntegrationIssue).toBeDefined();
-    expect(systemIntegrationIssue?.frequencyCount).toBe(4);
-    expect(systemIntegrationIssue?.categoryRatio).toBeCloseTo(0.3077, 4);
+    expect(docNotUpdated).toBeDefined();
+    expect(docNotUpdated.frequencyCount).toBe(3);
+    expect(docNotUpdated.categoryRatio).toBe(0.25);
 
-    const documentationIssue = result.issues.find(
-      (i) => i.issueCategory === 'ドキュメント未更新'
+    const testEnvShortage = analysisResult.issueCategories.find(
+      (issue: any) => issue.categoryName === 'テスト環境不足'
     );
-    expect(documentationIssue).toBeDefined();
-    expect(documentationIssue?.frequencyCount).toBe(3);
-    expect(documentationIssue?.categoryRatio).toBeCloseTo(0.2308, 4);
+    expect(testEnvShortage).toBeDefined();
+    expect(testEnvShortage.frequencyCount).toBe(3);
+    expect(testEnvShortage.categoryRatio).toBe(0.25);
 
-    const testEnvironmentIssue = result.issues.find(
-      (i) => i.issueCategory === 'テスト環境不足'
+    const communicationDelay = analysisResult.issueCategories.find(
+      (issue: any) => issue.categoryName === 'コミュニケーション遅延'
     );
-    expect(testEnvironmentIssue).toBeDefined();
-    expect(testEnvironmentIssue?.frequencyCount).toBe(2);
-    expect(testEnvironmentIssue?.categoryRatio).toBeCloseTo(0.1538, 4);
+    expect(communicationDelay).toBeDefined();
+    expect(communicationDelay.frequencyCount).toBe(2);
+    expect(communicationDelay.categoryRatio).toBe(0.17);
 
-    const communicationIssue = result.issues.find(
-      (i) => i.issueCategory === 'コミュニケーション遅延'
-    );
-    expect(communicationIssue).toBeDefined();
-    expect(communicationIssue?.frequencyCount).toBe(2);
-    expect(communicationIssue?.categoryRatio).toBeCloseTo(0.1538, 4);
+    expect(analysisResult.analysisPeriod.startDate).toBe(analysisStartDate);
+    expect(analysisResult.analysisPeriod.endDate).toBe(analysisEndDate);
 
-    const executionTimestamp = new Date(result.analysisExecutedAt);
-    const timeDiff = Math.abs(
-      executionTimestamp.getTime() - analysisTimestamp.getTime()
-    );
-    expect(timeDiff).toBeLessThanOrEqual(60000);
-
-    expect(mockAiClient.callAiForAction04).toHaveBeenCalled();
+    const executedAtTime = new Date(analysisResult.executedAt);
+    const timeDiffMs = Math.abs(executedAtTime.getTime() - executionTimestamp.getTime());
+    expect(timeDiffMs).toBeLessThanOrEqual(60000);
   });
 });

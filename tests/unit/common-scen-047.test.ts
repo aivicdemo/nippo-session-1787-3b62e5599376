@@ -1,153 +1,203 @@
-import { detectAndNotifyUnsubmitted } from '../../src/logic/submission-status-management';
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { runTx2Imp1Agent } from '../../src/agents/tx-2-imp-1/orchestrator';
 
-describe('submission-status-management', () => {
+describe('tx-2-imp-1 orchestrator', () => {
   // SCEN-047: [error] 日報収集から課題抽出・配信までの自律実行 AIエージェント - 「日報収集から課題抽出・配信までの自律実行」が「重大インシデント・顧客クレームが報告された場合」の場合に副作用の確定前に人へ引き継ぐ
-  test('should escalate to human and halt auto-delivery when critical incident with customer complaint is detected', async () => {
-    const reportDataWithCriticalIncident = [
-      {
-        memberId: 'M001',
-        submittedAt: '2024-01-15T09:00:00Z',
-        content: 'Progress on Task A',
-        issues: [],
-      },
-      {
-        memberId: 'M002',
-        submittedAt: '2024-01-15T09:05:00Z',
-        content: 'Progress on Task B',
-        issues: [],
-      },
-      {
-        memberId: 'M003',
-        submittedAt: '2024-01-15T09:10:00Z',
-        content: 'Progress on Task C',
-        issues: [],
-      },
-      {
-        memberId: 'M004',
-        submittedAt: '2024-01-15T09:15:00Z',
-        content: 'Progress on Task D',
-        issues: [],
-      },
-      {
-        memberId: 'M005',
-        submittedAt: '2024-01-15T09:20:00Z',
-        content: 'Progress on Task E',
-        issues: [],
-      },
-      {
-        memberId: 'M006',
-        submittedAt: '2024-01-15T09:25:00Z',
-        content: 'Progress on Task F',
-        issues: [],
-      },
-      {
-        memberId: 'M007',
-        submittedAt: '2024-01-15T09:30:00Z',
-        content: 'Progress on Task G',
-        issues: [],
-      },
-      {
-        memberId: 'M008',
-        submittedAt: '2024-01-15T09:35:00Z',
-        content: 'Progress on Task H',
-        issues: [],
-      },
-      {
-        memberId: 'M009',
-        submittedAt: '2024-01-15T09:40:00Z',
-        content: 'Progress on Task I',
-        issues: [],
-      },
-      {
-        memberId: 'M010',
-        submittedAt: '2024-01-15T09:45:00Z',
-        content:
-          '重大インシデント：本番システム障害により顧客5社から緊急連絡あり',
-        issues: [
-          {
-            type: 'critical_incident',
-            description: '重大インシデント・顧客クレーム',
-            severity: 'critical',
-          },
-        ],
-      },
-    ];
+  test('should escalate to human when critical incident with customer complaint is detected before confirming email delivery', async () => {
+    const mockExecutionTimestamp = new Date('2024-01-15T08:55:00Z');
+    const mockReportingDeadline = new Date('2024-01-15T09:00:00Z');
+    const mockTeamId = 'team-001';
+    const mockManagerEmail = 'manager@example.com';
 
-    const escalationHandlerMock = jest.fn();
-    const auditLoggerMock = jest.fn();
-    const handoverMemoryMock: {
-      extractedIssues: Array<{
-        content: string;
-        priority: string;
-        timestamp: string;
-      }>;
-      escalationReason: string;
-      detectedAt: string;
-      executionTrace: string[];
-      actionHalted: boolean;
-      autoDeliverySent: boolean;
-    } = {
-      extractedIssues: [],
-      escalationReason: '',
-      detectedAt: '',
-      executionTrace: [],
-      actionHalted: false,
-      autoDeliverySent: false,
+    const mockAggregatedReportData = {
+      submittedMembersCount: 10,
+      unsubmittedMembersCount: 0,
+      reportDataList: [
+        {
+          memberId: 'mem-001',
+          memberName: 'Engineer A',
+          reportContent: 'Fixed bug in module X',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-002',
+          memberName: 'Engineer B',
+          reportContent: 'Completed feature Y development',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-003',
+          memberName: 'Engineer C',
+          reportContent: 'Critical incident: Production system failure, received emergency calls from 5 customers',
+          timestamp: new Date('2024-01-15T08:52:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-004',
+          memberName: 'Engineer D',
+          reportContent: 'Database optimization ongoing',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-005',
+          memberName: 'Engineer E',
+          reportContent: 'Code review completed for PR #123',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-006',
+          memberName: 'Engineer F',
+          reportContent: 'Deployment preparation in progress',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-007',
+          memberName: 'Engineer G',
+          reportContent: 'Testing regression suite',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-008',
+          memberName: 'Engineer H',
+          reportContent: 'Documentation update',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-009',
+          memberName: 'Engineer I',
+          reportContent: 'Infrastructure monitoring',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+        {
+          memberId: 'mem-010',
+          memberName: 'Engineer J',
+          reportContent: 'Security audit review',
+          timestamp: new Date('2024-01-15T08:50:00Z'),
+          issues: [],
+        },
+      ],
     };
 
-    const result = await detectAndNotifyUnsubmitted(
-      reportDataWithCriticalIncident,
-      {
-        onEscalation: escalationHandlerMock,
-        auditLog: auditLoggerMock,
-        handoverMemory: handoverMemoryMock,
-      }
-    );
+    const mockExtractedIssue = {
+      issueId: 'issue-critical-001',
+      content: 'Production system failure - emergency calls from 5 customers',
+      category: 'CRITICAL_INCIDENT_CUSTOMER_COMPLAINT',
+      severity: 'CRITICAL',
+      reportedByMemberId: 'mem-003',
+      reportedAt: new Date('2024-01-15T08:52:00Z'),
+      affectedCustomerCount: 5,
+    };
 
-    expect(result.escalationDetected).toBe(true);
-    expect(result.escalationType).toBe('critical_incident_customer_complaint');
-    expect(result.autoDeliveryHalted).toBe(true);
+    const mockHandoverRecord = {
+      handoverId: 'handover-001',
+      escalationReason: 'CRITICAL_INCIDENT_CUSTOMER_COMPLAINT',
+      detectedAt: new Date('2024-01-15T08:52:00Z'),
+      extractedIssueContent: 'Production system failure - emergency calls from 5 customers',
+      priorityJudgmentResult: 'ESCALATE_TO_HUMAN',
+      extractedIssueData: mockExtractedIssue,
+      executionTrace: {
+        action1_complete: true,
+        action2_complete: true,
+        action3_complete: true,
+        action4_blocked: true,
+      },
+      handoverNotificationSent: true,
+      auditLogEntries: [
+        {
+          timestamp: new Date('2024-01-15T08:52:00Z'),
+          eventType: 'CRITICAL_INCIDENT_DETECTED',
+          message: 'Critical incident with customer complaint detected during issue extraction',
+        },
+        {
+          timestamp: new Date('2024-01-15T08:52:05Z'),
+          eventType: 'ESCALATION_TO_HUMAN',
+          message: 'Escalation process initiated - awaiting human approval before email delivery',
+        },
+      ],
+    };
 
-    expect(handoverMemoryMock.extractedIssues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          content: '重大インシデント・顧客クレーム',
-          severity: 'critical',
-        }),
-      ])
-    );
+    const mockAiClient = {
+      action01_collectDailyReports: async () => ({
+        aggregationStatus: 'success',
+        aggregatedReportData: mockAggregatedReportData,
+      }),
+      action02_identifyUnsubmittedMembers: async () => ({
+        unsubmittedMembers: [],
+        notificationStatus: 'not_needed',
+      }),
+      action03_extractIssues: async () => ({
+        extractedIssuesCount: 1,
+        extractedIssuesList: [mockExtractedIssue],
+        escalationDetected: true,
+        escalationReason: 'CRITICAL_INCIDENT_CUSTOMER_COMPLAINT',
+      }),
+      action04_generateConfirmationEmail: async () => ({
+        emailGenerationStatus: 'blocked_by_escalation',
+        reason: 'Critical incident detected - awaiting human approval',
+      }),
+      action05_recordHandoverToHuman: async () => ({
+        handoverStatus: 'success',
+        handoverRecord: mockHandoverRecord,
+      }),
+      action06_sendHandoverNotification: async () => ({
+        notificationStatus: 'sent',
+        notificationTimestamp: new Date('2024-01-15T08:52:10Z'),
+      }),
+    };
 
-    expect(handoverMemoryMock.escalationReason).toBe(
-      '重大インシデント・顧客クレーム'
-    );
-    expect(handoverMemoryMock.detectedAt).toBe('2024-01-15T09:45:00Z');
-    expect(handoverMemoryMock.actionHalted).toBe(true);
-    expect(handoverMemoryMock.autoDeliverySent).toBe(false);
+    const input = {
+      executionTimestamp: mockExecutionTimestamp,
+      teamId: mockTeamId,
+      reportingDeadline: mockReportingDeadline,
+      managerEmail: mockManagerEmail,
+    };
 
-    expect(escalationHandlerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        escalationType: 'critical_incident_customer_complaint',
-        issues: expect.arrayContaining([
-          expect.objectContaining({
-            description: '重大インシデント・顧客クレーム',
-            severity: 'critical',
-          }),
-        ]),
-        timestamp: '2024-01-15T09:45:00Z',
-      })
-    );
+    const result = await runTx2Imp1Agent(input, mockAiClient);
 
-    expect(auditLoggerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: 'escalation_detected',
-        escalationType: 'critical_incident_customer_complaint',
-        detectedAt: '2024-01-15T09:45:00Z',
-        actionTaken: 'halt_auto_delivery_handover_to_human',
-      })
-    );
+    // (1) Verify escalation condition detection and Action-4 blocking
+    expect(result.aggregationStatus).toBe('escalation_detected');
+    expect(result.escalationReason).toBe('CRITICAL_INCIDENT_CUSTOMER_COMPLAINT');
 
-    expect(result.deliveryMailSent).toBe(false);
+    // (2) Verify handover record with issue content and timestamp
+    expect(result.handoverRecord).toBeDefined();
+    expect(result.handoverRecord.escalationReason).toBe('CRITICAL_INCIDENT_CUSTOMER_COMPLAINT');
+    expect(result.handoverRecord.detectedAt).toEqual(new Date('2024-01-15T08:52:00Z'));
+    expect(result.handoverRecord.extractedIssueContent).toMatch(/Production system failure/);
+    expect(result.handoverRecord.extractedIssueContent).toMatch(/5 customers/);
+
+    // (3) Verify human handover notification was sent and Action-4 blocked
     expect(result.handoverNotificationSent).toBe(true);
-    expect(result.manualReviewRequired).toBe(true);
+    expect(result.emailSendStatus).toBe('not_sent_pending_human_approval');
+
+    // (4) Verify audit log entries for escalation
+    expect(result.auditLogEntries).toBeDefined();
+    expect(result.auditLogEntries.length).toBeGreaterThanOrEqual(2);
+    const criticalIncidentLog = result.auditLogEntries.find(
+      (entry) => entry.eventType === 'CRITICAL_INCIDENT_DETECTED'
+    );
+    const escalationLog = result.auditLogEntries.find(
+      (entry) => entry.eventType === 'ESCALATION_TO_HUMAN'
+    );
+    expect(criticalIncidentLog).toBeDefined();
+    expect(escalationLog).toBeDefined();
+    expect(escalationLog?.message).toMatch(/awaiting human approval/);
+
+    // Verify no confirmation email was sent
+    expect(result.confirmationEmailSent).toBe(false);
+
+    // Verify extracted issue count and data
+    expect(result.extractedIssuesCount).toBe(1);
+    expect(result.prioritizedIssuesList).toBeDefined();
+    expect(result.prioritizedIssuesList.length).toBe(1);
+    expect(result.prioritizedIssuesList[0].content).toMatch(/Production system failure/);
+    expect(result.prioritizedIssuesList[0].category).toBe('CRITICAL_INCIDENT_CUSTOMER_COMPLAINT');
   });
 });

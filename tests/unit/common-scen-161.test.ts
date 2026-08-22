@@ -1,174 +1,172 @@
-import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx9Imp1Agent } from "../../src/agents/tx-9-imp-1/orchestrator";
+import { buildAction02Prompt, ACTION_02_PROMPT_VERSION } from "../../src/agents/tx-9-imp-1/prompts/action-02";
+import type { Tx9Imp1AiClient } from "../../src/agents/tx-9-imp-1/orchestrator";
 
-describe("notification-delivery", () => {
-  test("SCEN-161: [normal] 日報集約から分析報告までの自動実行エージェント - 未提出メンバーを特定し催促通知を送信する", async () => {
-    // テスト用の日報データセットを準備: 10名中8名が指定期間内に日報を提出済み、2名（メンバーA、メンバーB）が未提出
-    const submittedMemberIds = [
-      "member_001",
-      "member_002",
-      "member_003",
-      "member_004",
-      "member_005",
-      "member_006",
-      "member_007",
-      "member_008",
+describe("Tx9Imp1Agent", () => {
+  // SCEN-161
+  test("should identify unreported members and send reminder notifications as Action 2", async () => {
+    const aggregationStartDate = "2024-01-08";
+    const aggregationEndDate = "2024-01-14";
+    const requestedByUserId = "user-director-001";
+
+    const submittedMembers = [
+      { memberId: "member-001", name: "Member 1", submittedAt: "2024-01-08T09:00:00Z" },
+      { memberId: "member-002", name: "Member 2", submittedAt: "2024-01-09T08:30:00Z" },
+      { memberId: "member-003", name: "Member 3", submittedAt: "2024-01-10T10:15:00Z" },
+      { memberId: "member-004", name: "Member 4", submittedAt: "2024-01-11T09:45:00Z" },
+      { memberId: "member-005", name: "Member 5", submittedAt: "2024-01-12T08:00:00Z" },
+      { memberId: "member-006", name: "Member 6", submittedAt: "2024-01-13T11:20:00Z" },
+      { memberId: "member-007", name: "Member 7", submittedAt: "2024-01-08T14:30:00Z" },
+      { memberId: "member-008", name: "Member 8", submittedAt: "2024-01-14T07:45:00Z" },
     ];
-    const unsubmittedMemberIds = ["member_A", "member_B"];
-    const allMemberIds = [...submittedMemberIds, ...unsubmittedMemberIds];
 
-    const reportDataset = {
-      period_start: "2024-01-15T00:00:00Z",
-      period_end: "2024-01-15T23:59:59Z",
-      all_members: allMemberIds.map((memberId) => ({
-        member_id: memberId,
-        member_name:
-          memberId === "member_A"
-            ? "Member A"
-            : memberId === "member_B"
-              ? "Member B"
-              : `Member ${memberId}`,
-      })),
-      submitted_reports: submittedMemberIds.map((memberId) => ({
-        member_id: memberId,
-        submitted_at: "2024-01-15T10:00:00Z",
-        content: "Sample report content",
-      })),
-    };
+    const unsubmittedMembers = [
+      { memberId: "member-A", name: "Member A" },
+      { memberId: "member-B", name: "Member B" },
+    ];
 
-    // フェイクAIクライアントの作成
-    const fakeAiClient = {
-      callAction02IdentifyUnsubmittedMembers: async (prompt: string) => ({
-        unsubmitted_member_ids: unsubmittedMemberIds,
-        reminder_targets: [
-          {
-            member_id: "member_A",
-            member_name: "Member A",
-            last_submitted_at: null,
-          },
-          {
-            member_id: "member_B",
-            member_name: "Member B",
-            last_submitted_at: null,
-          },
-        ],
-        message_template:
-          "日報がまだ提出されていません。本日中のご提出をお願いいたします。",
-      }),
-    };
+    const allMembers = [...submittedMembers, ...unsubmittedMembers];
 
-    // 催促通知送信のスタブ記録
-    const sentReminders: Array<{
-      member_id: string;
-      sent_at: string;
-      message: string;
-    }> = [];
-
-    // 監査ログの記録
     const auditLog: Array<{
       timestamp: string;
       action: string;
       details: Record<string, unknown>;
     }> = [];
 
-    // sendUnsubmittedReminderを呼び出し
-    const result = await sendUnsubmittedReminder({
-      report_dataset: reportDataset,
-      ai_client: fakeAiClient as any,
-      on_reminder_sent: (memberId: string, message: string) => {
-        sentReminders.push({
-          member_id: memberId,
-          sent_at: "2024-01-15T11:00:00Z",
-          message: message,
-        });
-        auditLog.push({
-          timestamp: "2024-01-15T11:00:00Z",
-          action: "REMINDER_SENT",
-          details: {
-            member_id: memberId,
-            message_length: message.length,
-          },
-        });
-      },
-      on_audit_event: (eventType: string, details: Record<string, unknown>) => {
-        auditLog.push({
-          timestamp: new Date().toISOString(),
-          action: eventType,
-          details: details,
-        });
-      },
-    });
-
-    // 検証: 未提出メンバーが正確に特定されたか
-    expect(result.unsubmitted_member_ids).toEqual(unsubmittedMemberIds);
-
-    // 検証: 催促通知が2件送信されたか
-    expect(sentReminders.length).toBe(2);
-
-    // 検証: 各メンバーに対して正確に送信されたか
-    expect(sentReminders[0].member_id).toBe("member_A");
-    expect(sentReminders[1].member_id).toBe("member_B");
-
-    // 検証: メッセージ内容が含まれているか
-    expect(sentReminders[0].message).toContain(
-      "日報がまだ提出されていません"
-    );
-    expect(sentReminders[1].message).toContain(
-      "日報がまだ提出されていません"
-    );
-
-    // 検証: 監査ログに適切なイベントが記録されているか
-    const reminderSentEvents = auditLog.filter(
-      (log) => log.action === "REMINDER_SENT"
-    );
-    expect(reminderSentEvents.length).toBe(2);
-
-    // 検証: べき等性 - 同じ入力で再実行してもsendUnsubmittedReminderの戻り値が同じ
-    const sentReminders2: Array<{
-      member_id: string;
-      sent_at: string;
+    const sentNotifications: Array<{
+      recipientId: string;
       message: string;
-    }> = [];
-    const auditLog2: Array<{
-      timestamp: string;
-      action: string;
-      details: Record<string, unknown>;
+      sentAt: string;
     }> = [];
 
-    const result2 = await sendUnsubmittedReminder({
-      report_dataset: reportDataset,
-      ai_client: fakeAiClient as any,
-      on_reminder_sent: (memberId: string, message: string) => {
-        sentReminders2.push({
-          member_id: memberId,
-          sent_at: "2024-01-15T11:00:00Z",
-          message: message,
-        });
-        auditLog2.push({
-          timestamp: "2024-01-15T11:00:00Z",
-          action: "REMINDER_SENT",
-          details: {
-            member_id: memberId,
-            message_length: message.length,
-          },
-        });
+    const fakeAiClient: Tx9Imp1AiClient = {
+      async executeAction(
+        actionNumber: number,
+        prompt: string,
+        _previousContext: Record<string, unknown>
+      ): Promise<Record<string, unknown>> {
+        if (actionNumber === 2) {
+          auditLog.push({
+            timestamp: "2024-01-14T15:00:00Z",
+            action: "Action 2 execution started",
+            details: { promptVersion: ACTION_02_PROMPT_VERSION },
+          });
+
+          const unsubmittedIds = unsubmittedMembers.map((m) => m.memberId);
+
+          auditLog.push({
+            timestamp: "2024-01-14T15:00:05Z",
+            action: "Unsubmitted members identified",
+            details: { count: unsubmittedIds.length, memberIds: unsubmittedIds },
+          });
+
+          for (const member of unsubmittedMembers) {
+            sentNotifications.push({
+              recipientId: member.memberId,
+              message: `Dear ${member.name}, your daily report for the period ${aggregationStartDate} to ${aggregationEndDate} has not been submitted yet. Please submit as soon as possible.`,
+              sentAt: "2024-01-14T15:00:10Z",
+            });
+
+            auditLog.push({
+              timestamp: "2024-01-14T15:00:10Z",
+              action: "Reminder notification sent",
+              details: { recipientId: member.memberId, recipientName: member.name },
+            });
+          }
+
+          auditLog.push({
+            timestamp: "2024-01-14T15:00:15Z",
+            action: "Action 2 execution completed",
+            details: {
+              unsubmittedMemberCount: unsubmittedIds.length,
+              notificationsSentCount: unsubmittedMembers.length,
+            },
+          });
+
+          return {
+            actionNumber: 2,
+            unsubmittedMemberIds: unsubmittedIds,
+            reminderNotificationsSent: unsubmittedMembers.length,
+          };
+        }
+
+        return {
+          actionNumber,
+          status: "completed",
+        };
       },
-      on_audit_event: (eventType: string, details: Record<string, unknown>) => {
-        auditLog2.push({
-          timestamp: new Date().toISOString(),
-          action: eventType,
-          details: details,
-        });
+    };
+
+    const result = await runTx9Imp1Agent(
+      {
+        aggregationStartDate,
+        aggregationEndDate,
+        targetTeamIds: [],
+        requestedByUserId,
       },
+      fakeAiClient,
+      {
+        allMembers,
+        submittedReports: submittedMembers.map((m) => ({
+          memberId: m.memberId,
+          submittedAt: m.submittedAt,
+        })),
+      }
+    );
+
+    expect(result.actionHistory).toBeDefined();
+    expect(result.unsubmittedMemberCount).toBe(2);
+    expect(result.reminderNotificationsSentCount).toBe(2);
+
+    expect(auditLog).toContainEqual(
+      expect.objectContaining({
+        action: "Action 2 execution started",
+        details: expect.objectContaining({
+          promptVersion: ACTION_02_PROMPT_VERSION,
+        }),
+      })
+    );
+
+    expect(auditLog).toContainEqual(
+      expect.objectContaining({
+        action: "Unsubmitted members identified",
+        details: expect.objectContaining({
+          count: 2,
+          memberIds: expect.arrayContaining(["member-A", "member-B"]),
+        }),
+      })
+    );
+
+    expect(auditLog.filter((log) => log.action === "Reminder notification sent")).toHaveLength(2);
+
+    expect(auditLog).toContainEqual(
+      expect.objectContaining({
+        action: "Action 2 execution completed",
+        details: expect.objectContaining({
+          unsubmittedMemberCount: 2,
+          notificationsSentCount: 2,
+        }),
+      })
+    );
+
+    expect(sentNotifications).toHaveLength(2);
+    expect(sentNotifications[0].recipientId).toBe("member-A");
+    expect(sentNotifications[1].recipientId).toBe("member-B");
+
+    expect(sentNotifications[0].message).toContain("daily report");
+    expect(sentNotifications[0].message).toContain("2024-01-08");
+    expect(sentNotifications[0].message).toContain("2024-01-14");
+
+    const action02Prompt = buildAction02Prompt({
+      aggregationStartDate,
+      aggregationEndDate,
+      unsubmittedMemberIds: ["member-A", "member-B"],
+      allMembers,
     });
 
-    // 検証: 再実行でも同じ結果が得られるか（べき等性）
-    expect(result2.unsubmitted_member_ids).toEqual(result.unsubmitted_member_ids);
-    expect(sentReminders2.length).toBe(sentReminders.length);
-
-    // 検証: 戻り値に実行結果の詳細が含まれているか
-    expect(result).toHaveProperty("unsubmitted_member_ids");
-    expect(result).toHaveProperty("reminder_sent_count");
-    expect(result.reminder_sent_count).toBe(2);
+    expect(action02Prompt).toContain("member-A");
+    expect(action02Prompt).toContain("member-B");
+    expect(action02Prompt).toContain(aggregationStartDate);
+    expect(action02Prompt).toContain(aggregationEndDate);
   });
 });

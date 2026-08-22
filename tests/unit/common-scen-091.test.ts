@@ -1,63 +1,115 @@
-import { getDashboardData } from '../../src/logic/dashboard-display';
+import { runTx5Imp1Agent } from "../../src/agents/tx-5-imp-1/orchestrator";
+import { buildAction01Prompt, ACTION_01_PROMPT_VERSION } from "../../src/agents/tx-5-imp-1/prompts/action-01";
+import { type Tx5Imp1AiClient, type Tx5Imp1AgentInput, type Tx5Imp1AgentOutput } from "../../src/agents/tx-5-imp-1/orchestrator";
 
-describe('dashboard-display', () => {
-  test('SCEN-091: Action 1 validates extracted issue data format and content', async () => {
-    const extracted_issue_data = {
-      id: 'issue-001',
-      title: 'Database connection timeout during peak hours',
-      description: 'Connection pool exhaustion observed between 10:00-11:00 JST',
-      source: 'daily_report',
-      extractedAt: '2024-01-15T09:30:00Z',
-      severity_hint: 'high',
-      category_hint: ['infrastructure', 'database']
+describe("Tx5Imp1Agent - 課題抽出から既存ツール連携・確認までの自律実行", () => {
+  // SCEN-091
+  test("Action 1: 抽出課題データの形式・内容を検証する - 検証成功時に「valid: true」と検証完了タイムスタンプが記録される", async () => {
+    const extractedIssueData = [
+      {
+        issueId: "issue-001",
+        title: "データベース接続エラー発生",
+        description: "本番環境のデータベース接続がタイムアウトし、APIレスポンスが遅延している。影響範囲は顧客向けポータル全体。",
+        source: "daily_report" as const,
+        extractedAt: "2024-01-15T09:30:00Z",
+        severity_hint: "high" as const,
+        category_hint: ["infrastructure", "database"],
+      },
+    ];
+
+    const toolIntegrationConfig = {
+      toolType: "jira" as const,
+      baseUrl: "https://jira.example.com",
+      apiKey: "test-api-key",
+      projectKey: "PROJ",
     };
 
-    const mock_ai_client = {
-      callAction01ValidateExtractedData: jest.fn().mockResolvedValue({
-        valid: true,
-        errors: [],
-        warnings: [],
-        validatedAt: '2024-01-15T09:35:00Z',
-        action_version: '1.0.0'
-      }),
-      callAction02JudgePriorityCategory: jest.fn(),
-      callAction03ExecuteToolIntegration: jest.fn(),
-      callAction04RecordIntegrationStatus: jest.fn(),
-      callAction05NotifyCompletion: jest.fn(),
-      callAction06HandleEscalation: jest.fn(),
-      callAction07ArchiveState: jest.fn()
+    const priorityRules = {
+      frequency_weight: 0.3,
+      impact_weight: 0.5,
+      urgency_weight: 0.2,
+      high_threshold: 75,
+      medium_threshold: 50,
     };
 
-    const result = await getDashboardData(extracted_issue_data, mock_ai_client);
+    const categoryMappings = [
+      {
+        system_category: "infrastructure",
+        tool_category: "Infrastructure",
+      },
+      {
+        system_category: "database",
+        tool_category: "Database",
+      },
+    ];
 
-    expect(mock_ai_client.callAction01ValidateExtractedData).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'issue-001',
-        title: 'Database connection timeout during peak hours',
-        description: 'Connection pool exhaustion observed between 10:00-11:00 JST',
-        source: 'daily_report',
-        extractedAt: '2024-01-15T09:30:00Z',
-        severity_hint: 'high',
-        category_hint: ['infrastructure', 'database']
-      })
-    );
+    const input: Tx5Imp1AgentInput = {
+      extractedIssueData,
+      toolIntegrationConfig,
+      priorityRules,
+      categoryMappings,
+    };
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        validation_status: 'completed',
-        valid: true,
-        errors: [],
-        warnings: [],
-        action_01_executed: true,
-        action_01_version: '1.0.0',
-        issue_id: 'issue-001',
-        validated_at: '2024-01-15T09:35:00Z'
-      })
-    );
+    let action01_called = false;
+    let action01_prompt_version_recorded: string | null = null;
+    let validation_result_recorded: {
+      valid: boolean;
+      errors: string[];
+      warnings: string[];
+      completedAt?: string;
+    } | null = null;
 
-    expect(result.validation_status).toBe('completed');
-    expect(result.valid).toBe(true);
-    expect(Array.isArray(result.errors)).toBe(true);
-    expect(result.errors.length).toBe(0);
+    const mockAiClient: Tx5Imp1AiClient = {
+      async callAction01ValidationPrompt(
+        userMessage: string,
+        systemPrompt: string
+      ): Promise<string> {
+        action01_called = true;
+        action01_prompt_version_recorded = ACTION_01_PROMPT_VERSION;
+        const validationResult = {
+          valid: true,
+          errors: [],
+          warnings: [],
+          completedAt: "2024-01-15T09:35:00Z",
+          fields_validated: [
+            "id",
+            "title",
+            "description",
+            "source",
+            "extractedAt",
+            "severity_hint",
+            "category_hint",
+          ],
+        };
+        validation_result_recorded = validationResult;
+        return JSON.stringify(validationResult);
+      },
+      async callAction02CategorizePrompt(userMessage: string, systemPrompt: string): Promise<string> {
+        return JSON.stringify({ category: "infrastructure" });
+      },
+      async callAction03PrioritizePrompt(userMessage: string, systemPrompt: string): Promise<string> {
+        return JSON.stringify({ priorityScore: 85, priorityRank: "high" });
+      },
+      async callAction04IntegratePrompt(userMessage: string, systemPrompt: string): Promise<string> {
+        return JSON.stringify({ toolIssueId: "PROJ-001", integrated: true });
+      },
+      async callAction05NotifyPrompt(userMessage: string, systemPrompt: string): Promise<string> {
+        return JSON.stringify({ notificationSent: true });
+      },
+    };
+
+    const result: Tx5Imp1AgentOutput = await runTx5Imp1Agent(input, mockAiClient);
+
+    expect(action01_called).toBe(true);
+    expect(action01_prompt_version_recorded).toBe(ACTION_01_PROMPT_VERSION);
+    expect(validation_result_recorded).not.toBeNull();
+    expect(validation_result_recorded?.valid).toBe(true);
+    expect(validation_result_recorded?.errors).toEqual([]);
+    expect(validation_result_recorded?.completedAt).toBe("2024-01-15T09:35:00Z");
+
+    expect(result.validatedIssues).toBeDefined();
+    expect(result.validatedIssues.length).toBeGreaterThan(0);
+    expect(result.validatedIssues[0].validationStatus).toBe("valid");
+    expect(result.executionSummary.finalStatus).toBe("success");
   });
 });

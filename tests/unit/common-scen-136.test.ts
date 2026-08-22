@@ -1,200 +1,291 @@
 import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import { generateMonthlyAnalysisReport } from "../../src/logic/analysis-reporting";
+import { runTx7Imp1Agent } from "../../src/agents/tx-7-imp-1/orchestrator";
+import type {
+  Tx7Imp1AiClient,
+  Tx7Imp1AgentContext,
+  Tx7Imp1EscalationRecord,
+} from "../../src/agents/tx-7-imp-1/orchestrator";
 
-describe("generateMonthlyAnalysisReport", () => {
-  // SCEN-136: [error] 月次レポート生成から分析完了までの自動実行 AIエージェント - 新規の課題カテゴリが出現した場合に副作用の確定前に人へ引き継ぐ
-  test("should escalate when new issue category detected during analysis and not finalize director submission", async () => {
-    const mockAiClient = {
-      action01ExtractMonthlyData: jest.fn().mockResolvedValue({
-        successFlag: true,
-        extractedReportCount: 45,
-        unsubmittedMembers: ["member-005", "member-012"],
-      }),
-      action02IdentifyNonSubmitters: jest.fn().mockResolvedValue({
-        successFlag: true,
-        nonSubmitterList: ["member-005", "member-012"],
-        reminderSentCount: 2,
-      }),
-      action03CalculateProductivityMetrics: jest.fn().mockResolvedValue({
-        successFlag: true,
-        metricsCalculated: {
-          issueCountByTeam: {
-            "team-A": 12,
-            "team-B": 18,
-            "team-C": 15,
+describe("tx-7-imp-1: 月次レポート生成から分析完了までの自動実行", () => {
+  let mockAiClient: Tx7Imp1AiClient;
+  let mockAuditLog: Array<{ event: string; timestamp: Date; details: unknown }>;
+  let mockEmailSent: Array<{
+    recipient: string;
+    subject: string;
+    body: string;
+  }>;
+  let mockDbStateChanges: Array<{
+    reportId: string;
+    previousState: string;
+    newState: string;
+  }>;
+
+  beforeEach(() => {
+    mockAuditLog = [];
+    mockEmailSent = [];
+    mockDbStateChanges = [];
+
+    mockAiClient = {
+      action01_collectMonthlyReportData: jest.fn(async () => ({
+        reportId: "report-2024-01-001",
+        targetMonth: "2024-01",
+        teamId: "team-eng-001",
+        collectedReportCount: 45,
+        timestamp: new Date("2024-02-01T00:00:00Z"),
+      })),
+
+      action02_identifyUnsubmittedMembers: jest.fn(async () => ({
+        unsubmittedCount: 2,
+        unsubmittedMembers: [
+          { memberId: "mem-005", name: "田中太郎" },
+          { memberId: "mem-012", name: "佐藤花子" },
+        ],
+      })),
+
+      action03_extractAndClassifyChallenges: jest.fn(async () => ({
+        challengesExtracted: 18,
+        categorizedChallenges: [
+          {
+            category: "bug",
+            count: 8,
+            examples: [
+              "ログイン画面でのセッションタイムアウト",
+              "データベース接続エラー",
+            ],
           },
-          avgResolutionDays: 4.2,
-          completionRate: 0.87,
+          {
+            category: "performance",
+            count: 5,
+            examples: [
+              "API応答時間が3秒超過",
+              "UI レンダリング遅延",
+            ],
+          },
+          {
+            category: "spec_change",
+            count: 5,
+            examples: [
+              "要件変更による実装修正",
+              "仕様確認待ち",
+            ],
+          },
+        ],
+      })),
+
+      action04_analyzeTimeSeriesTrend: jest.fn(async () => ({
+        dailyBottleneckMetrics: [
+          {
+            date: "2024-01-01",
+            bottleneckSeverity: 2,
+            activeChallengeCount: 3,
+          },
+          {
+            date: "2024-01-15",
+            bottleneckSeverity: 4,
+            activeChallengeCount: 7,
+          },
+          {
+            date: "2024-01-31",
+            bottleneckSeverity: 2,
+            activeChallengeCount: 4,
+          },
+        ],
+        improvementTrend: "stable",
+      })),
+
+      action05_computeBottleneckShift: jest.fn(async () => ({
+        bottleneckShiftAnalysis: {
+          peakDate: "2024-01-15",
+          peakSeverity: 4,
+          primaryBottleneck: "spec_change",
+          secondaryBottleneck: "performance",
         },
-      }),
-      action04AnalyzeTimeSeriesChanges: jest.fn().mockResolvedValue({
-        successFlag: true,
-        timeSeriesAnalysis: {
-          weeklyTrend: [
-            { week: 1, issueCount: 8 },
-            { week: 2, issueCount: 10 },
-            { week: 3, issueCount: 12 },
-            { week: 4, issueCount: 15 },
-          ],
-          isIncreasingTrend: true,
+        recurringIssuePattern: [
+          "データベース接続問題",
+          "API タイムアウト",
+        ],
+      })),
+
+      action06_calculateTeamPerformanceMetrics: jest.fn(async () => ({
+        teamMetrics: {
+          teamId: "team-eng-001",
+          avgResolutionDays: 3.2,
+          reportSubmissionRate: 0.956,
+          challengeRecurrenceRate: 0.12,
+          teamSize: 18,
         },
-      }),
-      action05IdentifyBottlenecks: jest.fn().mockResolvedValue({
-        successFlag: true,
-        bottleneckAnalysis: {
-          topBottlenecks: [
-            { category: "bug", occurrenceCount: 20, avgDelay: 2.1 },
-            { category: "performance", occurrenceCount: 15, avgDelay: 1.8 },
-          ],
-          shiftPatterns: [
+      })),
+
+      action07_assignPriorityAndCompileResults: jest.fn(async () => ({
+        prioritizedChallenges: [
+          {
+            rank: 1,
+            category: "security_vulnerability",
+            title: "SQLインジェクション脆弱性検出",
+            severity: "critical",
+            frequency: 1,
+            firstDetectedDate: "2024-01-28",
+          },
+          {
+            rank: 2,
+            category: "bug",
+            title: "ログイン画面セッション問題",
+            severity: "high",
+            frequency: 3,
+          },
+          {
+            rank: 3,
+            category: "performance",
+            title: "API応答時間超過",
+            severity: "medium",
+            frequency: 5,
+          },
+        ],
+        newCategoryDetected: "security_vulnerability",
+        compiledResultsPartial: {
+          timeSeriesData: [
             {
-              period: "week-1-to-2",
-              shift: "bug_increase",
-              percentageChange: 25,
+              date: "2024-01-01",
+              bottleneckSeverity: 2,
+              activeChallengeCount: 3,
+            },
+            {
+              date: "2024-01-15",
+              bottleneckSeverity: 4,
+              activeChallengeCount: 7,
+            },
+            {
+              date: "2024-01-31",
+              bottleneckSeverity: 2,
+              activeChallengeCount: 4,
             },
           ],
+          improvementTrend: "stable",
+          recurringIssuePattern: [
+            "データベース接続問題",
+            "API タイムアウト",
+          ],
         },
-      }),
-      action06AnalyzeTeamPerformance: jest.fn().mockResolvedValue({
-        successFlag: true,
-        teamPerformanceMetrics: {
-          "team-A": {
-            issueCount: 12,
-            avgResolutionDays: 3.5,
-            completionRate: 0.92,
-          },
-          "team-B": {
-            issueCount: 18,
-            avgResolutionDays: 4.8,
-            completionRate: 0.83,
-          },
-          "team-C": {
-            issueCount: 15,
-            avgResolutionDays: 4.1,
-            completionRate: 0.88,
-          },
-        },
-      }),
-      action07RankAndSummarize: jest.fn().mockResolvedValue({
-        successFlag: false,
-        escalationDetected: true,
-        escalationType: "new_category_detected",
-        detectedNewCategory: "security-vulnerability",
-        partialResults: {
-          timeSeriesAnalysis: {
-            weeklyTrend: [
-              { week: 1, issueCount: 8 },
-              { week: 2, issueCount: 10 },
-              { week: 3, issueCount: 12 },
-              { week: 4, issueCount: 15 },
-            ],
-          },
-          bottleneckAnalysis: {
-            topBottlenecks: [
-              { category: "bug", occurrenceCount: 20, avgDelay: 2.1 },
-              { category: "performance", occurrenceCount: 15, avgDelay: 1.8 },
-            ],
-          },
-          teamPerformanceMetrics: {
-            "team-A": {
-              issueCount: 12,
-              avgResolutionDays: 3.5,
-              completionRate: 0.92,
-            },
-            "team-B": {
-              issueCount: 18,
-              avgResolutionDays: 4.8,
-              completionRate: 0.83,
-            },
-            "team-C": {
-              issueCount: 15,
-              avgResolutionDays: 4.1,
-              completionRate: 0.88,
-            },
-          },
-        },
-      }),
+      })),
+
+      action08_presentAnalysisReportToManager: jest.fn(
+        async () => {
+          throw new Error(
+            "ESCALATION: Action 8 execution blocked due to new category detection"
+          );
+        }
+      ),
+    };
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // SCEN-136
+  test("新規課題カテゴリ検出時にエスカレーション処理を実行し、副作用確定前に人へ引き継ぐ", async () => {
+    const context: Tx7Imp1AgentContext = {
+      reportId: "report-2024-01-001",
+      targetMonth: "2024-01",
+      teamId: "team-eng-001",
+      triggeredBy: "schedule",
+      includeDetailedAnalysis: true,
+      managerEmail: "manager@company.com",
+      auditLogFn: (event: string, details: unknown) => {
+        mockAuditLog.push({
+          event,
+          timestamp: new Date(),
+          details,
+        });
+      },
+      emailNotifyFn: (recipient: string, subject: string, body: string) => {
+        mockEmailSent.push({ recipient, subject, body });
+      },
+      dbStateChangeFn: (
+        reportId: string,
+        previousState: string,
+        newState: string
+      ) => {
+        mockDbStateChanges.push({ reportId, previousState, newState });
+      },
     };
 
-    const mockDatabaseClient = {
-      insertEscalationRecord: jest
-        .fn()
-        .mockResolvedValue({ escalationId: "esc-001" }),
-      updateReportStatus: jest.fn().mockResolvedValue({ success: true }),
-      insertAuditLog: jest.fn().mockResolvedValue({ logId: "audit-001" }),
-    };
+    let escalationRecord: Tx7Imp1EscalationRecord | null = null;
+    let agentError: Error | null = null;
 
-    const mockNotificationClient = {
-      sendDirectorNotification: jest
-        .fn()
-        .mockResolvedValue({ notificationId: "notif-001" }),
-    };
+    try {
+      escalationRecord = await runTx7Imp1Agent(context, mockAiClient);
+    } catch (error) {
+      agentError = error as Error;
+    }
 
-    const monthlyReportInput = {
-      reportPeriod: "2024-01-01_to_2024-01-31",
-      targetYear: 2024,
-      targetMonth: 1,
-      organizationId: "org-001",
-      directorEmail: "director@company.example.com",
-      knownCategoryList: ["bug", "performance", "specification-change"],
-    };
+    // Action 1-6 は正常に実行されたことを確認
+    expect(mockAiClient.action01_collectMonthlyReportData).toHaveBeenCalled();
+    expect(mockAiClient.action02_identifyUnsubmittedMembers).toHaveBeenCalled();
+    expect(mockAiClient.action03_extractAndClassifyChallenges).toHaveBeenCalled();
+    expect(mockAiClient.action04_analyzeTimeSeriesTrend).toHaveBeenCalled();
+    expect(mockAiClient.action05_computeBottleneckShift).toHaveBeenCalled();
+    expect(mockAiClient.action06_calculateTeamPerformanceMetrics).toHaveBeenCalled();
 
-    const result = await generateMonthlyAnalysisReport(
-      monthlyReportInput,
-      mockAiClient,
-      mockDatabaseClient,
-      mockNotificationClient
+    // Action 7 で新規カテゴリ検出を確認
+    expect(mockAiClient.action07_assignPriorityAndCompileResults).toHaveBeenCalled();
+
+    // Action 8 は実行されないことを確認（エスカレーション条件判定により）
+    expect(mockAiClient.action08_presentAnalysisReportToManager).not.toHaveBeenCalled();
+
+    // エスカレーションレコードが正しく生成されていることを確認
+    expect(escalationRecord).not.toBeNull();
+    if (escalationRecord) {
+      expect(escalationRecord.escalation_type).toBe("new_category_detected");
+      expect(escalationRecord.detected_category).toBe("security_vulnerability");
+      expect(escalationRecord.status).toBe("awaiting_human_review");
+      expect(escalationRecord.partial_results).toBeDefined();
+
+      // partial_results に時系列変化、ボトルネック推移、チーム別パフォーマンス指標が含まれていることを確認
+      const partialResults = escalationRecord.partial_results as Record<
+        string,
+        unknown
+      >;
+      expect(partialResults.timeSeriesData).toBeDefined();
+      expect(partialResults.improvementTrend).toBe("stable");
+      expect(partialResults.recurringIssuePattern).toBeDefined();
+      expect(Array.isArray(partialResults.recurringIssuePattern)).toBe(true);
+      expect((partialResults.recurringIssuePattern as string[]).length).toBeGreaterThan(0);
+    }
+
+    // 部長へ通知メールが送信されたことを確認
+    expect(mockEmailSent.length).toBeGreaterThan(0);
+    const managerNotification = mockEmailSent.find(
+      (email) => email.recipient === "manager@company.com"
     );
+    expect(managerNotification).toBeDefined();
+    if (managerNotification) {
+      expect(managerNotification.body).toMatch(/新規カテゴリ検出/);
+      expect(managerNotification.body).toMatch(/分析結果確認待ち/);
+    }
 
-    expect(result.escalationOccurred).toBe(true);
-    expect(result.escalationType).toBe("new_category_detected");
-    expect(result.detectedNewCategory).toBe("security-vulnerability");
-
-    expect(result.escalationRecord).toMatchObject({
-      escalation_type: "new_category_detected",
-      detected_category: "security-vulnerability",
-      status: "awaiting_human_review",
-      partial_results: expect.objectContaining({
-        timeSeriesAnalysis: expect.any(Object),
-        bottleneckAnalysis: expect.any(Object),
-        teamPerformanceMetrics: expect.any(Object),
-      }),
-    });
-
-    expect(mockDatabaseClient.insertEscalationRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        escalation_type: "new_category_detected",
-        detected_category: "security-vulnerability",
-        status: "awaiting_human_review",
-        partial_results: expect.any(Object),
-      })
+    // 監査ログに ESCALATION_TRIGGERED が記録されたことを確認
+    const escalationLogEntry = mockAuditLog.find(
+      (log) => log.event === "ESCALATION_TRIGGERED"
     );
+    expect(escalationLogEntry).toBeDefined();
+    if (escalationLogEntry) {
+      expect(escalationLogEntry.details).toBeDefined();
+      const details = escalationLogEntry.details as Record<string, unknown>;
+      expect(details.escalation_type).toBe("new_category_detected");
+      expect(details.detected_category).toBe("security_vulnerability");
+    }
 
-    expect(mockDatabaseClient.updateReportStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reportId: expect.any(String),
-        newStatus: "partial_analysis_completed_awaiting_review",
-      })
+    // データベース状態が partial_analysis_completed_awaiting_review に変更されたことを確認
+    const stateChange = mockDbStateChanges.find(
+      (change) => change.reportId === "report-2024-01-001"
     );
+    expect(stateChange).toBeDefined();
+    if (stateChange) {
+      expect(stateChange.newState).toBe("partial_analysis_completed_awaiting_review");
+    }
 
-    expect(mockNotificationClient.sendDirectorNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        directorEmail: "director@company.example.com",
-        subject: expect.stringContaining("新規課題カテゴリ"),
-        body: expect.stringContaining("新規カテゴリ検出のため分析結果確認待ち"),
-      })
-    );
-
-    expect(mockDatabaseClient.insertAuditLog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: "ESCALATION_TRIGGERED",
-        escalationType: "new_category_detected",
-        detectedCategory: "security-vulnerability",
-        reportPeriod: "2024-01-01_to_2024-01-31",
-      })
-    );
-
-    expect(result.directorSubmissionFinalized).toBe(false);
-    expect(result.action08ExecutedFlag).toBe(false);
+    // Action 8 がスキップされたことを確認（副作用確定前に人へ引き継がれた）
+    expect(agentError).toBeNull();
   });
 });

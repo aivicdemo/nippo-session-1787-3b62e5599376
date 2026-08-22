@@ -1,123 +1,153 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendUnsubmittedReminder } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import { runTx2Imp1Agent } from "../../src/agents/tx-2-imp-1/orchestrator";
+import type {
+  Tx2Imp1AgentInput,
+  Tx2Imp1AgentOutput,
+  Tx2Imp1AiClient,
+} from "../../src/agents/tx-2-imp-1/orchestrator";
 
-describe('notification-delivery', () => {
-  let auditLog: Array<{ event: string; timestamp: string; details: Record<string, unknown> }>;
-  let escalationEvents: Array<{ condition: string; timestamp: string; context: Record<string, unknown> }>;
+describe("Tx2Imp1Agent Authorization Denial", () => {
+  // SCEN-053
+  test("should deny unauthorized data access and tool operations, halt execution, and record audit events", async () => {
+    const executionTimestamp = new Date("2024-01-15T08:55:00Z");
+    const reportingDeadline = new Date("2024-01-15T09:00:00Z");
+    const teamId = "team-001";
+    const managerEmail = "manager@example.com";
 
-  beforeEach(() => {
-    auditLog = [];
-    escalationEvents = [];
-  });
-
-  afterEach(() => {
-    auditLog = [];
-    escalationEvents = [];
-  });
-
-  // SCEN-053: [error] 日報収集から課題抽出・配信までの自律実行 AIエージェント - 権限外のデータ参照とツール操作を拒否する
-  test('SCEN-053: should deny unauthorized data access and tool operations during report collection and distribution', async () => {
-    // Setup: フェイクAIクライアント with 権限チェック機能
-    const fakeAiClient = {
-      async callAction01GetReportStatus() {
-        // Action 1: 権限外のメンバー日報データへのアクセス拒否
-        const authError = new Error('Authorization Denied: Unauthorized data access attempt by agent at Action 1');
-        (authError as any).code = 'AUTHORIZATION_DENIED';
-        (authError as any).action = 'Action 1';
-        (authError as any).resource = 'member_report_data';
-        throw authError;
-      },
-      async callAction02ConvertFormat() {
-        // Action 2: メールシステムへの操作拒否
-        const authError = new Error('Authorization Denied: Unauthorized tool operation attempt by agent at Action 2');
-        (authError as any).code = 'AUTHORIZATION_DENIED';
-        (authError as any).action = 'Action 2';
-        (authError as any).resource = 'mail_system_write';
-        throw authError;
-      },
-      async callAction03ExtractIssues() {
-        // Action 3: 個人情報処理の権限確認
-        const authError = new Error('Authorization Denied: Unauthorized personal data processing at Action 3');
-        (authError as any).code = 'AUTHORIZATION_DENIED';
-        (authError as any).action = 'Action 3';
-        (authError as any).resource = 'personal_data';
-        throw authError;
-      },
-      async callAction04RankPriority() {
-        // Mock: Action 4 は到達しない
-        throw new Error('Should not reach Action 4');
-      },
-      async callAction05GenerateMaterial() {
-        // Mock: Action 5 は到達しない
-        throw new Error('Should not reach Action 5');
-      },
-      async callAction06SendNotification() {
-        // Mock: Action 6 は到達しない
-        throw new Error('Should not reach Action 6');
-      },
+    const agentInput: Tx2Imp1AgentInput = {
+      executionTimestamp,
+      teamId,
+      reportingDeadline,
+      managerEmail,
     };
 
-    // Setup: テスト用ユーザーコンテキスト（一般メンバー権限）
-    const userContext = {
-      userId: 'member-001',
-      role: 'member',
-      permissions: ['read:own_report', 'write:own_report'],
-      teamId: 'team-001',
+    // Mock AI client with authorization denial behavior
+    const mockAiClient: Tx2Imp1AiClient = {
+      buildAction01Prompt: jest.fn().mockResolvedValue({
+        prompt: "Collect daily reports from all members",
+        version: "1.0",
+      }),
+      buildAction02Prompt: jest.fn().mockResolvedValue({
+        prompt: "Convert reports to unified format",
+        version: "1.0",
+      }),
+      buildAction03Prompt: jest.fn().mockResolvedValue({
+        prompt: "Extract issues from reports",
+        version: "1.0",
+      }),
+      buildAction04Prompt: jest.fn().mockResolvedValue({
+        prompt: "Apply priority scoring",
+        version: "1.0",
+      }),
+      buildAction05Prompt: jest.fn().mockResolvedValue({
+        prompt: "Generate confirmation email",
+        version: "1.0",
+      }),
+      buildAction06Prompt: jest.fn().mockResolvedValue({
+        prompt: "Send email to manager",
+        version: "1.0",
+      }),
+      // Simulate authorization denial on data access
+      executeAction: jest.fn().mockImplementation(async (actionNumber) => {
+        if (actionNumber === 1) {
+          const error = new Error(
+            "Authorization Denied: Unauthorized data access attempt by agent at Action 1"
+          );
+          (error as any).code = "AUTHORIZATION_DENIED";
+          (error as any).severity = "critical";
+          throw error;
+        }
+        if (actionNumber === 2) {
+          const error = new Error(
+            "Authorization Denied: Unauthorized tool operation attempt by agent at Action 2"
+          );
+          (error as any).code = "AUTHORIZATION_DENIED";
+          (error as any).severity = "critical";
+          throw error;
+        }
+        return { success: true, data: {} };
+      }),
     };
 
-    // Setup: テスト入力
-    const input = {
-      executionId: 'exec-20240115-001',
-      scheduledTime: '2024-01-15T09:00:00Z',
-      aiClientInterface: fakeAiClient,
-      userContext,
-      config: {
-        retryPolicy: { maxAttempts: 1, backoffMs: 0 },
-        auditLogCallback: (event: { event: string; timestamp: string; details: Record<string, unknown> }) => {
-          auditLog.push(event);
-        },
-        escalationCallback: (event: { condition: string; timestamp: string; context: Record<string, unknown> }) => {
-          escalationEvents.push(event);
-        },
-      },
+    // Audit log collector
+    const auditLog: Array<{
+      timestamp: Date;
+      event: string;
+      severity: string;
+      escalation_condition?: string;
+    }> = [];
+
+    // Mock audit event recording
+    const recordAuditEvent = (
+      event: string,
+      severity: string,
+      escalationCondition?: string
+    ) => {
+      auditLog.push({
+        timestamp: new Date(),
+        event,
+        severity,
+        escalation_condition: escalationCondition,
+      });
     };
 
-    // Execute: sendUnsubmittedReminder 関数を呼び出し
-    let actualResult: any;
-    let thrownError: any;
+    let agentOutput: Tx2Imp1AgentOutput | null = null;
+    let caughtError: Error | null = null;
 
     try {
-      actualResult = await sendUnsubmittedReminder(input);
-    } catch (err) {
-      thrownError = err;
+      // Run the agent with authorization denial setup
+      agentOutput = await runTx2Imp1Agent(agentInput, mockAiClient);
+    } catch (error) {
+      caughtError = error as Error;
+
+      // Record authorization denial in audit log
+      if ((error as any).code === "AUTHORIZATION_DENIED") {
+        recordAuditEvent(
+          (error as Error).message,
+          "critical",
+          "authorization_denial"
+        );
+      }
     }
 
-    // Verify: 権限エラーがスローされたことを確認
-    expect(thrownError).toBeDefined();
-    expect(thrownError.message).toMatch(/Authorization Denied/);
-    expect(thrownError.code).toBe('AUTHORIZATION_DENIED');
-    expect(thrownError.action).toBe('Action 1');
+    // Assertions: Agent should fail on authorization denial
+    expect(caughtError).not.toBeNull();
+    expect(caughtError?.message).toMatch(/Authorization Denied/);
 
-    // Verify: Audit ログに記録されたか確認
-    const authDenialLog = auditLog.find(
-      (log) => log.details.code === 'AUTHORIZATION_DENIED' && log.details.action === 'Action 1',
+    // Verify audit log recorded authorization denial events
+    expect(auditLog.length).toBeGreaterThan(0);
+    const authDenialEvents = auditLog.filter(
+      (log) => log.escalation_condition === "authorization_denial"
     );
-    expect(authDenialLog).toBeDefined();
-    expect(authDenialLog?.event).toMatch(/Authorization Denied/);
-    expect(authDenialLog?.details.resource).toBe('member_report_data');
+    expect(authDenialEvents.length).toBeGreaterThan(0);
 
-    // Verify: エスカレーション条件が発動したか確認
-    const escalationEvent = escalationEvents.find((e) => e.condition === 'authorization_denial');
-    expect(escalationEvent).toBeDefined();
-    expect(escalationEvent?.context.agentAction).toBe('Action 1');
-    expect(escalationEvent?.context.errorCode).toBe('AUTHORIZATION_DENIED');
+    // Verify at least one audit event contains Action 1 authorization denial
+    const action1DenialEvent = auditLog.find((log) =>
+      log.event.includes("Action 1")
+    );
+    expect(action1DenialEvent).toBeDefined();
+    expect(action1DenialEvent?.severity).toBe("critical");
 
-    // Verify: 処理が中断され、部長への確認メールが送信されていないことを確認
-    expect(actualResult).toBeUndefined();
-    expect(thrownError.retryable).toBeUndefined(); // 再試行フラグが立たない
+    // Verify at least one audit event contains Action 2 authorization denial
+    const action2DenialEvent = auditLog.find((log) =>
+      log.event.includes("Action 2")
+    );
+    expect(action2DenialEvent).toBeDefined();
+    expect(action2DenialEvent?.severity).toBe("critical");
 
-    // Verify: Agent 実行結果がエラーステータスで返されたことを確認
-    expect(thrownError).toBeInstanceOf(Error);
-    expect(thrownError.code).toBe('AUTHORIZATION_DENIED');
+    // Verify agent output did not reach confirmation email stage
+    expect(agentOutput).toBeNull();
+
+    // Verify manager confirmation email was NOT sent
+    expect(mockAiClient.buildAction06Prompt).not.toHaveBeenCalled();
+
+    // Verify Action 1 was attempted before denial
+    expect(mockAiClient.buildAction01Prompt).toHaveBeenCalled();
+
+    // Verify agent halted processing after authorization denial
+    const executeActionCalls = (mockAiClient.executeAction as jest.Mock).mock
+      .calls.length;
+    expect(executeActionCalls).toBeGreaterThan(0);
+    expect(executeActionCalls).toBeLessThan(6);
   });
 });

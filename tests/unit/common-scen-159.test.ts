@@ -1,339 +1,257 @@
-import { describe, test, expect, jest, beforeEach, afterEach } from "@jest/globals";
-import { sendUnsubmittedReminder } from "../../src/logic/notification-delivery";
+import { runTx9Imp1Agent, type Tx9Imp1AiClient } from "../../src/agents/tx-9-imp-1/orchestrator";
 
-describe("notification-delivery", () => {
-  // SCEN-159: [normal] 日報集約から分析報告までの自動実行エージェント
-  test("should execute complete workflow without intermediate human approval for normal dataset", async () => {
-    // Prepare test data: normal dataset with no escalation conditions
-    const test_period_start = new Date("2024-01-08T00:00:00Z");
-    const test_period_end = new Date("2024-01-14T23:59:59Z");
+describe("tx-9-imp-1: 日報集約から分析報告までの自動実行エージェント", () => {
+  // SCEN-159
+  test("通常案件を人の都度承認なしで最後まで完了する", async () => {
+    const aggregationStartDate = "2024-01-01";
+    const aggregationEndDate = "2024-01-31";
+    const targetTeamIds = ["team-001", "team-002"];
+    const requestedByUserId = "user-director-001";
 
-    const test_submitted_reports = [
-      {
-        reporter_id: "ENG001",
-        reporter_name: "Engineer A",
-        report_date: new Date("2024-01-08T09:00:00Z"),
-        achievements: [
-          "Feature X development completed",
-          "Code review for module Y",
+    const mockAiClient: Tx9Imp1AiClient = {
+      executeAction01: jest.fn().mockResolvedValue({
+        aggregatedReports: [
+          {
+            reportId: "report-001",
+            userId: "user-001",
+            teamId: "team-001",
+            reportDate: "2024-01-15",
+            issues: [
+              {
+                issueId: "issue-001",
+                title: "テスト環境の構築遅延",
+                description: "CI/CDパイプライン設定に問題",
+                reportedDate: "2024-01-15",
+              },
+            ],
+            achievements: ["API仕様確定"],
+            plannedWork: ["要件定義完了"],
+          },
+          {
+            reportId: "report-002",
+            userId: "user-002",
+            teamId: "team-001",
+            reportDate: "2024-01-15",
+            issues: [
+              {
+                issueId: "issue-002",
+                title: "データベース接続タイムアウト",
+                description: "本番環境でコネクション数制限に達した",
+                reportedDate: "2024-01-15",
+              },
+            ],
+            achievements: ["パフォーマンステスト完了"],
+            plannedWork: ["チューニング開始"],
+          },
         ],
-        challenges: ["Integration testing delay", "Database query optimization needed"],
-        planned_tasks: ["Feature Z design", "Performance tuning"],
-      },
-      {
-        reporter_id: "ENG002",
-        reporter_name: "Engineer B",
-        report_date: new Date("2024-01-08T09:15:00Z"),
-        achievements: ["Bug fix in component A"],
-        challenges: ["External API rate limiting issue"],
-        planned_tasks: ["API retry logic implementation"],
-      },
-      {
-        reporter_id: "ENG003",
-        reporter_name: "Engineer C",
-        report_date: new Date("2024-01-09T09:00:00Z"),
-        achievements: ["Unit test coverage increased to 85%"],
-        challenges: ["Test environment setup issue"],
-        planned_tasks: ["Integration test suite development"],
-      },
-    ];
+        totalReportsCollected: 2,
+      }),
 
-    const test_unsubmitted_members = ["ENG004", "ENG005"];
+      executeAction02: jest.fn().mockResolvedValue({
+        unsubmittedMembers: [
+          {
+            userId: "user-003",
+            userName: "田中太郎",
+            teamId: "team-002",
+            lastSubmitDate: "2024-01-14",
+          },
+        ],
+        reminderNotificationsSent: 1,
+      }),
 
-    const test_aggregated_data = {
-      total_reports: 3,
-      unsubmitted_count: 2,
-      collection_period: {
-        start: test_period_start.toISOString(),
-        end: test_period_end.toISOString(),
-      },
-      reports: test_submitted_reports,
-    };
-
-    const test_productivity_metrics = {
-      total_issues: 5,
-      resolved_issues: 3,
-      average_resolution_days: 2.5,
-      response_speed_score: 8.2,
-      submission_rate_percent: 60,
-    };
-
-    const test_classified_issues = [
-      {
-        issue_id: "ISS001",
-        content: "Integration testing delay",
-        priority: "HIGH",
-        category: "schedule_risk",
-        impact_scope: "team",
-      },
-      {
-        issue_id: "ISS002",
-        content: "Database query optimization needed",
-        priority: "MEDIUM",
-        category: "technical_debt",
-        impact_scope: "module",
-      },
-      {
-        issue_id: "ISS003",
-        content: "External API rate limiting issue",
-        priority: "MEDIUM",
-        category: "external_dependency",
-        impact_scope: "feature",
-      },
-      {
-        issue_id: "ISS004",
-        content: "Test environment setup issue",
-        priority: "LOW",
-        category: "infrastructure",
-        impact_scope: "team",
-      },
-      {
-        issue_id: "ISS005",
-        content: "Code review bottleneck",
-        priority: "LOW",
-        category: "process",
-        impact_scope: "team",
-      },
-    ];
-
-    const test_recurrence_patterns = [
-      {
-        pattern_id: "PAT001",
-        base_issue: "Database performance issue",
-        recurrence_count: 3,
-        last_occurrence: new Date("2024-01-08T09:00:00Z").toISOString(),
-        frequency_days: 7,
-      },
-      {
-        pattern_id: "PAT002",
-        base_issue: "Environment setup problem",
-        recurrence_count: 2,
-        last_occurrence: new Date("2024-01-09T09:00:00Z").toISOString(),
-        frequency_days: 5,
-      },
-    ];
-
-    const test_improvement_strategies = [
-      {
-        strategy_id: "STR001",
-        issue_id: "ISS001",
-        action: "Allocate additional testing resources",
-        expected_impact: "Reduce testing delay by 40%",
-        implementation_difficulty: "LOW",
-        priority: "HIGH",
-      },
-      {
-        strategy_id: "STR002",
-        issue_id: "ISS002",
-        action: "Implement query caching layer",
-        expected_impact: "Reduce query execution time by 60%",
-        implementation_difficulty: "MEDIUM",
-        priority: "MEDIUM",
-      },
-      {
-        strategy_id: "STR003",
-        issue_id: "ISS003",
-        action: "Implement API rate limiter with exponential backoff",
-        expected_impact: "Improve API resilience by 50%",
-        implementation_difficulty: "MEDIUM",
-        priority: "MEDIUM",
-      },
-      {
-        strategy_id: "STR004",
-        issue_id: "ISS004",
-        action: "Create automated environment setup script",
-        expected_impact: "Reduce setup time by 80%",
-        implementation_difficulty: "LOW",
-        priority: "LOW",
-      },
-    ];
-
-    const test_final_report = {
-      report_id: `RPT-${new Date("2024-01-08T00:00:00Z").getTime()}`,
-      period: {
-        start: test_period_start.toISOString(),
-        end: test_period_end.toISOString(),
-      },
-      aggregated_reports: test_aggregated_data,
-      productivity_metrics: test_productivity_metrics,
-      classified_issues: test_classified_issues,
-      recurrence_patterns: test_recurrence_patterns,
-      improvement_strategies: test_improvement_strategies,
-      executive_summary: {
-        total_issues_identified: 5,
-        critical_priority_count: 1,
-        submission_rate_percent: 60,
-        key_recommendation:
-          "Prioritize integration testing acceleration and implement database optimization to reduce critical path delays",
-      },
-      generated_at: expect.any(String),
-    };
-
-    // Mock AI client implementing Tx9Imp1AiClient interface
-    const mock_ai_client = {
-      // Action 1: Aggregate reports
-      executeAction01_AggregateReports: jest
-        .fn()
-        .mockResolvedValue(test_aggregated_data),
-
-      // Action 2: Identify unsubmitted members
-      executeAction02_IdentifyUnsubmitted: jest
-        .fn()
-        .mockResolvedValue(test_unsubmitted_members),
-
-      // Action 3: Quantify productivity metrics
-      executeAction03_QuantifyMetrics: jest
-        .fn()
-        .mockResolvedValue(test_productivity_metrics),
-
-      // Action 4: Classify issues by priority
-      executeAction04_ClassifyIssues: jest
-        .fn()
-        .mockResolvedValue(test_classified_issues),
-
-      // Action 5: Detect recurrence patterns
-      executeAction05_DetectPatterns: jest
-        .fn()
-        .mockResolvedValue(test_recurrence_patterns),
-
-      // Action 6: Propose improvement strategies
-      executeAction06_ProposeStrategies: jest
-        .fn()
-        .mockResolvedValue(test_improvement_strategies),
-
-      // Action 7: Generate final report
-      executeAction07_GenerateReport: jest.fn().mockResolvedValue({
-        report_id: expect.any(String),
-        period: {
-          start: test_period_start.toISOString(),
-          end: test_period_end.toISOString(),
+      executeAction03: jest.fn().mockResolvedValue({
+        productivityMetrics: {
+          issueCounts: 12,
+          averageResolutionDays: 3.5,
+          responseSpeedScore: 85,
         },
-        aggregated_reports: test_aggregated_data,
-        productivity_metrics: test_productivity_metrics,
-        classified_issues: test_classified_issues,
-        recurrence_patterns: test_recurrence_patterns,
-        improvement_strategies: test_improvement_strategies,
-        executive_summary: expect.objectContaining({
-          total_issues_identified: 5,
-          critical_priority_count: 1,
-        }),
-        generated_at: expect.any(String),
+      }),
+
+      executeAction04: jest.fn().mockResolvedValue({
+        prioritizedIssuesByCategory: [
+          {
+            priority: "HIGH",
+            issues: [
+              {
+                issueId: "issue-002",
+                title: "データベース接続タイムアウト",
+                category: "infrastructure",
+                impactScope: "production",
+              },
+            ],
+            issueCounts: 1,
+          },
+          {
+            priority: "MEDIUM",
+            issues: [
+              {
+                issueId: "issue-001",
+                title: "テスト環境の構築遅延",
+                category: "testing",
+                impactScope: "development",
+              },
+            ],
+            issueCounts: 1,
+          },
+        ],
+      }),
+
+      executeAction05: jest.fn().mockResolvedValue({
+        recurrencePatterns: [
+          {
+            patternId: "pattern-001",
+            issueTitle: "データベース接続タイムアウト",
+            occurrenceCount: 3,
+            lastOccurrenceDate: "2024-01-15",
+            riskLevel: "high",
+          },
+        ],
+        totalPatternsDetected: 1,
+      }),
+
+      executeAction06: jest.fn().mockResolvedValue({
+        countermeasures: [
+          {
+            countermeasureId: "measure-001",
+            title: "データベース接続プール最適化",
+            priority: "HIGH",
+            expectedEffect: "接続タイムアウト発生頻度を90%削減",
+            implementationDifficulty: "medium",
+            targetIssueIds: ["issue-002"],
+          },
+          {
+            countermeasureId: "measure-002",
+            title: "CI/CDパイプライン自動テスト強化",
+            priority: "MEDIUM",
+            expectedEffect: "テスト環境構築エラーの早期発見",
+            implementationDifficulty: "low",
+            targetIssueIds: ["issue-001"],
+          },
+        ],
+        totalMeasures: 2,
+      }),
+
+      executeAction07: jest.fn().mockResolvedValue({
+        reportId: "analysis-report-001",
+        aggregationPeriod: {
+          startDate: aggregationStartDate,
+          endDate: aggregationEndDate,
+        },
+        productivityMetrics: {
+          issueResolutionSpeed: 3.5,
+          reportSubmissionRate: 92.5,
+          issueRecurrenceRate: 15.8,
+        },
+        prioritizedIssues: [
+          {
+            issueId: "issue-002",
+            title: "データベース接続タイムアウト",
+            priority: "HIGH",
+            impactScope: "production",
+            category: "infrastructure",
+          },
+          {
+            issueId: "issue-001",
+            title: "テスト環境の構築遅延",
+            priority: "MEDIUM",
+            impactScope: "development",
+            category: "testing",
+          },
+        ],
+        recommendedCountermeasures: [
+          {
+            countermeasureId: "measure-001",
+            title: "データベース接続プール最適化",
+            priority: "HIGH",
+            expectedEffect: "接続タイムアウト発生頻度を90%削減",
+            implementationDifficulty: "medium",
+          },
+          {
+            countermeasureId: "measure-002",
+            title: "CI/CDパイプライン自動テスト強化",
+            priority: "MEDIUM",
+            expectedEffect: "テスト環境構築エラーの早期発見",
+            implementationDifficulty: "low",
+          },
+        ],
+        generatedAt: "2024-02-01T10:00:00Z",
       }),
     };
 
-    // Execute sendUnsubmittedReminder function
-    const reminder_execution_start = new Date("2024-01-15T08:00:00Z");
-    const result = await sendUnsubmittedReminder(
+    const result = await runTx9Imp1Agent(
       {
-        period_start: test_period_start,
-        period_end: test_period_end,
-        department_id: "DEPT001",
-        execution_time: reminder_execution_start,
+        aggregationStartDate,
+        aggregationEndDate,
+        targetTeamIds,
+        requestedByUserId,
       },
-      mock_ai_client
+      mockAiClient
     );
 
-    // Verify all actions were executed sequentially
-    expect(mock_ai_client.executeAction01_AggregateReports).toHaveBeenCalledTimes(
-      1
+    expect(result).toBeDefined();
+    expect(result.reportId).toBe("analysis-report-001");
+    expect(result.aggregationPeriod.startDate).toBe(aggregationStartDate);
+    expect(result.aggregationPeriod.endDate).toBe(aggregationEndDate);
+
+    expect(result.productivityMetrics).toBeDefined();
+    expect(result.productivityMetrics.issueResolutionSpeed).toBe(3.5);
+    expect(result.productivityMetrics.reportSubmissionRate).toBe(92.5);
+    expect(result.productivityMetrics.issueRecurrenceRate).toBe(15.8);
+
+    expect(result.prioritizedIssues).toHaveLength(2);
+    expect(result.prioritizedIssues[0].priority).toBe("HIGH");
+    expect(result.prioritizedIssues[0].issueId).toBe("issue-002");
+    expect(result.prioritizedIssues[1].priority).toBe("MEDIUM");
+    expect(result.prioritizedIssues[1].issueId).toBe("issue-001");
+
+    expect(result.recommendedCountermeasures).toHaveLength(2);
+    expect(result.recommendedCountermeasures[0].priority).toBe("HIGH");
+    expect(result.recommendedCountermeasures[0].countermeasureId).toBe(
+      "measure-001"
     );
-    expect(mock_ai_client.executeAction02_IdentifyUnsubmitted).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.executeAction03_QuantifyMetrics).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.executeAction04_ClassifyIssues).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.executeAction05_DetectPatterns).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.executeAction06_ProposeStrategies).toHaveBeenCalledTimes(1);
-    expect(mock_ai_client.executeAction07_GenerateReport).toHaveBeenCalledTimes(1);
-
-    // Verify result contains complete analysis data
-    expect(result).toHaveProperty("aggregated_reports");
-    expect(result.aggregated_reports).toEqual(test_aggregated_data);
-
-    expect(result).toHaveProperty("productivity_metrics");
-    expect(result.productivity_metrics.total_issues).toBe(5);
-    expect(result.productivity_metrics.resolved_issues).toBe(3);
-    expect(result.productivity_metrics.average_resolution_days).toBe(2.5);
-    expect(result.productivity_metrics.response_speed_score).toBe(8.2);
-    expect(result.productivity_metrics.submission_rate_percent).toBe(60);
-
-    // Verify priority-classified issues
-    expect(result).toHaveProperty("classified_issues");
-    expect(result.classified_issues).toHaveLength(5);
-    expect(result.classified_issues[0]).toMatchObject({
-      issue_id: "ISS001",
-      priority: "HIGH",
-      category: "schedule_risk",
-    });
-    expect(result.classified_issues[1]).toMatchObject({
-      issue_id: "ISS002",
-      priority: "MEDIUM",
-    });
-
-    // Verify recurrence patterns
-    expect(result).toHaveProperty("recurrence_patterns");
-    expect(result.recurrence_patterns).toHaveLength(2);
-    expect(result.recurrence_patterns[0]).toMatchObject({
-      pattern_id: "PAT001",
-      recurrence_count: 3,
-      frequency_days: 7,
-    });
-
-    // Verify improvement strategies
-    expect(result).toHaveProperty("improvement_strategies");
-    expect(result.improvement_strategies).toHaveLength(4);
-    expect(result.improvement_strategies[0]).toMatchObject({
-      strategy_id: "STR001",
-      priority: "HIGH",
-      implementation_difficulty: "LOW",
-    });
-
-    // Verify executive summary
-    expect(result).toHaveProperty("executive_summary");
-    expect(result.executive_summary).toMatchObject({
-      total_issues_identified: 5,
-      critical_priority_count: 1,
-      submission_rate_percent: 60,
-    });
-
-    // Verify audit events are recorded
-    expect(result).toHaveProperty("audit_events");
-    expect(Array.isArray(result.audit_events)).toBe(true);
-    expect(result.audit_events.length).toBeGreaterThanOrEqual(7);
-
-    // Verify action execution sequence in audit log
-    const action_sequence = result.audit_events.map(
-      (event: any) => event.action_id
+    expect(result.recommendedCountermeasures[1].priority).toBe("MEDIUM");
+    expect(result.recommendedCountermeasures[1].countermeasureId).toBe(
+      "measure-002"
     );
-    expect(action_sequence).toContain("action_01_aggregate_reports");
-    expect(action_sequence).toContain("action_02_identify_unsubmitted");
-    expect(action_sequence).toContain("action_03_quantify_metrics");
-    expect(action_sequence).toContain("action_04_classify_issues");
-    expect(action_sequence).toContain("action_05_detect_patterns");
-    expect(action_sequence).toContain("action_06_propose_strategies");
-    expect(action_sequence).toContain("action_07_generate_report");
 
-    // Verify audit events have timestamps and status
-    result.audit_events.forEach((event: any) => {
-      expect(event).toHaveProperty("executed_at");
-      expect(event).toHaveProperty("status");
-      expect(event.status).toBe("completed");
-      expect(event).toHaveProperty("input_hash");
-      expect(event).toHaveProperty("output_hash");
-    });
+    expect(result.generatedAt).toBe("2024-02-01T10:00:00Z");
 
-    // Verify execution completed without human intervention
-    expect(result).toHaveProperty("execution_status");
-    expect(result.execution_status).toBe("completed_autonomous");
+    expect(mockAiClient.executeAction01).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction02).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction03).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction04).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction05).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction06).toHaveBeenCalledTimes(1);
+    expect(mockAiClient.executeAction07).toHaveBeenCalledTimes(1);
 
-    // Verify total execution time is recorded
-    expect(result).toHaveProperty("total_execution_time_ms");
-    expect(typeof result.total_execution_time_ms).toBe("number");
-    expect(result.total_execution_time_ms).toBeGreaterThan(0);
+    const action01Call = (mockAiClient.executeAction01 as jest.Mock).mock
+      .calls[0][0];
+    expect(action01Call).toBeDefined();
+    expect(action01Call.aggregationStartDate).toBe(aggregationStartDate);
+    expect(action01Call.aggregationEndDate).toBe(aggregationEndDate);
 
-    // Verify no escalation conditions were triggered
-    expect(result).toHaveProperty("escalation_triggered");
-    expect(result.escalation_triggered).toBe(false);
+    const action02Call = (mockAiClient.executeAction02 as jest.Mock).mock
+      .calls[0][0];
+    expect(action02Call).toBeDefined();
 
-    expect(result).toHaveProperty("escalation_details");
-    expect(result.escalation_details).toEqual([]);
+    const action03Call = (mockAiClient.executeAction03 as jest.Mock).mock
+      .calls[0][0];
+    expect(action03Call).toBeDefined();
+
+    const action04Call = (mockAiClient.executeAction04 as jest.Mock).mock
+      .calls[0][0];
+    expect(action04Call).toBeDefined();
+
+    const action05Call = (mockAiClient.executeAction05 as jest.Mock).mock
+      .calls[0][0];
+    expect(action05Call).toBeDefined();
+
+    const action06Call = (mockAiClient.executeAction06 as jest.Mock).mock
+      .calls[0][0];
+    expect(action06Call).toBeDefined();
+
+    const action07Call = (mockAiClient.executeAction07 as jest.Mock).mock
+      .calls[0][0];
+    expect(action07Call).toBeDefined();
   });
 });

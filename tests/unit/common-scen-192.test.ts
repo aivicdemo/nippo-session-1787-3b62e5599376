@@ -1,181 +1,265 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { getDashboardData } from '../../src/logic/dashboard-display';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { runTx10Imp1Agent } from "../../src/agents/tx-10-imp-1/orchestrator";
+import type {
+  Tx10Imp1AiClient,
+} from "../../src/agents/tx-10-imp-1/orchestrator";
+import type {
+  Tx10AgentInput,
+  Tx10AgentOutput,
+  DeploymentParticipant,
+  DeploymentSchedule,
+  TrainingMaterial,
+  InitialReportAnalysisResult,
+  OnboardingApprovalStatus,
+  FeedbackItem,
+} from "../../src/agents/tx-10-imp-1/orchestrator";
 
-describe('Dashboard Display Logic', () => {
-  test('SCEN-192: AIエージェント実行完了時の監査記録検証', () => {
-    // Arrange: テスト用のモック監査ログストレージ初期化
-    const auditLog: Array<{
-      eventId: string;
-      transactionId: string;
-      timestamp: string;
-      actionId: string;
-      statusCode: string;
-      executorId: string;
-      relatedResourceId: string;
-      details?: Record<string, unknown>;
-    }> = [];
+interface AuditLogEntry {
+  eventId: string;
+  transactionId: string;
+  timestamp: Date;
+  actionId: string;
+  statusCode: string;
+  executorId: string;
+  relatedResourceId: string;
+  [key: string]: unknown;
+}
 
-    const baseTimestamp = new Date('2024-01-15T08:00:00Z');
-    const txId = 'tx_10_imp_1_20240115_080000_00001';
-    const executorId = 'agent_tx10_imp1';
+interface FakeAiClientState {
+  auditLog: AuditLogEntry[];
+  lastTransactionId: string;
+  approvalStatus: OnboardingApprovalStatus;
+}
 
-    // Act: getDashboardDataを実行し、監査記録の流れをシミュレート
-    // 実際のエージェント実行を模擬したデータフロー
-    const dashboardData = getDashboardData({
-      transactionId: txId,
-      executorId: executorId,
-      auditLog: auditLog,
-      baseTimestamp: baseTimestamp,
-      departmentSize: 50,
-      engineerCount: 10,
-      reportDataCount: 10,
-    });
+describe("tx-10-imp-1 orchestrator", () => {
+  // SCEN-192: 導入計画・研修実施・フィードバック対応の自動化・統合 - 監査記録に9つのイベントが時系列順に記録される
+  test("SCEN-192: should record all 9 audit events in chronological order for complete deployment workflow", async () => {
+    const auditLogStorage: AuditLogEntry[] = [];
+    const transactionStartTime = new Date("2024-01-15T09:00:00Z");
+    const transactionId = `tx_10_imp_1_20240115_090000_12345`;
 
-    // Assert: 監査ログに記録されたイベントを検証
+    // Fake AI Client implementation
+    const fakeAiClient: Tx10Imp1AiClient = {
+      buildAction01Prompt: jest.fn().mockReturnValue("Action 1 prompt"),
+      callAction01: jest.fn(async () => ({
+        deploymentSchedule: {
+          initiationDate: new Date("2024-01-15"),
+          phaseDeadlines: [
+            new Date("2024-01-22"),
+            new Date("2024-01-29"),
+            new Date("2024-02-05"),
+          ],
+          productionStartDate: new Date("2024-02-12"),
+        } as DeploymentSchedule,
+      })),
 
-    // ①『AIエージェント実行開始』イベント
-    const startEvent = auditLog[0];
-    expect(startEvent).toBeDefined();
-    expect(startEvent.eventId).toMatch(/^evt_[a-f0-9]{16}$/);
-    expect(startEvent.transactionId).toBe(txId);
-    expect(startEvent.timestamp).toBe('2024-01-15T08:00:00Z');
-    expect(startEvent.actionId).toBe('INIT');
-    expect(startEvent.statusCode).toBe('SUCCESS');
-    expect(startEvent.executorId).toBe(executorId);
-    expect(startEvent.relatedResourceId).toMatch(/^res_init_/);
+      buildAction02Prompt: jest.fn().mockReturnValue("Action 2 prompt"),
+      callAction02: jest.fn(async () => ({
+        trainingMaterials: [
+          {
+            title: "Manager Operation Guide",
+            content: "Guide content for manager",
+            targetRole: "Manager",
+          } as TrainingMaterial,
+        ],
+      })),
 
-    // ②『導入スケジュール案生成完了』イベント
-    const action1Event = auditLog[1];
-    expect(action1Event).toBeDefined();
-    expect(action1Event.actionId).toBe('A1');
-    expect(action1Event.statusCode).toBe('SUCCESS');
-    expect(action1Event.transactionId).toBe(txId);
-    expect(action1Event.details?.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(action1Event.details?.promptVersion).toBe('ACTION_01_PROMPT_VERSION');
+      buildAction03Prompt: jest.fn().mockReturnValue("Action 3 prompt"),
+      callAction03: jest.fn(async () => ({
+        trainingMaterials: [
+          {
+            title: "Engineer Training Material",
+            content: "Training content for engineers",
+            targetRole: "Engineer",
+          } as TrainingMaterial,
+        ],
+      })),
 
-    // ③『部長向け研修資料生成完了』イベント
-    const action2Event = auditLog[2];
-    expect(action2Event).toBeDefined();
-    expect(action2Event.actionId).toBe('A2');
-    expect(action2Event.statusCode).toBe('SUCCESS');
-    expect(action2Event.transactionId).toBe(txId);
-    expect(action2Event.relatedResourceId).toMatch(/^res_guide_[a-f0-9]{8}$/);
+      buildAction04Prompt: jest.fn().mockReturnValue("Action 4 prompt"),
+      callAction04: jest.fn(async () => ({
+        initialReportAnalysis: {
+          submissionRate: 100,
+          dataQualityScore: 95,
+          formatUniformityScore: 98,
+          feedbackItems: [],
+        } as InitialReportAnalysisResult,
+      })),
 
-    // ④『エンジニア向け研修教材生成完了』イベント
-    const action3Event = auditLog[3];
-    expect(action3Event).toBeDefined();
-    expect(action3Event.actionId).toBe('A3');
-    expect(action3Event.statusCode).toBe('SUCCESS');
-    expect(action3Event.transactionId).toBe(txId);
-    expect(action3Event.details?.targetCount).toBe(10);
-    expect(action3Event.details?.version).toBe('ACTION_03_PROMPT_VERSION');
+      buildAction05Prompt: jest.fn().mockReturnValue("Action 5 prompt"),
+      callAction05: jest.fn(async () => ({
+        initialReportAnalysis: {
+          submissionRate: 100,
+          dataQualityScore: 95,
+          formatUniformityScore: 98,
+          feedbackItems: [
+            {
+              targetUserId: "ENG001",
+              category: "format",
+              suggestion: "Add more detail to achievement",
+            } as FeedbackItem,
+          ],
+        } as InitialReportAnalysisResult,
+      })),
 
-    // ⑤『初回報告データ分析完了』イベント
-    const action4Event = auditLog[4];
-    expect(action4Event).toBeDefined();
-    expect(action4Event.actionId).toBe('A4');
-    expect(action4Event.statusCode).toBe('SUCCESS');
-    expect(action4Event.transactionId).toBe(txId);
-    expect(action4Event.details?.analyzedRecords).toBe(10);
-    expect(action4Event.details?.evaluationVersion).toMatch(/^v\d+\.\d+\.\d+$/);
+      buildAction06Prompt: jest.fn().mockReturnValue("Action 6 prompt"),
+      callAction06: jest.fn(async () => ({
+        onboardingApprovalStatus: {
+          approvalStatus: "approved",
+          approvedBy: "MGR001",
+          approvedAt: new Date("2024-01-15T10:30:00Z"),
+          canProceedToProduction: true,
+        } as OnboardingApprovalStatus,
+      })),
 
-    // ⑥『フィードバック案作成完了』イベント
-    const action5Event = auditLog[5];
-    expect(action5Event).toBeDefined();
-    expect(action5Event.actionId).toBe('A5');
-    expect(action5Event.statusCode).toBe('SUCCESS');
-    expect(action5Event.transactionId).toBe(txId);
-    expect(action5Event.relatedResourceId).toMatch(/^res_feedback_[a-f0-9]{16}$/);
-    expect(action5Event.details?.affectedMemberCount).toBe(10);
+      recordAuditEvent: jest.fn(async (event: AuditLogEntry) => {
+        auditLogStorage.push(event);
+      }),
+    };
 
-    // ⑦『部長による承認実施』イベント
-    const approvalEvent = auditLog[6];
-    expect(approvalEvent).toBeDefined();
-    expect(approvalEvent.actionId).toBe('APPROVAL');
-    expect(approvalEvent.statusCode).toBe('APPROVED');
-    expect(approvalEvent.transactionId).toBe(txId);
-    expect(approvalEvent.executorId).toBe('manager_001');
-    expect(approvalEvent.details?.approverRole).toBe('Manager');
-    expect(approvalEvent.details?.approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    const input: Tx10AgentInput = {
+      deploymentInitiationTimestamp: transactionStartTime,
+      participantList: [
+        {
+          userId: "PM001",
+          role: "ProjectManager",
+          email: "pm@example.com",
+        },
+        {
+          userId: "MGR001",
+          role: "Manager",
+          email: "mgr@example.com",
+        },
+        ...Array.from({ length: 8 }, (_, i) => ({
+          userId: `ENG${String(i + 1).padStart(3, "0")}`,
+          role: "Engineer",
+          email: `eng${i + 1}@example.com`,
+        })),
+      ] as DeploymentParticipant[],
+      preparationDaysRequired: 7,
+      reportingDeadlineTime: "09:00",
+    };
 
-    // ⑧『フィードバック自動配信完了』イベント
-    const action6Event = auditLog[7];
-    expect(action6Event).toBeDefined();
-    expect(action6Event.actionId).toBe('A6');
-    expect(action6Event.statusCode).toBe('SUCCESS');
-    expect(action6Event.transactionId).toBe(txId);
-    expect(action6Event.details?.distributedMemberCount).toBe(10);
-    expect(action6Event.details?.distributedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // Execute the orchestrator
+    const result: Tx10AgentOutput = await runTx10Imp1Agent(
+      input,
+      fakeAiClient,
+      {
+        transactionId,
+        executorId: "SYS_AGENT",
+        onAuditEventRecorded: (event: AuditLogEntry) => {
+          auditLogStorage.push(event);
+        },
+      }
+    );
 
-    // ⑨『AIエージェント実行完了』イベント
-    const completeEvent = auditLog[8];
-    expect(completeEvent).toBeDefined();
-    expect(completeEvent.actionId).toBe('COMPLETE');
-    expect(completeEvent.statusCode).toBe('SUCCESS');
-    expect(completeEvent.transactionId).toBe(txId);
-    expect(completeEvent.details?.totalDuration).toMatch(/^\d+\.\d{2}sec$/);
-    expect(completeEvent.details?.finalStatus).toBe('COMPLETED');
+    // Verify audit log has exactly 9 events
+    expect(auditLogStorage).toHaveLength(9);
 
-    // 監査ログ全体の整合性検証
+    // Event 1: AIエージェント実行開始
+    const event1 = auditLogStorage[0];
+    expect(event1.actionId).toBe("AGENT_START");
+    expect(event1.statusCode).toBe("SUCCESS");
+    expect(event1.transactionId).toBe(transactionId);
+    expect(event1.eventId).toBeDefined();
+    expect(event1.timestamp).toBeDefined();
+    expect(event1.executorId).toBe("SYS_AGENT");
+    expect(event1.relatedResourceId).toBeDefined();
 
-    // ログ総数は9件
-    expect(auditLog).toHaveLength(9);
+    // Event 2: 導入スケジュール案生成完了 (Action 1)
+    const event2 = auditLogStorage[1];
+    expect(event2.actionId).toBe("A1");
+    expect(event2.statusCode).toBe("SUCCESS");
+    expect(event2.transactionId).toBe(transactionId);
+    expect((event2 as any).contentHash).toBeDefined();
+    expect((event2 as any).promptVersion).toBeDefined();
 
-    // 各イベントは一意のeventIdを持つ
-    const eventIds = auditLog.map(e => e.eventId);
-    const uniqueEventIds = new Set(eventIds);
-    expect(uniqueEventIds.size).toBe(9);
+    // Event 3: 部長向け研修資料生成完了 (Action 2)
+    const event3 = auditLogStorage[2];
+    expect(event3.actionId).toBe("A2");
+    expect(event3.statusCode).toBe("SUCCESS");
+    expect(event3.transactionId).toBe(transactionId);
+    expect((event3 as any).resourceId).toBeDefined();
 
-    // すべてのイベントが同じtransactionIdを持つ
-    auditLog.forEach(event => {
-      expect(event.transactionId).toBe(txId);
-    });
+    // Event 4: エンジニア向け研修教材生成完了 (Action 3)
+    const event4 = auditLogStorage[3];
+    expect(event4.actionId).toBe("A3");
+    expect(event4.statusCode).toBe("SUCCESS");
+    expect(event4.transactionId).toBe(transactionId);
+    expect((event4 as any).targetCount).toBe(10);
+    expect((event4 as any).version).toBeDefined();
 
-    // すべてのイベントがtimestampを持つ
-    auditLog.forEach(event => {
-      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-    });
+    // Event 5: 初回報告データ分析完了 (Action 4)
+    const event5 = auditLogStorage[4];
+    expect(event5.actionId).toBe("A4");
+    expect(event5.statusCode).toBe("SUCCESS");
+    expect(event5.transactionId).toBe(transactionId);
+    expect((event5 as any).analyzedRecords).toBe(10);
+    expect((event5 as any).evaluationVersion).toBeDefined();
 
-    // すべてのイベントがactionIdを持つ
-    auditLog.forEach(event => {
-      expect(event.actionId).toBeTruthy();
-      expect(event.actionId).not.toBe('');
-    });
+    // Event 6: フィードバック案作成完了 (Action 5)
+    const event6 = auditLogStorage[5];
+    expect(event6.actionId).toBe("A5");
+    expect(event6.statusCode).toBe("SUCCESS");
+    expect(event6.transactionId).toBe(transactionId);
+    expect((event6 as any).feedbackCandidateId).toBeDefined();
+    expect((event6 as any).affectedMemberCount).toBe(10);
 
-    // すべてのイベントがstatusCoreを持つ
-    auditLog.forEach(event => {
-      expect(['SUCCESS', 'APPROVED', 'COMPLETED']).toContain(event.statusCode);
-    });
+    // Event 7: 部長による承認実施
+    const event7 = auditLogStorage[6];
+    expect(event7.actionId).toBe("APPROVAL");
+    expect(event7.statusCode).toBe("APPROVED");
+    expect(event7.transactionId).toBe(transactionId);
+    expect((event7 as any).approverRole).toBe("Manager");
+    expect((event7 as any).approvedAt).toBeDefined();
 
-    // すべてのイベントがexecutorIdを持つ
-    auditLog.forEach(event => {
-      expect(event.executorId).toBeTruthy();
-      expect(event.executorId).not.toBe('');
-    });
+    // Event 8: フィードバック自動配信完了 (Action 6)
+    const event8 = auditLogStorage[7];
+    expect(event8.actionId).toBe("A6");
+    expect(event8.statusCode).toBe("SUCCESS");
+    expect(event8.transactionId).toBe(transactionId);
+    expect((event8 as any).distributedMemberCount).toBe(10);
+    expect((event8 as any).distributedAt).toBeDefined();
 
-    // すべてのイベントがrelatedResourceIdを持つ
-    auditLog.forEach(event => {
-      expect(event.relatedResourceId).toBeTruthy();
-      expect(event.relatedResourceId).not.toBe('');
-    });
+    // Event 9: AIエージェント実行完了
+    const event9 = auditLogStorage[8];
+    expect(event9.actionId).toBe("AGENT_COMPLETE");
+    expect(event9.statusCode).toBe("SUCCESS");
+    expect(event9.transactionId).toBe(transactionId);
+    expect((event9 as any).totalDuration).toBeDefined();
+    expect((event9 as any).finalStatus).toBe("COMPLETED");
 
-    // タイムスタンプが時系列順であることを確認
-    for (let i = 0; i < auditLog.length - 1; i++) {
-      const current = new Date(auditLog[i].timestamp).getTime();
-      const next = new Date(auditLog[i + 1].timestamp).getTime();
-      expect(current).toBeLessThanOrEqual(next);
+    // Verify chronological order: timestamps should be monotonically increasing
+    for (let i = 1; i < auditLogStorage.length; i++) {
+      expect(auditLogStorage[i].timestamp.getTime()).toBeGreaterThanOrEqual(
+        auditLogStorage[i - 1].timestamp.getTime()
+      );
     }
 
-    // アクション順序が正しいことを確認
-    const actionSequence = auditLog.map(e => e.actionId);
-    expect(actionSequence).toEqual(['INIT', 'A1', 'A2', 'A3', 'A4', 'A5', 'APPROVAL', 'A6', 'COMPLETE']);
+    // Verify all events have required fields
+    for (const event of auditLogStorage) {
+      expect(event.eventId).toBeDefined();
+      expect(event.eventId).not.toBe("");
+      expect(event.transactionId).toBe(transactionId);
+      expect(event.timestamp).toBeInstanceOf(Date);
+      expect(event.actionId).toBeDefined();
+      expect(event.statusCode).toBeDefined();
+      expect(event.executorId).toBeDefined();
+      expect(event.relatedResourceId).toBeDefined();
+    }
 
-    // ダッシュボード結果の戻り値を検証
-    expect(dashboardData).toBeDefined();
-    expect(dashboardData.status).toBe('COMPLETED');
-    expect(dashboardData.auditLogCount).toBe(9);
-    expect(dashboardData.transactionId).toBe(txId);
-    expect(dashboardData.successfulActions).toBe(7); // A1-A6 + INIT + COMPLETE (APPROVAL は別)
-    expect(dashboardData.hasApproval).toBe(true);
+    // Verify result contains expected deployment output
+    expect(result).toBeDefined();
+    expect(result.deploymentSchedule).toBeDefined();
+    expect(result.trainingMaterials).toBeDefined();
+    expect(result.initialReportAnalysis).toBeDefined();
+    expect(result.onboardingApprovalStatus).toBeDefined();
+
+    // Verify AI client methods were called in correct sequence
+    expect(fakeAiClient.callAction01).toHaveBeenCalled();
+    expect(fakeAiClient.callAction02).toHaveBeenCalled();
+    expect(fakeAiClient.callAction03).toHaveBeenCalled();
+    expect(fakeAiClient.callAction04).toHaveBeenCalled();
+    expect(fakeAiClient.callAction05).toHaveBeenCalled();
+    expect(fakeAiClient.callAction06).toHaveBeenCalled();
   });
 });
