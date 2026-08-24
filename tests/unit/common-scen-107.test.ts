@@ -4,7 +4,7 @@ import type { Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 
 describe("tx-6-imp-1: Daily report collection to analysis report generation", () => {
   let mockAiClient: jest.Mocked<Tx6Imp1AiClient>;
-  let consoleLogSpy: jest.SpyInstance;
+  let consoleLogSpy: ReturnType<typeof jest.spyOn>;
   let originalNow: () => number;
 
   beforeEach(() => {
