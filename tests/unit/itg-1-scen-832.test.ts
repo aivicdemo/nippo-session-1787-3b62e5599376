@@ -9,7 +9,7 @@ interface TextAnalysisServiceAdapter {
 
 describe('Issue Extraction and Ranking - Null Input Handling', () => {
   let mockTextAnalysisAdapter: TextAnalysisServiceAdapter;
-  let consoleErrorSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     mockTextAnalysisAdapter = {

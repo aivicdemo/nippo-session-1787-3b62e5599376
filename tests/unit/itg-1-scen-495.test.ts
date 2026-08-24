@@ -3,8 +3,8 @@ import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-pr
 import { type ExtractIssueKeywordsInput, type RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
 
 describe('課題キーワード自動抽出・ランク付け機能', () => {
-  let consoleErrorSpy: jest.SpyInstance;
-  let consoleLogSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
+  let consoleLogSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

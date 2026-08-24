@@ -3,7 +3,7 @@ import { calculateTeamPerformanceMetrics } from '../../src/logic/monthly-perform
 import type { TeamPerformanceMetricsInput, DailyReportRecord } from '../../src/logic/monthly-performance-analysis';
 
 describe('calculateTeamPerformanceMetrics', () => {
-  let consoleErrorSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

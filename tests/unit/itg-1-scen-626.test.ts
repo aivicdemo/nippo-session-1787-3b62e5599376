@@ -9,7 +9,7 @@ describe('Issue Priority Score Calculation with Cache Fallback', () => {
     assessImpactScore: jest.Mock;
     classifyIssueSeverity: jest.Mock;
   };
-  let consoleLogSpy: jest.SpyInstance;
+  let consoleLogSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     mockCache = new Map();

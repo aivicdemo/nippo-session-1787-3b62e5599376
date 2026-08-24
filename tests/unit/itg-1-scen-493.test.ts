@@ -5,7 +5,7 @@ import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../sr
 describe('Issue Extraction and Prioritization - TextAnalysisServiceAdapter Failure Handling', () => {
   let mockTextAnalysisServiceAdapter: any;
   let mockNotificationServiceAdapter: any;
-  let consoleErrorSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
   let retryLogEntries: Array<{ timestamp: Date; attempt: number; error: string }>;
 
   beforeEach(() => {

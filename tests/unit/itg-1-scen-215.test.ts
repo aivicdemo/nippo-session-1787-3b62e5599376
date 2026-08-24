@@ -3,9 +3,9 @@ import { generateAndSendSummaryEmail } from '../../src/logic/notification-delive
 import type { GenerateAndSendSummaryEmailInput, GenerateAndSendSummaryEmailOutput } from '../../src/logic/notification-delivery';
 
 describe('generateAndSendSummaryEmail - Manager email null error handling', () => {
-  let consoleErrorSpy: jest.SpyInstance;
-  let alertNotificationSpy: jest.SpyInstance;
-  let internalQueueSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
+  let alertNotificationSpy: ReturnType<typeof jest.spyOn>;
+  let internalQueueSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

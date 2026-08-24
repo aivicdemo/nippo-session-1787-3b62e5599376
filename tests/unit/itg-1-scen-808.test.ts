@@ -3,7 +3,7 @@ import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-pr
 import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
 
 describe('課題優先度スコア算出機能', () => {
-  let loggerSpyError: jest.SpyInstance;
+  let loggerSpyError: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     loggerSpyError = jest.spyOn(console, 'error').mockImplementation(() => {});

@@ -4,7 +4,7 @@ import type { Tx7Imp1AgentInput, Tx7Imp1AiClient } from '../../src/agents/tx-7-i
 
 describe('tx-7-imp-1: Monthly Report Generation with Timeout and Disabled Retry', () => {
   let mockAiClient: Tx7Imp1AiClient;
-  let consoleErrorSpy: jest.SpyInstance;
+  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
   let timeoutDelayMs: number;
 
   beforeEach(() => {
