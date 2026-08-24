@@ -1,16 +1,7 @@
+import { type Tx7Imp1AiClient } from "../../src/agents/tx-7-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
-import type {
-  Tx7Imp1AgentInput,
-  Tx7Imp1AgentOutput,
-  Tx7Imp1AiClient,
-  AnalysisResultSummary,
-  BottleneckTrendAnalysis,
-  DailyBottleneckMetric,
-  PrioritizedChallenge,
-  TeamPerformanceMetrics,
-} from '../../src/agents/tx-7-imp-1/types';
-
+import type { Tx7Imp1AgentInput, Tx7Imp1AgentOutput, AnalysisResultSummary, BottleneckTrendAnalysis, DailyBottleneckMetric, PrioritizedChallenge, TeamPerformanceMetrics } from '../../src/agents/tx-7-imp-1/types';
 describe('tx-7-imp-1 agent orchestrator', () => {
   // SCEN-1874: [edge] 月次課題傾向分析レポート生成処理の失敗時再試行制御 - 前回レポート生成完了日と失敗検出日が同日である場合、正確に処理される
   test('should correctly handle same-day retry when previous completion and failure detection occur on same date', async () => {

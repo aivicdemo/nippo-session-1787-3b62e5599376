@@ -1,3 +1,4 @@
+import { type Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/orchestrator";
 import { runTx8Imp1Agent } from "../../src/agents/tx-8-imp-1/orchestrator";
 import type {
   Tx8AgentInput,
@@ -5,7 +6,6 @@ import type {
   RecurringIssuePattern,
   VisualizationGraph,
 } from "../../src/agents/tx-8-imp-1/types";
-import type { Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/ai-client";
 
 describe("課題の再発パターン分析機能", () => {
   // SCEN-1922

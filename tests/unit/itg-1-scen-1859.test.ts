@@ -1,7 +1,7 @@
+import { type Tx7Imp1AiClient } from "../../src/agents/tx-7-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
 import type { Tx7Imp1AgentInput, Tx7Imp1AgentOutput } from '../../src/agents/tx-7-imp-1/types';
-import type { Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/ai-client';
 
 describe('朝会報告管理システム - tx-7-imp-1 月次レポート生成エージェント', () => {
   let mockAiClient: jest.Mocked<Tx7Imp1AiClient>;

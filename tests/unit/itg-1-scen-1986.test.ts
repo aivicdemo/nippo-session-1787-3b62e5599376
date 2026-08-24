@@ -1,6 +1,6 @@
+import { type Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/orchestrator";
 import { runTx8Imp1Agent } from '../../src/agents/tx-8-imp-1/orchestrator';
 import type { Tx8AgentInput, Tx8AgentOutput, RecurringIssuePattern, VisualizationGraph } from '../../src/agents/tx-8-imp-1/types';
-import type { Tx8Imp1AiClient } from '../../src/agents/tx-8-imp-1/types';
 
 describe('TX-8 Imp-1: ボトルネック変化パターン可視化レポート生成', () => {
   // SCEN-1986

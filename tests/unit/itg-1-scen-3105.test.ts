@@ -1,7 +1,7 @@
+import { type Tx2Imp1AiClient } from "../../src/agents/tx-2-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { runTx2Imp1Agent } from '../../src/agents/tx-2-imp-1/orchestrator';
 import type { Tx2Imp1AgentInput, Tx2Imp1AgentOutput } from '../../src/agents/tx-2-imp-1/types';
-import type { Tx2Imp1AiClient } from '../../src/agents/tx-2-imp-1/ai-client';
 
 describe('tx-2-imp-1: 日報収集から課題抽出・配信までの自律実行 - エスカレーション処理', () => {
   // SCEN-3105: 複数課題の関連性判定が不確実な場合、メール配信前に部長へエスカレーション通知を送信する

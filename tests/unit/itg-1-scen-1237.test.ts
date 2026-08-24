@@ -1,7 +1,7 @@
+import { type Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/orchestrator";
 import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { runTx5Imp1Agent } from '../../src/agents/tx-5-imp-1/orchestrator';
-import type { Tx5Imp1AiClient, Tx5Imp1AgentInput, Tx5Imp1AgentOutput, ExtractedIssue, ToolIntegrationConfig, PriorityRuleSet, CategoryMapping, ValidatedIssue } from '../../src/agents/tx-5-imp-1/types';
-
+import type { Tx5Imp1AgentInput, Tx5Imp1AgentOutput, ExtractedIssue, ToolIntegrationConfig, PriorityRuleSet, CategoryMapping, ValidatedIssue } from '../../src/agents/tx-5-imp-1/types';
 // SCEN-1237
 describe('tx-5-imp-1: 課題データの一部が欠落している場合に欠落したレコードのみ連携エラーとして記録される', () => {
   let mockAiClient: jest.Mocked<Tx5Imp1AiClient>;

@@ -1,6 +1,6 @@
+import { type Tx7Imp1AiClient } from "../../src/agents/tx-7-imp-1/orchestrator";
 import { runTx7Imp1Agent } from '../../src/agents/tx-7-imp-1/orchestrator';
 import { type Tx7Imp1AgentInput, type Tx7Imp1AgentOutput } from '../../src/agents/tx-7-imp-1/types';
-import { type Tx7Imp1AiClient } from '../../src/agents/tx-7-imp-1/ai-client';
 
 describe('月次課題傾向分析レポート生成機能 - 再試行パターンの一貫性', () => {
   // SCEN-1840

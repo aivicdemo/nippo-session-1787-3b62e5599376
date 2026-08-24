@@ -1,3 +1,4 @@
+import { type Tx4Imp1AiClient } from "../../src/agents/tx-4-imp-1/orchestrator";
 import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
 import { buildAction01Prompt, ACTION_01_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-01';
 import { buildAction02Prompt, ACTION_02_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-02';
@@ -6,7 +7,6 @@ import { buildAction04Prompt, ACTION_04_PROMPT_VERSION } from '../../src/agents/
 import { buildAction05Prompt, ACTION_05_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-05';
 import { buildAction06Prompt, ACTION_06_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-06';
 import { buildAction07Prompt, ACTION_07_PROMPT_VERSION } from '../../src/agents/tx-4-imp-1/prompts/action-07';
-import { type Tx4Imp1AiClient } from '../../src/agents/tx-4-imp-1/types';
 
 describe('tx-4-imp-1 orchestrator: ダッシュボード分析から課題指示までの自動実行', () => {
   // SCEN-3134

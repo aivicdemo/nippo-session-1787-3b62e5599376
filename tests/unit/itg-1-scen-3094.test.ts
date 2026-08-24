@@ -1,7 +1,7 @@
+import { type Tx1Imp1AiClient } from "../../src/agents/tx-1-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { runTx1Imp1Agent } from '../../src/agents/tx-1-imp-1/orchestrator';
 import type { Tx1Imp1AgentInput, Tx1Imp1AgentOutput, ReportAggregationSummary, UnsubmittedMember, PrioritizedIssue } from '../../src/agents/tx-1-imp-1/types';
-import type { Tx1Imp1AiClient } from '../../src/agents/tx-1-imp-1/types';
 
 // Mock audit log repository
 interface AuditLogRecord {

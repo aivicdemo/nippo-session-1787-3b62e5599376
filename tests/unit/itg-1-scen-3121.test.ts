@@ -1,6 +1,6 @@
+import { type Tx3Imp1AiClient } from "../../src/agents/tx-3-imp-1/orchestrator";
 import { runTx3Imp1Agent } from '../../src/agents/tx-3-imp-1/orchestrator';
 import { type Tx3Imp1AgentInput, type Tx3Imp1AgentOutput } from '../../src/agents/tx-3-imp-1/types';
-import { type Tx3Imp1AiClient } from '../../src/agents/tx-3-imp-1/ai-client';
 
 describe('tx-3-imp-1: 日報集約から優先度別課題一覧提示までの自動判定・配信', () => {
   test('SCEN-3121: エスカレーション - 経営層への報告が必要な重大課題の場合、副作用確定前に人へ引き継ぐ', async () => {

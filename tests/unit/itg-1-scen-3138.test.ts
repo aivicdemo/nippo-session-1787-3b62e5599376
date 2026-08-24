@@ -1,3 +1,4 @@
+import { type Tx4Imp1AiClient } from "../../src/agents/tx-4-imp-1/orchestrator";
 import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
 import type {
   Tx4AgentExecutionRequest,
@@ -5,7 +6,6 @@ import type {
   PrioritizedIssue,
   CountermeasurePlan,
 } from '../../src/agents/tx-4-imp-1/types';
-import type { Tx4Imp1AiClient } from '../../src/agents/tx-4-imp-1/types';
 
 describe('tx-4-imp-1: Tx4Imp1Agent - Dashboard Analysis to Issue Direction', () => {
   // SCEN-3138: [error] ダッシュボード分析から課題指示までの自動実行 AIエージェント - 「ダッシュボード分析から課題指示までの自動実行」が「AIが優先順位を判定できない曖昧な案件の場合」の場合に副作用の確定前に人へ引き継ぐ
