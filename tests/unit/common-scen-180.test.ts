@@ -1,7 +1,7 @@
+import { type Tx10Imp1AiClient } from "../../src/agents/tx-10-imp-1/orchestrator";
 import { runTx10Imp1Agent } from '../../src/agents/tx-10-imp-1/orchestrator';
 import { buildAction03Prompt, ACTION_03_PROMPT_VERSION } from '../../src/agents/tx-10-imp-1/prompts/action-03';
 import type { Tx10AgentInput, Tx10AgentOutput, DeploymentParticipant } from '../../src/agents/tx-10-imp-1/types';
-import type { Tx10Imp1AiClient } from '../../src/agents/tx-10-imp-1/ai-client';
 
 describe('Tx10Imp1Agent - 導入計画・研修実施・フィードバック対応の自動化・統合', () => {
   // SCEN-180

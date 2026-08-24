@@ -1,7 +1,7 @@
+import { type Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { runTx6Imp1Agent } from '../../src/agents/tx-6-imp-1/orchestrator';
 import type { Tx6AgentInput, Tx6AgentOutput } from '../../src/agents/tx-6-imp-1/types';
-import type { Tx6Imp1AiClient } from '../../src/agents/tx-6-imp-1/ai-client';
 
 describe('TX6 日報収集から分析レポート生成までの自動実行 - AI出力検証', () => {
   let mockAiClient: jest.Mocked<Tx6Imp1AiClient>;

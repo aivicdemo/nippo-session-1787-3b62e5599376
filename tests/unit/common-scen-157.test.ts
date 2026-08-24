@@ -1,7 +1,7 @@
+import { type Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import { runTx8Imp1Agent } from "../../src/agents/tx-8-imp-1/orchestrator";
 import type { Tx8AgentInput, Tx8AgentOutput } from "../../src/agents/tx-8-imp-1/types";
-import type { Tx8Imp1AiClient } from "../../src/agents/tx-8-imp-1/ai-client";
 
 describe("tx-8-imp-1 orchestrator", () => {
   // SCEN-157

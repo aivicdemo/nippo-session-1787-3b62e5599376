@@ -1,3 +1,4 @@
+import { type Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import { runTx6Imp1Agent } from "../../src/agents/tx-6-imp-1/orchestrator";
 import type {
@@ -5,7 +6,6 @@ import type {
   Tx6AgentOutput,
   PriorityIssue,
 } from "../../src/agents/tx-6-imp-1/types";
-import type { Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/types";
 
 const fetchMock = require("jest-fetch-mock");
 

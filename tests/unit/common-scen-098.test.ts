@@ -1,9 +1,10 @@
+import { type Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import type {
   Tx5Imp1AgentInput,
   Tx5Imp1AgentOutput,
 } from "../../src/agents/tx-5-imp-1/types";
-import type { Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/ai-client";
+
 import type {
   ExtractedIssue,
   ToolIntegrationConfig,

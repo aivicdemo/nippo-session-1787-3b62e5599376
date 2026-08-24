@@ -1,3 +1,4 @@
+import { type Tx4Imp1AiClient } from "../../src/agents/tx-4-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, jest } from "@jest/globals";
 import { runTx4Imp1Agent } from "../../src/agents/tx-4-imp-1/orchestrator";
 import type {
@@ -6,7 +7,6 @@ import type {
   CountermeasurePlan,
   PrioritizedIssue,
 } from "../../src/agents/tx-4-imp-1/types";
-import type { Tx4Imp1AiClient } from "../../src/agents/tx-4-imp-1/types";
 
 // Mock AuditLogger
 const mockAuditLogs: Array<{

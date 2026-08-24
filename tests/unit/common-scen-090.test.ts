@@ -1,3 +1,4 @@
+import { type Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/orchestrator";
 import { describe, test, expect, beforeEach, jest } from "@jest/globals";
 import { runTx5Imp1Agent } from "../../src/agents/tx-5-imp-1/orchestrator";
 import {
@@ -31,7 +32,6 @@ import type {
   ToolIntegrationResult,
   ExecutionSummary,
 } from "../../src/agents/tx-5-imp-1/types";
-import type { Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/types";
 
 describe("tx-5-imp-1: 課題抽出から既存ツール連携・確認までの自律実行", () => {
   let mockAiClient: jest.Mocked<Tx5Imp1AiClient>;

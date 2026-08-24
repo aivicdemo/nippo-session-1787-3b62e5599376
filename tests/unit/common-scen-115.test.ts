@@ -1,10 +1,6 @@
+import { type Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 import { runTx6Imp1Agent } from "../../src/agents/tx-6-imp-1/orchestrator";
-import type {
-  Tx6AgentInput,
-  Tx6AgentOutput,
-  Tx6Imp1AiClient,
-} from "../../src/agents/tx-6-imp-1/types";
-
+import type { Tx6AgentInput, Tx6AgentOutput } from "../../src/agents/tx-6-imp-1/types";
 describe("日報収集から分析レポート生成までの自動実行", () => {
   // SCEN-115
   test("分析結果に矛盾や異常値が含まれる場合に副作用の確定前に人へ引き継ぐ", async () => {

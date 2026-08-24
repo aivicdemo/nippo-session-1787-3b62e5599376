@@ -1,6 +1,6 @@
+import { type Tx10Imp1AiClient } from "../../src/agents/tx-10-imp-1/orchestrator";
 import { runTx10Imp1Agent } from "../../src/agents/tx-10-imp-1/orchestrator";
 import { type Tx10AgentInput, type Tx10AgentOutput } from "../../src/agents/tx-10-imp-1/types";
-import { type Tx10Imp1AiClient } from "../../src/agents/tx-10-imp-1/ai-client";
 
 describe("Tx10Imp1Agent Escalation - FEEDBACK_OUTLIER", () => {
   // SCEN-186

@@ -1,6 +1,6 @@
+import { type Tx11Imp1AiClient } from "../../src/agents/tx-11-imp-1/orchestrator";
 import { runTx11Imp1Agent } from '../../src/agents/tx-11-imp-1/orchestrator';
 import { type Tx11AgentInput, type Tx11AgentOutput } from '../../src/agents/tx-11-imp-1/types';
-import { type Tx11Imp1AiClient } from '../../src/agents/tx-11-imp-1/types';
 
 describe('Tx11Imp1Agent', () => {
   // SCEN-211

@@ -1,6 +1,6 @@
+import { type Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/orchestrator";
 import { runTx6Imp1Agent } from "../../src/agents/tx-6-imp-1/orchestrator";
 import type { Tx6AgentInput, Tx6AgentOutput } from "../../src/agents/tx-6-imp-1/types";
-import type { Tx6Imp1AiClient } from "../../src/agents/tx-6-imp-1/ai-client";
 
 describe("Tx6Imp1 日報収集から分析レポート生成までの自動実行エージェント", () => {
   // SCEN-117: 日報データの品質が基準を下回る場合の副作用確定前のエスカレーション処理
