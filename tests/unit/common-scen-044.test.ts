@@ -1,22 +1,16 @@
-import { authorizeRemindManagement } from '../../src/logic/remind-notification-authorization';
+import { authorizeRemindManagement, type AuthorizeRemindManagementInput, type AuthorizeRemindManagementOutput } from "../../src/logic/remind-notification-authorization";
 
-describe('RemindNotificationAuthorization', () => {
+describe("authorizeRemindManagement", () => {
   // SCEN-044
-  test('should return authentication error when user context is missing', () => {
-    const input = {
-      userId: 'user-123',
-      requestContext: {},
+  test("should return authentication error when user is not authenticated", () => {
+    const input: AuthorizeRemindManagementInput = {
+      userId: "user-123",
+      requestContext: {
+        user: undefined,
+        session: {},
+      },
     };
 
-    const result = authorizeRemindManagement(input);
-
-    expect(result).toEqual({
-      authorized: false,
-      userId: 'user-123',
-      error: {
-        code: 'UNAUTHENTICATED',
-        message: '認証が必要です',
-      },
-    });
+    expect(() => authorizeRemindManagement(input)).toThrow(/認証/);
   });
 });

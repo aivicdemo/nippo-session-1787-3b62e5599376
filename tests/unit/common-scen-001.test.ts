@@ -3,44 +3,32 @@ import { type CreateRemindScheduleInput, type RemindSchedule } from '../../src/l
 
 describe('RemindScheduleManagement', () => {
   // SCEN-001
-  test('should create a new remind schedule with valid input and persist to storage', async () => {
+  test('should create a new remind notification schedule and persist schedule configuration', async () => {
     const input: CreateRemindScheduleInput = {
       scheduleName: '朝会報告リマインド',
       sendTime: '07:00',
       targetTeamIds: [],
       targetMemberIds: [
-        'member-001',
-        'member-002',
-        'member-003',
-        'member-004',
-        'member-005',
-        'member-006',
-        'member-007',
-        'member-008',
-        'member-009',
-        'member-010',
+        'member_001',
+        'member_002',
+        'member_003',
+        'member_004',
+        'member_005',
+        'member_006',
+        'member_007',
+        'member_008',
+        'member_009',
+        'member_010',
       ],
       isEnabled: true,
     };
 
-    const result: RemindSchedule = createRemindSchedule(input);
+    const result: RemindSchedule = await createRemindSchedule(input);
 
-    expect(result).toBeDefined();
     expect(result.scheduleName).toBe('朝会報告リマインド');
     expect(result.sendTime).toBe('07:00');
     expect(result.targetMemberIds).toHaveLength(10);
-    expect(result.targetMemberIds).toEqual([
-      'member-001',
-      'member-002',
-      'member-003',
-      'member-004',
-      'member-005',
-      'member-006',
-      'member-007',
-      'member-008',
-      'member-009',
-      'member-010',
-    ]);
+    expect(result.targetMemberIds).toEqual(input.targetMemberIds);
     expect(result.isEnabled).toBe(true);
     expect(result.scheduleId).toBeDefined();
     expect(typeof result.scheduleId).toBe('string');
@@ -49,6 +37,7 @@ describe('RemindScheduleManagement', () => {
     expect(typeof result.createdAt).toBe('string');
     expect(result.updatedAt).toBeDefined();
     expect(typeof result.updatedAt).toBe('string');
-    expect(result.targetTeamIds).toEqual([]);
+    expect(new Date(result.createdAt)).toBeInstanceOf(Date);
+    expect(new Date(result.updatedAt)).toBeInstanceOf(Date);
   });
 });

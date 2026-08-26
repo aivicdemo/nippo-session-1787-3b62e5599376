@@ -2,11 +2,12 @@ import { listTeamMembers, type ListTeamMembersInput } from '../../src/logic/team
 
 describe('team-member-selection', () => {
   // SCEN-039
-  test('should return forbidden error when user lacks access permission to the specified team', () => {
+  test('should return access denied error when user lacks permission to team', () => {
     const input: ListTeamMembersInput = {
-      teamId: 'team-999',
+      teamId: 'team-001',
+      includeInactive: false,
     };
 
-    expect(() => listTeamMembers(input)).toThrow(/アクセス権限/);
+    expect(() => listTeamMembers(input)).toThrow(/このチームへのアクセス権限がありません/);
   });
 });

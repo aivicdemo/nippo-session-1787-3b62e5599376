@@ -1,38 +1,41 @@
 import { updateRemindSchedule } from '../../src/logic/remind-schedule-management';
 
-describe('RemindScheduleManagement', () => {
+describe('リマインド通知スケジュール管理', () => {
   // SCEN-007
-  test('should throw error when sendTime format is invalid or targetMembers is empty', async () => {
+  test('無効な送信時刻または空の対象メンバーで更新時にエラーが発生する', () => {
     const initialSchedule = {
       scheduleId: 'schedule-001',
+      scheduleName: 'Morning Reminder',
       sendTime: '09:00',
-      targetTeamIds: [],
+      targetTeamIds: ['team-001'],
       targetMemberIds: ['member-001', 'member-002'],
       isEnabled: true,
-      createdAt: '2024-01-15T08:00:00Z',
-      updatedAt: '2024-01-15T08:00:00Z',
+      createdAt: '2024-01-15T09:00:00Z',
+      updatedAt: '2024-01-15T09:00:00Z',
     };
 
-    // Test case 1: Invalid sendTime format
-    const updateInputInvalidTime = {
+    const invalidSendTimeInput = {
       scheduleId: 'schedule-001',
       sendTime: '25:99',
-      targetTeamIds: [],
+      targetTeamIds: ['team-001'],
       targetMemberIds: ['member-001', 'member-002'],
       isEnabled: true,
     };
 
-    expect(() => updateRemindSchedule(updateInputInvalidTime)).toThrow(/スケジュール設定が無効です/);
+    expect(() => updateRemindSchedule(invalidSendTimeInput)).toThrow(
+      /スケジュール設定が無効です/
+    );
 
-    // Test case 2: Empty targetMembers
-    const updateInputEmptyMembers = {
+    const emptyMembersInput = {
       scheduleId: 'schedule-001',
       sendTime: '09:00',
-      targetTeamIds: [],
+      targetTeamIds: ['team-001'],
       targetMemberIds: [],
       isEnabled: true,
     };
 
-    expect(() => updateRemindSchedule(updateInputEmptyMembers)).toThrow(/スケジュール設定が無効です/);
+    expect(() => updateRemindSchedule(emptyMembersInput)).toThrow(
+      /スケジュール設定が無効です/
+    );
   });
 });

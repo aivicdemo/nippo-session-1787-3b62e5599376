@@ -1,54 +1,45 @@
-import { listNotificationHistory } from '../../src/logic/remind-notification-history';
+import { listNotificationHistory, type NotificationHistorySearchCriteria } from "../../src/logic/remind-notification-history";
 
-describe('リマインド通知履歴検索', () => {
+describe("listNotificationHistory", () => {
   // SCEN-023
-  test('検索条件の日付範囲が不正または必須項目が不足している場合、検索条件が不正です。のエラーが返される', () => {
-    const pattern1_startDate = new Date('2024-01-31');
-    const pattern1_endDate = new Date('2024-01-01');
-    const pattern1_pageNumber = 1;
-    const pattern1_pageSize = 10;
+  test("should return error when search criteria are invalid (startDate > endDate or required fields missing)", async () => {
+    // Pattern 1: startDate > endDate
+    const invalidCriteria1: NotificationHistorySearchCriteria = {
+      startDate: new Date("2024-01-31"),
+      endDate: new Date("2024-01-01"),
+      pageNumber: 1,
+      pageSize: 10,
+    };
 
-    const result1 = listNotificationHistory({
-      startDate: pattern1_startDate,
-      endDate: pattern1_endDate,
-      pageNumber: pattern1_pageNumber,
-      pageSize: pattern1_pageSize,
-    });
+    const result1 = await listNotificationHistory(invalidCriteria1);
+    expect(result1).toHaveProperty("error");
+    expect(result1.error).toMatch(/検索条件が不正です/);
+    expect(result1).toHaveProperty("statusCode", 400);
 
-    expect(result1).toHaveProperty('error');
-    expect(result1.error).toMatch(/検索条件が不正/);
-    expect(result1).toHaveProperty('statusCode', 400);
+    // Pattern 2: startDate is null (missing required field)
+    const invalidCriteria2 = {
+      startDate: null,
+      endDate: new Date("2024-01-31"),
+      pageNumber: 1,
+      pageSize: 10,
+    } as unknown as NotificationHistorySearchCriteria;
 
-    const pattern2_startDate = null as unknown as Date;
-    const pattern2_endDate = new Date('2024-01-31');
-    const pattern2_pageNumber = 1;
-    const pattern2_pageSize = 10;
+    const result2 = await listNotificationHistory(invalidCriteria2);
+    expect(result2).toHaveProperty("error");
+    expect(result2.error).toMatch(/検索条件が不正です/);
+    expect(result2).toHaveProperty("statusCode", 400);
 
-    const result2 = listNotificationHistory({
-      startDate: pattern2_startDate,
-      endDate: pattern2_endDate,
-      pageNumber: pattern2_pageNumber,
-      pageSize: pattern2_pageSize,
-    });
+    // Pattern 3: both startDate and endDate are undefined (missing required fields)
+    const invalidCriteria3: NotificationHistorySearchCriteria = {
+      startDate: undefined as unknown as Date,
+      endDate: undefined as unknown as Date,
+      pageNumber: 1,
+      pageSize: 10,
+    };
 
-    expect(result2).toHaveProperty('error');
-    expect(result2.error).toMatch(/検索条件が不正/);
-    expect(result2).toHaveProperty('statusCode', 400);
-
-    const pattern3_startDate = undefined as unknown as Date;
-    const pattern3_endDate = undefined as unknown as Date;
-    const pattern3_pageNumber = 1;
-    const pattern3_pageSize = 10;
-
-    const result3 = listNotificationHistory({
-      startDate: pattern3_startDate,
-      endDate: pattern3_endDate,
-      pageNumber: pattern3_pageNumber,
-      pageSize: pattern3_pageSize,
-    });
-
-    expect(result3).toHaveProperty('error');
-    expect(result3.error).toMatch(/検索条件が不正/);
-    expect(result3).toHaveProperty('statusCode', 400);
+    const result3 = await listNotificationHistory(invalidCriteria3);
+    expect(result3).toHaveProperty("error");
+    expect(result3.error).toMatch(/検索条件が不正です/);
+    expect(result3).toHaveProperty("statusCode", 400);
   });
 });

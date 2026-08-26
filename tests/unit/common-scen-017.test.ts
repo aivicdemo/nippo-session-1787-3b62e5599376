@@ -1,15 +1,16 @@
-import { sendRemindNotifications, type SendRemindNotificationsInput, type SendRemindNotificationsOutput } from "../../src/logic/remind-notification-sender";
+import { sendRemindNotifications, type SendRemindNotificationsInput, type SendRemindNotificationsOutput } from '../../src/logic/remind-notification-sender';
+import fetchMock from 'jest-fetch-mock';
 
-const fetchMock = require("jest-fetch-mock");
+fetchMock.enableMocks();
 
-describe("sendRemindNotifications", () => {
+describe('sendRemindNotifications', () => {
   // SCEN-017
-  test("should send remind notifications to all team members and record results", async () => {
+  test('should send reminder notifications to all team members and record results successfully', async () => {
     fetchMock.resetMocks();
 
-    const scheduleId = "schedule-001";
-    const userId = "user-001";
-    const executionTimestamp = 1705318800000; // 2024-01-15T09:00:00Z
+    const scheduleId = 'schedule-001';
+    const userId = 'user-admin-001';
+    const executionTimestamp = 1705317600000; // 2024-01-15T09:00:00Z
 
     const input: SendRemindNotificationsInput = {
       scheduleId,
@@ -18,19 +19,27 @@ describe("sendRemindNotifications", () => {
     };
 
     const memberCount = 10;
-    const mockEmailIds = Array.from({ length: memberCount }, (_, i) => `email-id-${i + 1}`);
+    const mailSendIds = Array.from({ length: memberCount }, (_, i) => `mail-id-${i + 1}`);
 
-    // Mock メール配信API レスポンス (10名分)
+    // Stub external mail service API
     for (let i = 0; i < memberCount; i++) {
       fetchMock.mockResponseOnce(
         JSON.stringify({
-          success: true,
-          emailId: mockEmailIds[i],
-          sentAt: executionTimestamp,
+          messageId: mailSendIds[i],
+          status: 'sent',
+          timestamp: executionTimestamp,
         }),
         { status: 200 }
       );
     }
+
+    // Stub database record creation
+    fetchMock.mockResponseOnce(
+      JSON.stringify({
+        recordIds: Array.from({ length: memberCount }, (_, i) => `record-${i + 1}`),
+      }),
+      { status: 200 }
+    );
 
     const result: SendRemindNotificationsOutput = await sendRemindNotifications(input);
 

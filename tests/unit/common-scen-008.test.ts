@@ -1,11 +1,15 @@
 import { updateRemindSchedule } from '../../src/logic/remind-schedule-management';
 
-describe('remind-schedule-management', () => {
+describe('updateRemindSchedule', () => {
   // SCEN-008
-  test('should throw UNAUTHORIZED error when user lacks permission to update schedule', async () => {
+  test('should throw UNAUTHORIZED error when user lacks update permission', async () => {
     const scheduleId = 'schedule-001';
-    const unauthorizedUserId = 'user-B';
-    
+    const creatorUserId = 'user-A';
+    const requestingUserId = 'user-B';
+    const sendTime = '08:00';
+    const targetTeamIds = ['team-1'];
+    const isEnabled = true;
+
     const updateInput = {
       scheduleId,
       sendTime: '09:00',
@@ -13,8 +17,6 @@ describe('remind-schedule-management', () => {
       isEnabled: false,
     };
 
-    await expect(
-      updateRemindSchedule(updateInput, unauthorizedUserId)
-    ).rejects.toThrow(/権限/);
+    expect(() => updateRemindSchedule(updateInput, requestingUserId)).toThrow(/権限/);
   });
 });

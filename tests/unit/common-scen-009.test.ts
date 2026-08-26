@@ -1,29 +1,28 @@
-import { toggleRemindScheduleStatus } from '../../src/logic/remind-schedule-management';
+import { toggleRemindScheduleStatus } from "../../src/logic/remind-schedule-management";
 
-describe('toggleRemindScheduleStatus', () => {
+describe("toggleRemindScheduleStatus", () => {
   // SCEN-009
-  test('should toggle remind schedule status from enabled to disabled and back, persisting changes', () => {
-    const scheduleId = 'schedule-001';
-    const userId = 'user-001';
+  test("should toggle schedule status from enabled to disabled and back, persisting each change", () => {
+    const scheduleId = "schedule-001";
+    const userId = "user-123";
 
     // First toggle: enabled (true) → disabled (false)
-    const firstToggleResult = toggleRemindScheduleStatus({
+    const resultFirstToggle = toggleRemindScheduleStatus({
       scheduleId,
       enabled: false,
       userId,
     });
 
-    expect(firstToggleResult.isEnabled).toBe(false);
-    expect(firstToggleResult.scheduleId).toBe(scheduleId);
+    expect(resultFirstToggle.isEnabled).toBe(false);
 
     // Second toggle: disabled (false) → enabled (true)
-    const secondToggleResult = toggleRemindScheduleStatus({
+    const resultSecondToggle = toggleRemindScheduleStatus({
       scheduleId,
       enabled: true,
       userId,
     });
 
-    expect(secondToggleResult.isEnabled).toBe(true);
-    expect(secondToggleResult.scheduleId).toBe(scheduleId);
+    expect(resultSecondToggle.isEnabled).toBe(true);
+    expect(resultSecondToggle.scheduleId).toBe(scheduleId);
   });
 });

@@ -1,35 +1,31 @@
-import { authorizeScheduleOperation, type ScheduleOperationAuthorizationRequest, type ScheduleOperationAuthorizationResult } from '../../src/logic/remind-notification-authorization';
+import { authorizeScheduleOperation } from '../../src/logic/remind-notification-authorization';
 
-describe('remind-notification-authorization', () => {
+describe('authorizeScheduleOperation', () => {
   // SCEN-048
-  test('should return authorization error when non-owner user without team admin role attempts update and delete operations', () => {
-    const userA_Id = 'user-a-123';
-    const userB_Id = 'user-b-456';
-    const teamId = 'team-001';
-    const scheduleId = 'schedule-789';
+  test('should return unauthorized error when user is not schedule owner and lacks team admin permission for update and delete operations', () => {
+    const userIdA = 'user-a-id';
+    const userIdB = 'user-b-id';
+    const teamId = 'team-1-id';
+    const scheduleId = 'schedule-1-id';
 
-    const updateRequest: ScheduleOperationAuthorizationRequest = {
-      userId: userA_Id,
+    const updateAuthResult = authorizeScheduleOperation({
+      userId: userIdA,
       operationType: 'update',
       targetTeamId: teamId,
       scheduleId: scheduleId,
-    };
+    });
 
-    const deleteRequest: ScheduleOperationAuthorizationRequest = {
-      userId: userA_Id,
+    expect(updateAuthResult.authorized).toBe(false);
+    expect(updateAuthResult.reason).toMatch(/このスケジュールの操作権限がありません/);
+
+    const deleteAuthResult = authorizeScheduleOperation({
+      userId: userIdA,
       operationType: 'delete',
       targetTeamId: teamId,
       scheduleId: scheduleId,
-    };
+    });
 
-    const updateResult: ScheduleOperationAuthorizationResult = authorizeScheduleOperation(updateRequest);
-
-    expect(updateResult.authorized).toBe(false);
-    expect(updateResult.reason).toMatch(/このスケジュールの操作権限がありません/);
-
-    const deleteResult: ScheduleOperationAuthorizationResult = authorizeScheduleOperation(deleteRequest);
-
-    expect(deleteResult.authorized).toBe(false);
-    expect(deleteResult.reason).toMatch(/このスケジュールの操作権限がありません/);
+    expect(deleteAuthResult.authorized).toBe(false);
+    expect(deleteAuthResult.reason).toMatch(/このスケジュールの操作権限がありません/);
   });
 });

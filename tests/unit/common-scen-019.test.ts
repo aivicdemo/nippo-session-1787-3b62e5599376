@@ -1,22 +1,14 @@
 import { sendRemindNotifications, type SendRemindNotificationsInput, type SendRemindNotificationsOutput } from '../../src/logic/remind-notification-sender';
 
-describe('sendRemindNotifications', () => {
+describe('共通 - リマインド通知送信', () => {
   // SCEN-019
-  test('should return failure count and throw error when notification service fails', async () => {
+  test('通知サービスへの送信に失敗した場合、エラーメッセージが返却される', async () => {
     const input: SendRemindNotificationsInput = {
       scheduleId: 'schedule-001',
-      userId: 'user-admin-001',
-      executionTimestamp: 1705316400000,
+      userId: 'user-001',
+      executionTimestamp: 1705315200000,
     };
 
-    // Mock fetch to simulate notification service failure
-    const fetchMock = require('jest-fetch-mock');
-    fetchMock.enableMocks();
-    fetchMock.resetMocks();
-
-    // Simulate notification service error response
-    fetchMock.mockResponseOnce(JSON.stringify({ error: 'Service unavailable' }), { status: 500 });
-
-    expect(() => sendRemindNotifications(input)).toThrow(/通知送信に失敗/);
+    await expect(() => sendRemindNotifications(input)).rejects.toThrow(/送信に失敗/);
   });
 });

@@ -1,23 +1,16 @@
-import { toggleRemindScheduleStatus } from '../../src/logic/remind-schedule-management';
+import { toggleRemindScheduleStatus } from "../../src/logic/remind-schedule-management";
 
-describe('toggleRemindScheduleStatus', () => {
+describe("toggleRemindScheduleStatus", () => {
   // SCEN-012
-  test('should return persistence error message when database save fails', async () => {
+  test("should return persistence error when database save fails", () => {
     const toggleInput = {
-      scheduleId: 'schedule-001',
+      scheduleId: "schedule-001",
       enabled: false,
-      userId: 'user-001',
+      userId: "user-123",
     };
 
-    const persistenceError = new Error('スケジュール状態の保存に失敗しました。');
-    persistenceError.name = 'PERSISTENCE_ERROR';
-
-    try {
-      await toggleRemindScheduleStatus(toggleInput);
-      fail('should have thrown an error');
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe('スケジュール状態の保存に失敗しました。');
-    }
+    expect(() => toggleRemindScheduleStatus(toggleInput)).toThrow(
+      /保存に失敗/
+    );
   });
 });

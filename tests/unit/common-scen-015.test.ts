@@ -1,15 +1,38 @@
-import { listRemindSchedules } from '../../src/logic/remind-schedule-management';
+import { listRemindSchedules } from "../../src/logic/remind-schedule-management";
+import { type ListRemindSchedulesInput } from "../../src/logic/remind-schedule-management";
 
-describe('リマインド通知スケジュール管理', () => {
+const fetchMock = require("jest-fetch-mock");
+
+describe("RemindScheduleManagement", () => {
   // SCEN-015
-  test('スケジュールデータの読み込みに失敗した場合、エラーメッセージ「スケジュール情報の取得に失敗しました。」を返す', () => {
-    const listRemindSchedulesInput = {
-      userId: 'user-123',
-      filterStatus: 'all' as const,
+  test("should return error message when database fails to load schedule data", async () => {
+    fetchMock.resetMocks();
+
+    const input: ListRemindSchedulesInput = {
+      userId: "user-123",
+      filterStatus: "all",
     };
 
-    expect(() => listRemindSchedules(listRemindSchedulesInput)).toThrow(
-      /スケジュール情報の取得に失敗しました/
+    fetchMock.mockResponseOnce(
+      JSON.stringify({
+        error: "Database connection failed",
+      }),
+      { status: 500 }
+    );
+
+    const result = await listRemindSchedules(input);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isValid: false,
+      })
+    );
+
+    expect(result.errors).toBeDefined();
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringMatching(/スケジュール情報の取得に失敗しました/),
+      })
     );
   });
 });

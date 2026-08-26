@@ -1,15 +1,13 @@
-import { authorizeRemindManagement } from '../../src/logic/remind-notification-authorization';
-import type { AuthorizeRemindManagementInput, AuthorizeRemindManagementOutput } from '../../src/logic/remind-notification-authorization';
+import { authorizeRemindManagement, type AuthorizeRemindManagementInput, type AuthorizeRemindManagementOutput } from '../../src/logic/remind-notification-authorization';
 
-describe('remind-notification-authorization', () => {
+describe('共通', () => {
   // SCEN-041
-  test('should authorize user with valid permission to access remind notification management screen', () => {
+  test('ユーザーのリマインド通知管理画面へのアクセス権限を検証し、権限の有無を返す', () => {
     const input: AuthorizeRemindManagementInput = {
       userId: 'user-001',
       requestContext: {
-        sessionId: 'session-12345',
-        authenticatedUserId: 'user-001',
-        timestamp: new Date('2024-01-15T11:00:00Z').toISOString(),
+        sessionId: 'session-abc123',
+        authenticatedAt: '2024-01-15T11:00:00Z',
       },
     };
 
@@ -17,6 +15,6 @@ describe('remind-notification-authorization', () => {
 
     expect(result.authorized).toBe(true);
     expect(result.userId).toBe('user-001');
-    expect(result.grantedAt).toBeDefined();
+    expect(typeof result.grantedAt).toBe('string');
   });
 });

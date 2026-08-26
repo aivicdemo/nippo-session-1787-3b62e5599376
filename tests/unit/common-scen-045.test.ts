@@ -1,19 +1,16 @@
-import { authorizeScheduleOperation } from "../../src/logic/remind-notification-authorization";
+import { authorizeScheduleOperation, type ScheduleOperationAuthorizationRequest, type ScheduleOperationAuthorizationResult } from '../../src/logic/remind-notification-authorization';
 
-describe("authorize schedule operation", () => {
+describe('authorizeScheduleOperation', () => {
   // SCEN-045
-  test("should authorize MEMBER user to create schedule", () => {
-    const userId = "user001";
-    const operationType = "create";
-    const targetTeamId = "team001";
-    const scheduleId = null;
+  test('should authorize MEMBER user to create schedule operation', () => {
+    const request: ScheduleOperationAuthorizationRequest = {
+      userId: 'user001',
+      operationType: 'create',
+      targetTeamId: 'team001',
+      scheduleId: null,
+    };
 
-    const result = authorizeScheduleOperation({
-      userId,
-      operationType: operationType as "create" | "update" | "delete" | "toggle",
-      targetTeamId,
-      scheduleId,
-    });
+    const result: ScheduleOperationAuthorizationResult = authorizeScheduleOperation(request);
 
     expect(result.authorized).toBe(true);
   });

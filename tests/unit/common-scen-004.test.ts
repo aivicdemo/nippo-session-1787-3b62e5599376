@@ -2,17 +2,17 @@ import { createRemindSchedule } from "../../src/logic/remind-schedule-management
 
 describe("共通", () => {
   // SCEN-004
-  test("should throw error with message when schedule persisting to database fails", async () => {
-    const createRemindScheduleInput = {
+  test("should throw error with message when schedule persistence fails", async () => {
+    const input = {
       scheduleName: "朝会報告リマインド",
       sendTime: "07:00",
       targetTeamIds: [],
-      targetMemberIds: ["member-001", "member-002", "member-003"],
+      targetMemberIds: ["member1", "member2", "member3"],
       isEnabled: true,
     };
 
-    await expect(
-      createRemindSchedule(createRemindScheduleInput)
-    ).rejects.toThrow(/スケジュール設定の保存に失敗しました/);
+    await expect(createRemindSchedule(input)).rejects.toThrow(
+      /スケジュール設定の保存に失敗しました/
+    );
   });
 });

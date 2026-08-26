@@ -1,8 +1,8 @@
 import { listRemindSchedules, type ListRemindSchedulesInput, type ListRemindSchedulesOutput } from '../../src/logic/remind-schedule-management';
 
-describe('RemindScheduleManagement', () => {
+describe('listRemindSchedules', () => {
   // SCEN-013
-  test('listRemindSchedules returns schedules with correct fields including enabled status, send time, target teams/members, and time until deadline', async () => {
+  test('should return list of remind schedules with correct enabled status, send time, target teams/members, and time until deadline', async () => {
     const input: ListRemindSchedulesInput = {
       userId: 'user-001',
       filterStatus: 'all',
@@ -12,26 +12,29 @@ describe('RemindScheduleManagement', () => {
 
     expect(result.schedules).toHaveLength(3);
 
-    // First schedule: enabled, 08:00, sales team, 5 members
-    expect(result.schedules[0].isActive).toBe(true);
-    expect(result.schedules[0].sendTime).toBe('08:00');
-    expect(result.schedules[0].targetTeams).toContain('sales-dept');
-    expect(result.schedules[0].targetMembers).toHaveLength(5);
-    expect(result.schedules[0].timeToDeadline).toBe(60);
+    expect(result.schedules[0]).toMatchObject({
+      isActive: true,
+      sendTime: '08:00',
+      targetTeams: ['営業部'],
+      targetMembers: expect.arrayContaining(['member-01', 'member-02', 'member-03', 'member-04', 'member-05']),
+      timeToDeadline: 60,
+    });
 
-    // Second schedule: enabled, 08:30, planning team, 3 members
-    expect(result.schedules[1].isActive).toBe(true);
-    expect(result.schedules[1].sendTime).toBe('08:30');
-    expect(result.schedules[1].targetTeams).toContain('planning-dept');
-    expect(result.schedules[1].targetMembers).toHaveLength(3);
-    expect(result.schedules[1].timeToDeadline).toBe(90);
+    expect(result.schedules[1]).toMatchObject({
+      isActive: true,
+      sendTime: '08:30',
+      targetTeams: ['企画部'],
+      targetMembers: expect.arrayContaining(['member-06', 'member-07', 'member-08']),
+      timeToDeadline: 90,
+    });
 
-    // Third schedule: disabled, 09:00, admin team, 2 members
-    expect(result.schedules[2].isActive).toBe(false);
-    expect(result.schedules[2].sendTime).toBe('09:00');
-    expect(result.schedules[2].targetTeams).toContain('admin-dept');
-    expect(result.schedules[2].targetMembers).toHaveLength(2);
-    expect(result.schedules[2].timeToDeadline).toBe(120);
+    expect(result.schedules[2]).toMatchObject({
+      isActive: false,
+      sendTime: '09:00',
+      targetTeams: ['管理部'],
+      targetMembers: expect.arrayContaining(['member-09', 'member-10']),
+      timeToDeadline: 120,
+    });
 
     expect(result.totalCount).toBe(3);
     expect(result.retrievedAt).toBeDefined();

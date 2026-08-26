@@ -1,41 +1,47 @@
-import { createRemindSchedule } from "../../src/logic/remind-schedule-management";
-import { type CreateRemindScheduleInput } from "../../src/logic/remind-schedule-management";
+import { createRemindSchedule } from '../../src/logic/remind-schedule-management';
+import type { CreateRemindScheduleInput } from '../../src/logic/remind-schedule-management';
 
-describe("共通", () => {
+describe('remind-schedule-management', () => {
   // SCEN-002
-  test("新規リマインド通知スケジュール作成時、業務ルール違反（送信時刻未設定）でエラーをthrowする", () => {
-    const invalidInput: CreateRemindScheduleInput = {
-      scheduleName: "test-schedule",
-      sendTime: "",
-      targetTeamIds: ["team-001"],
-      targetMemberIds: ["member-001"],
+  test('should throw error when schedule configuration violates business rules', () => {
+    const invalidInputWithoutSendTime: CreateRemindScheduleInput = {
+      scheduleName: 'Daily Reminder',
+      sendTime: '',
+      targetTeamIds: ['team-001'],
+      targetMemberIds: ['member-001'],
       isEnabled: true,
     };
 
-    expect(() => createRemindSchedule(invalidInput)).toThrow(/スケジュール設定が無効です/);
+    expect(() => createRemindSchedule(invalidInputWithoutSendTime)).toThrow(
+      /スケジュール設定が無効です。送信時刻、対象チーム、メンバーを確認してください。/
+    );
   });
 
-  test("新規リマインド通知スケジュール作成時、業務ルール違反（対象チーム空配列）でエラーをthrowする", () => {
-    const invalidInput: CreateRemindScheduleInput = {
-      scheduleName: "test-schedule",
-      sendTime: "09:00",
+  test('should throw error when target teams are empty', () => {
+    const invalidInputWithoutTeams: CreateRemindScheduleInput = {
+      scheduleName: 'Daily Reminder',
+      sendTime: '09:00',
       targetTeamIds: [],
-      targetMemberIds: ["member-001"],
+      targetMemberIds: ['member-001'],
       isEnabled: true,
     };
 
-    expect(() => createRemindSchedule(invalidInput)).toThrow(/スケジュール設定が無効です/);
+    expect(() => createRemindSchedule(invalidInputWithoutTeams)).toThrow(
+      /スケジュール設定が無効です。送信時刻、対象チーム、メンバーを確認してください。/
+    );
   });
 
-  test("新規リマインド通知スケジュール作成時、業務ルール違反（対象メンバー空配列）でエラーをthrowする", () => {
-    const invalidInput: CreateRemindScheduleInput = {
-      scheduleName: "test-schedule",
-      sendTime: "09:00",
-      targetTeamIds: ["team-001"],
+  test('should throw error when target members are empty', () => {
+    const invalidInputWithoutMembers: CreateRemindScheduleInput = {
+      scheduleName: 'Daily Reminder',
+      sendTime: '09:00',
+      targetTeamIds: ['team-001'],
       targetMemberIds: [],
       isEnabled: true,
     };
 
-    expect(() => createRemindSchedule(invalidInput)).toThrow(/スケジュール設定が無効です/);
+    expect(() => createRemindSchedule(invalidInputWithoutMembers)).toThrow(
+      /スケジュール設定が無効です。送信時刻、対象チーム、メンバーを確認してください。/
+    );
   });
 });

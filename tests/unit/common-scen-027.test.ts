@@ -1,13 +1,16 @@
-import { getNotificationDetail, type NotificationDetail } from '../../src/logic/remind-notification-history';
+import { getNotificationDetail, type NotificationDetail } from "../../src/logic/remind-notification-history";
 
-describe('remind-notification-history', () => {
+describe("RemindNotificationHistory", () => {
   // SCEN-027
-  test('should throw permission error when user lacks access to notification detail', () => {
-    const getNotificationDetailInput = {
-      notificationId: 'notify-001',
-      userId: 'user-B'
+  test("should throw error when user lacks permission to view notification detail", async () => {
+    const notificationId = "notif-001";
+    const userId = "user-b";
+
+    const mockInput = {
+      notificationId,
+      userId,
     };
 
-    expect(() => getNotificationDetail(getNotificationDetailInput)).toThrow(/権限/);
+    expect(() => getNotificationDetail(mockInput)).toThrow(/権限/);
   });
 });

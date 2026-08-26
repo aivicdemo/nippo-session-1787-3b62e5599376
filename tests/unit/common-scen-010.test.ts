@@ -9,6 +9,6 @@ describe('toggleRemindScheduleStatus', () => {
       userId: 'user-001',
     };
 
-    await expect(toggleRemindScheduleStatus(input)).rejects.toThrow(/見つかりません/);
+    await expect(() => toggleRemindScheduleStatus(input)).rejects.toThrow(/リマインド通知スケジュールが見つかりません/);
   });
 });

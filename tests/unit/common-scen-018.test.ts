@@ -2,23 +2,23 @@ import { sendRemindNotifications } from '../../src/logic/remind-notification-sen
 
 const fetchMock = require('jest-fetch-mock');
 
-describe('共通', () => {
+describe('remind-notification-sender', () => {
   // SCEN-018
-  test('指定されたスケジュールIDが存在しない場合、リマインド通知スケジュールが見つかりませんというエラーがスローされる', () => {
+  test('should throw error when schedule is not found', async () => {
     fetchMock.resetMocks();
 
     const nonExistentScheduleId = 'non-existent-schedule-id';
     const userId = 'user-001';
-    const executionTimestamp = 1705318800000;
+    const executionTimestamp = 1705315200000;
 
     fetchMock.mockResponseOnce(JSON.stringify(null), { status: 200 });
 
-    const input = {
-      scheduleId: nonExistentScheduleId,
-      userId: userId,
-      executionTimestamp: executionTimestamp,
-    };
-
-    expect(() => sendRemindNotifications(input)).toThrow(/リマインド通知スケジュールが見つかりません/);
+    await expect(
+      sendRemindNotifications({
+        scheduleId: nonExistentScheduleId,
+        userId: userId,
+        executionTimestamp: executionTimestamp,
+      })
+    ).rejects.toThrow(/リマインド通知スケジュールが見つかりません/);
   });
 });

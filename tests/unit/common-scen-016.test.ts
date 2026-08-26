@@ -1,54 +1,50 @@
-import { listRemindSchedules, type ListRemindSchedulesInput } from '../../src/logic/remind-schedule-management';
+import { listRemindSchedules } from '../../src/logic/remind-schedule-management';
 
-describe('RemindScheduleManagement - listRemindSchedules', () => {
-  // SCEN-016
-  test('should throw error when timeToDeadline calculation fails due to invalid date format', async () => {
-    const input: ListRemindSchedulesInput = {
-      userId: 'user-001',
-      filterStatus: 'all',
+describe('listRemindSchedules', () => {
+  test('SCEN-016', () => {
+    const input = {
+      userId: 'user-123',
+      filterStatus: 'all' as const,
     };
 
-    const mockSchedulesWithInvalidDate = [
+    const mockSchedules = [
       {
         scheduleId: 'schedule-001',
-        scheduleName: 'Morning Standup Reminder',
-        sendTime: '09:00',
+        scheduleName: 'Morning Reminder 1',
+        sendTime: '08:00',
         targetTeamIds: ['team-001'],
         targetMemberIds: ['member-001'],
         isEnabled: true,
-        createdAt: '2024-01-15T08:00:00Z',
-        updatedAt: '2024-01-15T08:00:00Z',
+        createdAt: '2024-01-15T10:00:00Z',
+        updatedAt: '2024-01-15T10:00:00Z',
+        deadlineTime: null,
       },
       {
         scheduleId: 'schedule-002',
-        scheduleName: 'Afternoon Standup Reminder',
-        sendTime: '14:00',
+        scheduleName: 'Morning Reminder 2',
+        sendTime: '09:00',
         targetTeamIds: ['team-002'],
         targetMemberIds: ['member-002'],
         isEnabled: true,
-        createdAt: '2024-01-15T08:00:00Z',
-        updatedAt: '2024-01-15T08:00:00Z',
+        createdAt: '2024-01-15T10:00:00Z',
+        updatedAt: '2024-01-15T10:00:00Z',
+        deadlineTime: 'invalid-date-format',
       },
       {
         scheduleId: 'schedule-003',
-        scheduleName: 'Evening Report Reminder',
-        sendTime: '17:00',
+        scheduleName: 'Morning Reminder 3',
+        sendTime: '10:00',
         targetTeamIds: ['team-003'],
         targetMemberIds: ['member-003'],
         isEnabled: false,
-        createdAt: 'invalid-date-format',
-        updatedAt: '2024-01-15T08:00:00Z',
+        createdAt: '2024-01-15T10:00:00Z',
+        updatedAt: '2024-01-15T10:00:00Z',
+        deadlineTime: undefined,
       },
     ];
 
-    global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(mockSchedulesWithInvalidDate),
-      } as Response)
-    );
-
-    expect(() => listRemindSchedules(input)).toThrow(/報告期限までの時間計算に失敗しました/);
+    expect(() => {
+      listRemindSchedules(input, mockSchedules);
+    }).toThrow(/報告期限までの時間計算に失敗しました。/);
   });
 });

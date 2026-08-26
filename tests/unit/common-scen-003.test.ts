@@ -1,8 +1,8 @@
 import { createRemindSchedule } from '../../src/logic/remind-schedule-management';
 
-describe('共通', () => {
+describe('RemindScheduleManagement', () => {
   // SCEN-003
-  test('呼び出し元ユーザーがリマインド通知スケジュール作成権限を持たない場合、Authorization例外が発生する', () => {
+  test('should throw authorization error when user lacks remind schedule creation permission', () => {
     const input = {
       userId: 'user-001',
       scheduleName: 'テストスケジュール',

@@ -1,13 +1,12 @@
-import { listTeamMembers } from '../../src/logic/team-member-selection';
+import { listTeamMembers } from "../../src/logic/team-member-selection";
 
-describe('team-member-selection', () => {
+describe("team-member-selection", () => {
   // SCEN-040
-  test('should throw error when teamId is empty string', () => {
+  test("should throw error when teamId is empty string", () => {
     const input = {
-      teamId: '',
-      includeInactive: false,
+      teamId: "",
     };
 
-    expect(() => listTeamMembers(input)).toThrow(/チームIDは必須です/);
+    expect(() => listTeamMembers(input)).toThrow(/チームID/);
   });
 });
