@@ -136,7 +136,7 @@ describe('Weekly Analysis Report Generation', () => {
     // priorityScore = (40 * 0.6) + (60 * 0.4) = 24 + 24 = 48
     expect(result.priorityScores[0].keyword).toBe('正常な課題内容');
     expect(result.priorityScores[0].priorityScore).toBe(48);
-    expect(result.priorityScores[0].priorityLevel).toBe('medium');
+    expect(result.priorityScores[0] as any).toHaveProperty('priorityLevel', 'medium');
     
     // Verify: colorCodedIssueList contains only valid issue entry
     expect(result.colorCodedIssueList).toBeDefined();
@@ -145,7 +145,7 @@ describe('Weekly Analysis Report Generation', () => {
     
     // Verify: Valid issue has correct color coding (yellow for medium priority)
     expect(result.colorCodedIssueList[0]).toBeDefined();
-    expect(result.colorCodedIssueList[0].keyword).toBe('正常な課題内容');
+    expect((result.colorCodedIssueList[0] as any).keyword).toBe('正常な課題内容');
     expect(result.colorCodedIssueList[0].displayColor).toBe('yellow');
     
     // Verify: recommendedActions is properly generated
@@ -161,7 +161,7 @@ describe('Weekly Analysis Report Generation', () => {
     expect(allKeywordsInPriority).not.toContain('');
     expect(allKeywordsInPriority).not.toContain(null);
     
-    const allKeywordsInColorCoded = result.colorCodedIssueList.map(item => item.keyword);
+    const allKeywordsInColorCoded = result.colorCodedIssueList.map(item => (item as any).keyword);
     expect(allKeywordsInColorCoded).not.toContain('');
     expect(allKeywordsInColorCoded).not.toContain(null);
   });
