@@ -1,4 +1,4 @@
-import { runTx6Imp1Agent } from '../../src/agents/tx-6-imp-1/orchestrator';
+import { runTx6Imp1Agent, Tx6Imp1AiClient } from '../../src/agents/tx-6-imp-1/orchestrator';
 import type { Tx6AgentExecutionContext, Tx6AgentExecutionResult } from '../../src/agents/tx-6-imp-1/orchestrator';
 
 describe('朝会報告管理システム - Tx6Imp1Agent (週次分析レポート生成)', () => {

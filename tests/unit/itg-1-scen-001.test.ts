@@ -1,4 +1,4 @@
-import { runTx1Imp1Agent } from '../../src/agents/tx-1-imp-1/orchestrator';
+import { runTx1Imp1Agent, type Tx1Imp1AiClient } from '../../src/agents/tx-1-imp-1/orchestrator';
 import type { Tx1Imp1AgentInput, Tx1Imp1AgentOutput } from '../../src/agents/tx-1-imp-1/orchestrator';
 
 describe('朝会報告管理システム - tx-1-imp-1 エージェント', () => {
@@ -162,7 +162,7 @@ describe('朝会報告管理システム - tx-1-imp-1 エージェント', () =>
       prepareDashboardData: jest.fn().mockResolvedValue({
         dashboardDataUrl: 'https://dashboard.example.com/data/2026-08-20/abc123xyz',
       }),
-    };
+    } as Tx1Imp1AiClient;
 
     // runTx1Imp1Agent を呼び出し
     const result: Tx1Imp1AgentOutput = await runTx1Imp1Agent(input, mockAiClient);

@@ -1,4 +1,4 @@
-import { runTx2Imp1Agent } from '../../src/agents/tx-2-imp-1/orchestrator';
+import { runTx2Imp1Agent, Tx2Imp1AiClient } from '../../src/agents/tx-2-imp-1/orchestrator';
 import type { Tx2Imp1AgentInput, Tx2Imp1AgentOutput } from '../../src/agents/tx-2-imp-1/orchestrator';
 
 describe('Tx2Imp1Agent - 日報収集から課題抽出・配信までの自律実行', () => {

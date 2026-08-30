@@ -8,6 +8,7 @@ import type {
   AdoptionReadinessVerificationResult,
   ScheduleMilestone,
   ReportFeedbackItem,
+  Tx10Imp1AiClient,
 } from '../../src/agents/tx-10-imp-1/orchestrator';
 
 describe('tx-10-imp-1: 導入スケジュール自動策定から実行完了までの統合管理', () => {
@@ -89,7 +90,7 @@ describe('tx-10-imp-1: 導入スケジュール自動策定から実行完了ま
     };
 
     // AI クライアントのスタブ化
-    const mockAiClient = {
+    const mockAiClient: Tx10Imp1AiClient = {
       planAdoptionSchedule: jest.fn().mockResolvedValue(mockAdoptionSchedule),
       conductManagerTraining: jest.fn().mockResolvedValue(mockManagerTrainingStatus),
       conductEngineerGroupTraining: jest
@@ -107,7 +108,7 @@ describe('tx-10-imp-1: 導入スケジュール自動策定から実行完了ま
     // Act: 関数の実行
     const result: Tx10AdoptionExecutionResult = await runTx10Imp1Agent(
       input,
-      mockAiClient as any
+      mockAiClient
     );
 
     // Assert: 戻り値の型と構造を検証

@@ -1,4 +1,4 @@
-import { runTx8Imp1Agent } from '../../src/agents/tx-8-imp-1/orchestrator';
+import { runTx8Imp1Agent, Tx8Imp1AiClient } from '../../src/agents/tx-8-imp-1/orchestrator';
 
 describe('Tx8Imp1Agent - 課題検索から可視化レポート作成までの自動実行', () => {
   // SCEN-024: [normal] 朝会報告管理システムから課題データを自動抽出し、再発パターンを時系列で分析して可視化レポートを生成し、部長に提示する
@@ -16,7 +16,7 @@ describe('Tx8Imp1Agent - 課題検索から可視化レポート作成までの�
     };
 
     // スタブAIクライアントの作成
-    const fakeAiClient = {
+    const fakeAiClient: Tx8Imp1AiClient = {
       aggregateReportsByPeriod: jest.fn().mockResolvedValue({
         totalReportCount: 30,
         reports: Array.from({ length: 30 }, (_, i) => ({

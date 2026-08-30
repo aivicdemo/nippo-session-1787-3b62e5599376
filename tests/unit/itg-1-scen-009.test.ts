@@ -1,4 +1,4 @@
-import { runTx3Imp1Agent } from "../../src/agents/tx-3-imp-1/orchestrator";
+import { runTx3Imp1Agent, Tx3Imp1AiClient } from "../../src/agents/tx-3-imp-1/orchestrator";
 
 describe("朝会報告管理システム - TX3エージェント", () => {
   // SCEN-009: 集約済み日報から課題を自動抽出し、優先度ルールに基づいて分類・判定し、優先度別一覧を作成してメール送信まで完結する
@@ -135,7 +135,7 @@ describe("朝会報告管理システム - TX3エージェント", () => {
     };
 
     // Create test double AI client
-    const mockAiClient = {
+    const mockAiClient: Tx3Imp1AiClient = {
       aggregateReportsByPeriod: jest
         .fn()
         .mockResolvedValue(mockAggregatedReports),

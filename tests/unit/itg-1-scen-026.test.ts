@@ -1,5 +1,4 @@
-import { runTx9Imp1Agent } from "../../src/agents/tx-9-imp-1/orchestrator";
-import { type Tx9AggregationInstruction, type Tx9AnalysisReportResult } from "../../src/agents/tx-9-imp-1/orchestrator";
+import { runTx9Imp1Agent, type Tx9Imp1AiClient, type Tx9AggregationInstruction, type Tx9AnalysisReportResult } from "../../src/agents/tx-9-imp-1/orchestrator";
 
 describe("tx-9-imp-1 orchestrator", () => {
   test("SCEN-026: runTx9Imp1Agent processes monthly aggregation instruction and returns analysis report with productivity metrics, prioritized issues, and improvement suggestions", async () => {

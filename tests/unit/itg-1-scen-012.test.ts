@@ -1,5 +1,5 @@
 import { runTx4Imp1Agent } from '../../src/agents/tx-4-imp-1/orchestrator';
-import type { Tx4AgentExecutionContext, Tx4MorningBriefingMaterial } from '../../src/agents/tx-4-imp-1/types';
+import type { Tx4AgentExecutionContext, Tx4MorningBriefingMaterial, Tx4Imp1AiClient } from '../../src/agents/tx-4-imp-1/orchestrator';
 
 describe('Tx4Imp1Agent - ダッシュボード分析から課題指示までの自動実行', () => {
   test('SCEN-012: 毎朝、リアルタイム進捗データを自動集約し、報告済み日報から課題を抽出・優先順位付けして、対応方針案を作成し、部長向け朝会資料として提示する', async () => {
@@ -64,7 +64,7 @@ describe('Tx4Imp1Agent - ダッシュボード分析から課題指示までの�
     };
 
     // モック用のAIクライアント
-    const mockAiClient = {
+    const mockAiClient: Tx4Imp1AiClient = {
       aggregateReportsByPeriod: jest.fn().mockResolvedValue(aggregatedReports),
       extractAndRankIssuesFromReports: jest.fn().mockResolvedValue(extractedIssues),
       calculatePriorityScoreForIssue: jest.fn().mockImplementation((issue) => {

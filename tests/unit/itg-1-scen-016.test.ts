@@ -1,4 +1,4 @@
-import { runTx5Imp1Agent } from "../../src/agents/tx-5-imp-1/orchestrator";
+import { runTx5Imp1Agent, type Tx5Imp1AiClient } from "../../src/agents/tx-5-imp-1/orchestrator";
 import type {
   Tx5Imp1AgentInput,
   Tx5Imp1AgentOutput,
