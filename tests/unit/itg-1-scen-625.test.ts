@@ -16,7 +16,7 @@ describe("朝会報告管理システム - 未提出メンバー催促通知", (
       reportingDeadlineTime: null as any,
       morningMeetingStartTime: new Date(
         new Date().getTime() + 3600000
-      ).toISOString(),
+      ).toISOString() as any,
       reminderRetryRule: {
         initialNotificationMethod: "email",
         maxRetryCount: 2,
