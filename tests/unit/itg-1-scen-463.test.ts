@@ -15,6 +15,7 @@ describe("Monthly Analysis Report Generation", () => {
       aggregationPeriodEnd: "2025-01-31",
       issueRankingData: [
         {
+          issueId: "issue-001",
           keyword: "DB性能低下",
           frequency: 5,
           impactScore: 80,
