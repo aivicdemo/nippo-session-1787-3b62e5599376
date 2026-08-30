@@ -1,15 +1,21 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
 
-describe('日報の課題項目から課題キーワードを自動抽出し、発生頻度でランク付けして表示する機能', () => {
-  // SCEN-129
-  test('ユーザーID が null のとき、ユーザー役割判定がエラーを返す', () => {
-    const input = {
-      userId: null as any,
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-001',
-      targetDataType: '全チーム進捗',
-    };
+describe('朝会報告管理システム - アクセス制御', () => {
+  test('SCEN-129: ユーザーコンテキストから抽出された役割が無効または未定義の場合、InvalidRoleError例外をスロー', () => {
+    const userId = 'user-001';
+    const resourceType = 'report' as const;
+    const operation = 'view' as const;
+    const targetTeamId = null;
+    const confidentialityLevel = 'internal' as const;
 
-    expect(() => validateUserAuthorizationAndPermission(input)).toThrow(/ユーザーID/);
+    expect(() => {
+      judgeAccessPermission({
+        userId,
+        resourceType,
+        operation,
+        targetTeamId,
+        confidentialityLevel,
+      });
+    }).toThrow(/ユーザーの役割が無効です。システム管理者に連絡してください。/);
   });
 });

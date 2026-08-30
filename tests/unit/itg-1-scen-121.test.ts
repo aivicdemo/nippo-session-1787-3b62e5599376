@@ -1,25 +1,30 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
-import { type AuthorizationCheckInput, type AuthorizationCheckResult } from '../../src/logic/auth-authorization';
+import { conductEngineerGroupTraining } from "../../src/logic/adoption-training-management";
 
-describe('朝会報告管理システム - ロール別アクセス制御', () => {
-  // SCEN-121: [normal] ロール別アクセス制御機能 - エンジニアロールのユーザーが日報入力フォームにアクセスしたとき、入力用UIが表示される
-  test('エンジニアロールのユーザーが日報入力画面へのアクセスを要求すると、アクセス権限が付与される', () => {
-    const input: AuthorizationCheckInput = {
-      userId: 'user-001-engineer',
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-development-01',
-      targetDataType: '自分の進捗のみ',
-    };
+describe("朝会報告管理システム - 全エンジニア向け集合研修実施", () => {
+  // SCEN-121
+  test("実習参加エンジニア数が10名未満の場合、InsufficientParticipants エラーが発生する", () => {
+    const trainingSessionId = "session-001";
+    const engineerIds = [
+      "eng-001",
+      "eng-002",
+      "eng-003",
+      "eng-004",
+      "eng-005",
+      "eng-006",
+      "eng-007",
+      "eng-008",
+      "eng-009",
+    ];
+    const trainingDate = new Date("2024-01-15T10:00:00Z");
+    const practiceEnvironmentUrl = "https://practice.example.com";
 
-    const result: AuthorizationCheckResult = validateUserAuthorizationAndPermission(input);
-
-    expect(result.isAuthorized).toBe(true);
-    expect(result.userRole).toBe('engineer');
-    expect(result.allowedDataScope).toBe('自分のみ');
-    expect(result.editableFeatures).toContain('日報入力');
-    expect(result.editableFeatures).toContain('昨日やったこと入力');
-    expect(result.editableFeatures).toContain('今日やること入力');
-    expect(result.editableFeatures).toContain('抱えている課題入力');
-    expect(result.editableFeatures).toContain('日報送信');
+    expect(() =>
+      conductEngineerGroupTraining({
+        trainingSessionId,
+        engineerIds,
+        trainingDate,
+        practiceEnvironmentUrl,
+      })
+    ).toThrow(/不参加者/);
   });
 });

@@ -1,52 +1,28 @@
-import { describe, test, expect } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { prepareDashboardData } from '../../src/logic/dashboard-presentation';
+import { type DashboardDisplayData } from '../../src/logic/dashboard-presentation';
 
-describe('Issue Extraction and Ranking', () => {
-  // SCEN-615
-  test('should extract and rank multiple issue keywords by frequency in descending order', () => {
-    // Arrange
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn().mockReturnValue({
-        keywords: ['データベース接続エラー', 'レスポンス遅延', 'メモリリーク'],
-        frequencies: [5, 3, 2],
-      }),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+describe('朝会報告管理システム - ダッシュボード表示データ集計', () => {
+  // SCEN-615: [edge] 報告リストが空のときのダッシュボード表示データ集計
+  test('報告リストが空のとき、空のデータ構造を返す', async () => {
+    const testTeamId = 'team-001';
+    const testDate = new Date('2024-01-15T09:00:00Z');
+    const requestingUserId = 'user-manager-001';
 
-    const reportText =
-      'データベース接続エラーが発生しており、レスポンス遅延につながっている。メモリリークの可能性も調査中';
+    const result: DashboardDisplayData = await prepareDashboardData({
+      teamId: testTeamId,
+      targetDate: testDate,
+      requestingUserId: requestingUserId,
+      includeHistoricalTrend: false,
+    });
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001',
-    };
-
-    // Act
-    const result: RankedIssueKeywordList = extractAndRankIssueKeywords(
-      [reportText],
-      input,
-      mockTextAnalysisService
-    );
-
-    // Assert
-    expect(result.keywords).toHaveLength(3);
-    expect(result.keywords[0].keyword).toBe('データベース接続エラー');
-    expect(result.keywords[0].frequency).toBe(5);
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[1].keyword).toBe('レスポンス遅延');
-    expect(result.keywords[1].frequency).toBe(3);
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.keywords[2].keyword).toBe('メモリリーク');
-    expect(result.keywords[2].frequency).toBe(2);
-    expect(result.keywords[2].rank).toBe(3);
-    expect(result.totalKeywordCount).toBe(3);
-    expect(mockTextAnalysisService.extractKeywords).toHaveBeenCalledTimes(1);
-    expect(result.extractedAt).toBeInstanceOf(Date);
-    expect(result.analysisperiodDays).toBe(7);
+    expect(result).toBeDefined();
+    expect(result.submissionStatusSummary).toBeDefined();
+    expect(result.submissionStatusSummary.submittedCount).toBe(0);
+    expect(result.submissionStatusSummary.totalTeamMembers).toBeGreaterThanOrEqual(0);
+    expect(result.unsubmittedMembers).toEqual([]);
+    expect(result.prioritizedIssueList).toEqual([]);
+    expect(result.issueKeywordRanking).toEqual([]);
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
+    expect(result.lastUpdatedAt.getTime()).toBeLessThanOrEqual(new Date().getTime() + 1000);
   });
 });

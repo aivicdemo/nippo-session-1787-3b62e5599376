@@ -1,137 +1,51 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
+import type { IssuePriorityScoringInput, IssuePriorityScore } from '../../src/logic/priority-scoring-engine';
 
-describe('Issue Extraction and Prioritization - TextAnalysisServiceAdapter Failure Handling', () => {
-  let mockTextAnalysisServiceAdapter: any;
-  let mockNotificationServiceAdapter: any;
-  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
-  let retryLogEntries: Array<{ timestamp: Date; attempt: number; error: string }>;
-
-  beforeEach(() => {
-    retryLogEntries = [];
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    
-    mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          { keyword: 'データベース接続エラー', frequency: 3 },
-          { keyword: 'タイムアウト', frequency: 2 },
-        ],
-      }),
-      assessImpactScore: jest.fn().mockRejectedValue(
-        new Error('TextAnalysisServiceAdapter.assessImpactScore API call failed with status 503')
-      ),
-      classifyIssueSeverity: jest.fn().mockResolvedValue({ severity: 'high' }),
-    };
-
-    mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({ status: 'delivered' }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduled: true }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ delivered: 0, failed: 1, pending: 9 }),
-    };
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
-  });
-
-  // SCEN-493
-  test('should handle TextAnalysisServiceAdapter.assessImpactScore failure with retry logic and fallback to cache', async () => {
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-alpha-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-manager-001',
-    };
-
-    let attemptCount = 0;
-    let lastRetryTimestamp: Date | null = null;
-
-    const assessImpactScoreWithRetry = jest.fn(async (keyword: string) => {
-      attemptCount++;
-      const now = new Date();
-      
-      if (attemptCount === 1) {
-        await new Promise(resolve => setTimeout(resolve, 3));
-        throw new Error('TextAnalysisServiceAdapter.assessImpactScore API timeout');
-      }
-      if (attemptCount === 2) {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        throw new Error('TextAnalysisServiceAdapter.assessImpactScore invalid response format');
-      }
-      if (attemptCount === 3) {
-        await new Promise(resolve => setTimeout(resolve, 30));
-        throw new Error('TextAnalysisServiceAdapter.assessImpactScore connection refused');
-      }
-      
-      lastRetryTimestamp = now;
-      return { impactScore: 0 };
-    });
-
-    mockTextAnalysisServiceAdapter.assessImpactScore = assessImpactScoreWithRetry;
-
-    const cachedPreviousAnalysisResult: RankedIssueKeywordList = {
-      keywords: [
-        {
-          keywordId: 'kw-db-001',
-          keyword: 'データベース接続エラー',
-          frequency: 2,
-          rank: 1,
-        },
-        {
-          keywordId: 'kw-timeout-001',
-          keyword: 'タイムアウト',
-          frequency: 1,
-          rank: 2,
-        },
-      ],
-      totalKeywordCount: 2,
-      extractedAt: new Date('2024-01-13T10:30:00Z'),
-      analysisperiodDays: 7,
-    };
-
-    let result: RankedIssueKeywordList | { error: string; cachedResult?: RankedIssueKeywordList; retryAttempts: number } | undefined;
-    let errorOccurred = false;
-    const adminAuditLog: Array<{ timestamp: Date; eventType: string; detail: string }> = [];
-
-    try {
-      result = await extractAndRankIssueKeywords(
-        input,
-        mockTextAnalysisServiceAdapter,
-        mockNotificationServiceAdapter
-      );
-    } catch (error: any) {
-      errorOccurred = true;
-      
-      adminAuditLog.push({
-        timestamp: new Date(),
-        eventType: 'EXTERNAL_SERVICE_FAILURE',
-        detail: `TextAnalysisServiceAdapter.assessImpactScore failed after 3 retry attempts: ${error.message}`,
-      });
-
-      result = {
-        error: 'TextAnalysisServiceAdapter.assessImpactScore failure',
-        cachedResult: cachedPreviousAnalysisResult,
-        retryAttempts: 3,
+jest.mock('../../src/logic/priority-scoring-engine', () => {
+  const actualModule = jest.requireActual('../../src/logic/priority-scoring-engine');
+  return {
+    ...actualModule,
+    determinePriorityRankFromScore: jest.fn((score: number) => {
+      if (score >= 70) return 'HIGH';
+      if (score >= 40) return 'MEDIUM';
+      return 'LOW';
+    }),
+    getColorCodeForRank: jest.fn((rank: string) => {
+      const rankToColor: Record<string, string> = {
+        'HIGH': 'RED',
+        'MEDIUM': 'YELLOW',
+        'LOW': 'GREEN',
       };
-    }
+      return rankToColor[rank];
+    }),
+    judgeAccessPermission: jest.fn(() => true),
+  };
+});
 
-    expect(errorOccurred).toBe(true);
-    expect(assessImpactScoreWithRetry).toHaveBeenCalledTimes(3);
-    expect(result).toHaveProperty('error');
-    expect(result).toHaveProperty('cachedResult');
-    expect((result as any).cachedResult?.keywords).toEqual(cachedPreviousAnalysisResult.keywords);
-    expect((result as any).retryAttempts).toBe(3);
-    
-    expect(adminAuditLog).toHaveLength(1);
-    expect(adminAuditLog[0].eventType).toBe('EXTERNAL_SERVICE_FAILURE');
-    expect(adminAuditLog[0].detail).toMatch(/TextAnalysisServiceAdapter\.assessImpactScore/);
-    expect(adminAuditLog[0].detail).toMatch(/3 retry attempts/);
+describe('Priority Scoring Engine', () => {
+  test('SCEN-493: calculatePriorityScoreForIssue returns correct priority score and rank based on frequency and impact', () => {
+    // Arrange
+    const input: IssuePriorityScoringInput = {
+      issueId: 'ISSUE-001',
+      frequency: 40,
+      impactScore: 60,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    };
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('TextAnalysisServiceAdapter.assessImpactScore')
-    );
+    // Expected calculation: (40 * 0.4) + (60 * 0.6) = 16 + 36 = 52
+    const expectedPriorityScore = 52;
+    // Score 52 falls in MEDIUM range (40 <= 52 < 70)
+    const expectedPriorityRank = 'MEDIUM';
+    const expectedColorCode = 'YELLOW';
+
+    // Act
+    const result: IssuePriorityScore = calculatePriorityScoreForIssue(input);
+
+    // Assert
+    expect(result.issueId).toBe('ISSUE-001');
+    expect(result.priorityScore).toBe(expectedPriorityScore);
+    expect(result.priorityRank).toBe(expectedPriorityRank);
+    expect(result.colorCode).toBe(expectedColorCode);
   });
 });

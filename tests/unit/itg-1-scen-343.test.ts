@@ -1,85 +1,66 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculatePriorityScoreForIssue } from "../../src/logic/priority-scoring-engine";
+import type { IssuePriorityScoringInput, IssuePriorityScore } from "../../src/logic/priority-scoring-engine";
 
-describe('部長向けダッシュボード報告提出状況リアルタイム表示', () => {
-  test('SCEN-343: 複数エンジニアが日報を送信した場合、各エンジニアの提出状況がそれぞれ提出済みに更新される', () => {
-    // Setup: 3名のエンジニアのチーム情報と初期提出状況を準備
-    const team_id = 'team-001';
-    const report_date = '2024-12-16'; // 固定日付
-    const request_user_id = 'manager-001'; // 部長のユーザーID
+describe("Priority Scoring Engine - Edge Case Normalization", () => {
+  test("SCEN-343: priorityScore should be normalized to 0-100 range when input values exceed boundaries", () => {
+    // Test case 1: impactScore < 0 should be clamped to 0
+    const input1: IssuePriorityScoringInput = {
+      issueId: "ISSUE-001",
+      frequency: 50,
+      impactScore: -5,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    };
+    const result1: IssuePriorityScore = calculatePriorityScoreForIssue(input1);
+    // Expected: impactScore normalized to 0, priorityScore = 50 * 0.4 + 0 * 0.6 = 20
+    expect(result1.issueId).toBe("ISSUE-001");
+    expect(result1.priorityScore).toBe(20);
+    expect(result1.priorityScore).toBeGreaterThanOrEqual(0);
+    expect(result1.priorityScore).toBeLessThanOrEqual(100);
 
-    // チームメンバー3名の初期状態: 全員未提出
-    const engineer_a_id = 'eng-001';
-    const engineer_b_id = 'eng-002';
-    const engineer_c_id = 'eng-003';
+    // Test case 2: impactScore > 100 should be clamped to 100
+    const input2: IssuePriorityScoringInput = {
+      issueId: "ISSUE-002",
+      frequency: 50,
+      impactScore: 105,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    };
+    const result2: IssuePriorityScore = calculatePriorityScoreForIssue(input2);
+    // Expected: impactScore normalized to 100, priorityScore = 50 * 0.4 + 100 * 0.6 = 80
+    expect(result2.issueId).toBe("ISSUE-002");
+    expect(result2.priorityScore).toBe(80);
+    expect(result2.priorityScore).toBeGreaterThanOrEqual(0);
+    expect(result2.priorityScore).toBeLessThanOrEqual(100);
 
-    const engineer_a_name = 'Engineer A';
-    const engineer_a_email = 'eng.a@company.com';
+    // Test case 3: frequency < 0 should be clamped to 0
+    const input3: IssuePriorityScoringInput = {
+      issueId: "ISSUE-003",
+      frequency: -10,
+      impactScore: 50,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    };
+    const result3: IssuePriorityScore = calculatePriorityScoreForIssue(input3);
+    // Expected: frequency normalized to 0, priorityScore = 0 * 0.4 + 50 * 0.6 = 30
+    expect(result3.issueId).toBe("ISSUE-003");
+    expect(result3.priorityScore).toBe(30);
+    expect(result3.priorityScore).toBeGreaterThanOrEqual(0);
+    expect(result3.priorityScore).toBeLessThanOrEqual(100);
 
-    const engineer_b_name = 'Engineer B';
-    const engineer_b_email = 'eng.b@company.com';
-
-    const engineer_c_name = 'Engineer C';
-    const engineer_c_email = 'eng.c@company.com';
-
-    // チーム総メンバー数: 3名
-    const total_members = 3;
-
-    // ビジネスルールの計算:
-    // エンジニアA・B・Cが3名全員提出済みの場合:
-    // - submittedCount: 3
-    // - unsubmittedCount: 0
-    // - delayedSubmissionCount: 0（遅延なし）
-    // - submissionRate: (3 / 3) * 100 = 100.0
-
-    const submitted_count = 3;
-    const unsubmitted_count = 0;
-    const delayed_submission_count = 0;
-    const submission_rate = 100.0;
-
-    // 未提出メンバーリスト: 空配列（全員提出済み）
-    const unsubmitted_members: Array<{
-      userId: string;
-      userName: string;
-      email: string;
-      remainingMinutes: number;
-    }> = [];
-
-    // 集計実行時刻: ISO 8601形式の固定値
-    const aggregated_at = '2024-12-16T09:30:00Z';
-
-    // Act: aggregateReportSubmissionStatus関数を呼び出し
-    const result = aggregateReportSubmissionStatus({
-      teamId: team_id,
-      reportDate: report_date,
-      requestUserId: request_user_id,
-      includeDelayedSubmissions: true,
-    });
-
-    // Assert: 返却結果が期待値と一致すること
-    // (本テストは関数の戻り値の構造と計算式を検証)
-    expect(result).toEqual({
-      teamId: team_id,
-      reportDate: report_date,
-      totalMembers: total_members,
-      submittedCount: submitted_count,
-      unsubmittedCount: unsubmitted_count,
-      delayedSubmissionCount: delayed_submission_count,
-      submissionRate: submission_rate,
-      unsubmittedMembers: unsubmitted_members,
-      aggregatedAt: expect.any(String), // ISO 8601形式であること
-    });
-
-    // 返却値の詳細検証
-    expect(result.teamId).toBe(team_id);
-    expect(result.reportDate).toBe(report_date);
-    expect(result.totalMembers).toBe(total_members);
-    expect(result.submittedCount).toBe(submitted_count);
-    expect(result.unsubmittedCount).toBe(unsubmitted_count);
-    expect(result.delayedSubmissionCount).toBe(delayed_submission_count);
-    expect(result.submissionRate).toBe(submission_rate);
-    expect(result.unsubmittedMembers).toEqual([]);
-
-    // 集計実行時刻がISO 8601形式であることを確認
-    expect(result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // Test case 4: frequency > 100 should be clamped to 100
+    const input4: IssuePriorityScoringInput = {
+      issueId: "ISSUE-004",
+      frequency: 110,
+      impactScore: 50,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    };
+    const result4: IssuePriorityScore = calculatePriorityScoreForIssue(input4);
+    // Expected: frequency normalized to 100, priorityScore = 100 * 0.4 + 50 * 0.6 = 70
+    expect(result4.issueId).toBe("ISSUE-004");
+    expect(result4.priorityScore).toBe(70);
+    expect(result4.priorityScore).toBeGreaterThanOrEqual(0);
+    expect(result4.priorityScore).toBeLessThanOrEqual(100);
   });
 });

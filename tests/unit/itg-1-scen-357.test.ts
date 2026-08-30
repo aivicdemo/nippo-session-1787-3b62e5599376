@@ -1,20 +1,36 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('Submission Status Tracking - Real-time Update on Report Submission', () => {
-  // SCEN-357
-  test('should return validation error when submission timestamp is in the future', async () => {
-    const now = new Date('2024-01-15T09:00:00Z');
-    const futureTimestamp = new Date('2024-01-15T10:00:00Z');
+describe('朝会報告管理システム - 優先度スコア計算エンジン', () => {
+  test('SCEN-357: 影響度評価データが存在しないキーワードのときに警告を発生させつつ優先度スコアを計算する', () => {
+    // Arrange
+    const issueId = 'ISSUE-001';
+    const frequency = 50;
+    const impactScore = 75;
+    const frequencyWeight = 0.4;
+    const impactWeight = 0.6;
 
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-member-001',
-      includeDelayedSubmissions: true,
-    };
+    // Act
+    const result = calculatePriorityScoreForIssue({
+      issueId,
+      frequency,
+      impactScore,
+      frequencyWeight,
+      impactWeight,
+    });
 
-    expect(() => {
-      aggregateReportSubmissionStatus(input);
-    }).toThrow(/送信時刻/);
+    // Assert - 計算結果の検証
+    // priorityScore = (frequency * 0.4) + (impactScore * 0.6) = (50 * 0.4) + (75 * 0.6) = 20 + 45 = 65
+    expect(result.priorityScore).toBe(65);
+
+    // priorityRank判定: 65は40以上70未満なのでMEDIUM
+    expect(result.priorityRank).toBe('MEDIUM');
+
+    // colorCode判定: MEDIUMはYELLOW
+    expect(result.colorCode).toBe('YELLOW');
+
+    // 警告情報の存在確認
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toMatch(/影響度が未評価/);
+    expect(result.warning).toMatch(/マスタデータを確認/);
   });
 });

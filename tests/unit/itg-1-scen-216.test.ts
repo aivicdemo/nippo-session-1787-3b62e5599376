@@ -1,30 +1,51 @@
-import { generateAndSendSummaryEmail, type GenerateAndSendSummaryEmailInput, type GenerateAndSendSummaryEmailOutput } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from "../../src/logic/issue-extraction-and-ranking";
+import { type ExtractAndRankIssuesInput, type RankedIssueList } from "../../src/logic/issue-extraction-and-ranking";
 
-describe('generateAndSendSummaryEmail', () => {
-  // SCEN-216: [error] 日報集約メール送信機能 - 部長のメールアドレスが空文字列のとき処理が進まない
-  test('should throw error when manager email is empty string', async () => {
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      managerUserId: 'manager-001',
-      submittedReports: [
+describe("朝会報告管理システム - 課題抽出・優先度付け", () => {
+  // SCEN-216
+  test("複数の日報から課題キーワードを抽出し、空文字列・30文字未満のissueTextは低信頼度として計上される", () => {
+    // テスト用の日報配列を準備
+    const input: ExtractAndRankIssuesInput = {
+      reports: [
         {
-          reporterId: 'engineer-001',
-          reporterName: 'Engineer A',
-          submittedAt: '2024-01-15T08:30:00Z',
-          challenges: ['Database connection timeout', 'Memory leak in production']
+          reportId: "report001",
+          reportDate: new Date("2024-01-15"),
+          issueText: "",
+          teamId: "team001",
         },
         {
-          reporterId: 'engineer-002',
-          reporterName: 'Engineer B',
-          submittedAt: '2024-01-15T08:45:00Z',
-          challenges: ['Build pipeline failure']
-        }
+          reportId: "report002",
+          reportDate: new Date("2024-01-15"),
+          issueText: "バ",
+          teamId: "team001",
+        },
+        {
+          reportId: "report003",
+          reportDate: new Date("2024-01-15"),
+          issueText: "本日システム対応でリソース不足",
+          teamId: "team001",
+        },
       ],
-      unsubmittedMemberIds: ['engineer-003', 'engineer-004'],
-      reportDeadlineTime: '09:00'
+      analysisStartDate: new Date("2023-12-16"),
+      analysisEndDate: new Date("2024-01-15"),
+      minimumConfidenceThreshold: 50,
     };
 
-    expect(() => generateAndSendSummaryEmail(input, '')).toThrow(/メールアドレス/);
+    const result: RankedIssueList = extractAndRankIssuesFromReports(input);
+
+    // issuesフィールドの配列が空であることを検証
+    expect(result.issues).toEqual([]);
+
+    // lowConfidenceIssueCountが3以上であることを検証
+    expect(result.lowConfidenceIssueCount).toBeGreaterThanOrEqual(3);
+
+    // totalIssueCountが0であることを検証
+    expect(result.totalIssueCount).toBe(0);
+
+    // analysisTimestampが存在することを検証
+    expect(result.analysisTimestamp).toBeInstanceOf(Date);
+
+    // エラーが発生していないことを暗黙的に検証
+    expect(result).toBeDefined();
   });
 });

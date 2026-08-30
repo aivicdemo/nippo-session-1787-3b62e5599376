@@ -1,13 +1,15 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import { type IssuePriorityScoringInput } from '../../src/logic/issue-extraction-prioritization';
+import { getSubmissionStatus } from '../../src/logic/report-submission-management';
+import type { SubmissionStatusQueryInput } from '../../src/logic/report-submission-management';
 
-describe('課題の影響度判定と優先度スコア付け', () => {
-  // SCEN-620
-  test('抽出された課題リストが null のとき例外を発生させる', () => {
-    const nullInput: IssuePriorityScoringInput | null = null;
+describe('朝会報告管理システム - 報告提出状況管理', () => {
+  // SCEN-620: [error] チームメンバーリストが空のときチームメンバー情報が登録されていません
+  test('should throw error when team member list is empty', async () => {
+    const input: SubmissionStatusQueryInput = {
+      teamId: 'team-001',
+      reportDate: '2024-01-15',
+      requesterId: 'user-manager-001',
+    };
 
-    expect(() => {
-      calculateIssuePriorityScore(nullInput as any);
-    }).toThrow(/抽出された課題リスト/);
+    await expect(() => getSubmissionStatus(input)).rejects.toThrow(/チームメンバー情報/);
   });
 });

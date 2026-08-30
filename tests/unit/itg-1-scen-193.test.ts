@@ -1,63 +1,41 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { submitReport } from '../../src/logic/report-submission-management';
 
-describe('朝会報告管理システム - データセキュリティ', () => {
-  // SCEN-193: [edge] 日報暗号化・復号化機能 - 空文字列の日報データが暗号化・復号化され、元の空文字列に復元される
-  test('空文字列の日報データが暗号化・復号化されて元の空文字列に復元される', () => {
-    // 準備: 暗号化入力データを定義
-    const encryptInput = {
-      reporterId: 'engineer_001',
-      reportDate: new Date('2024-01-15'),
-      yesterdayAccomplishment: '',
-      todayPlan: '',
-      challenges: '',
-      encryptionKeyId: 'key_20240115_001',
-      executorUserId: 'manager_001',
-    };
-
-    // 実行: 暗号化処理を実行
-    const encryptedResult = encryptDailyReportData(encryptInput);
-
-    // 検証1: 暗号化結果の基本的な構造を確認
-    expect(encryptedResult).toBeDefined();
-    expect(encryptedResult.encryptedReportId).toBeDefined();
-    expect(typeof encryptedResult.encryptedReportId).toBe('string');
-    expect(encryptedResult.encryptedReportId.length).toBeGreaterThan(0);
-
-    // 検証2: 平文フィールドが保持されていることを確認
-    expect(encryptedResult.reporterId).toBe('engineer_001');
-    expect(encryptedResult.reportDate).toEqual(new Date('2024-01-15'));
-    expect(encryptedResult.encryptionKeyId).toBe('key_20240115_001');
-
-    // 検証3: 暗号化されたコンテンツが空でないことを確認（空文字列が暗号化されている）
-    expect(encryptedResult.encryptedContent).toBeDefined();
-    expect(typeof encryptedResult.encryptedContent).toBe('string');
-    expect(encryptedResult.encryptedContent.length).toBeGreaterThan(0);
-
-    // 検証4: 暗号化タイムスタンプが記録されていることを確認
-    expect(encryptedResult.encryptedAt).toBeInstanceOf(Date);
-    expect(encryptedResult.encryptedAt.getTime()).toBeGreaterThan(0);
-
-    // 検証5: アクセス制御リストが含まれていることを確認
-    expect(Array.isArray(encryptedResult.accessControlList)).toBe(true);
-    expect(encryptedResult.accessControlList.length).toBeGreaterThan(0);
-
-    // 検証6: アクセス制御エントリの構造を確認
-    const firstAcl = encryptedResult.accessControlList[0];
-    expect(firstAcl).toHaveProperty('userId');
-    expect(firstAcl).toHaveProperty('userRole');
-    expect(firstAcl).toHaveProperty('canDecrypt');
-    expect(typeof firstAcl.canDecrypt).toBe('boolean');
-
-    // 検証7: 暗号化されたコンテンツが復号化可能な形式であることを確認
-    // （実際の復号化テストは統合テストで行うが、ここでは暗号化が正常に完了したことを確認）
-    expect(encryptedResult.encryptedContent).not.toBe('');
-    expect(encryptedResult.encryptedContent).not.toBe(encryptInput.yesterdayAccomplishment);
-    expect(encryptedResult.encryptedContent).not.toBe(encryptInput.todayPlan);
-    expect(encryptedResult.encryptedContent).not.toBe(encryptInput.challenges);
-
-    // 検証8: 復号化後に元の空文字列が復元されることの前提条件を検証
-    // （暗号化プロセスが個別に空文字列を正しく処理したことを確認）
-    expect(encryptedResult).toHaveProperty('encryptedContent');
-    expect(encryptedResult.encryptedContent.length).toBeGreaterThan(0);
+describe('朝会報告管理システム - 日報送信処理', () => {
+  // SCEN-193: [normal] エンジニアが日報を送信し、入力検証、送信時刻記録、期限判定、提出状況更新を実行する
+  test('日報送信時に送信時刻記録と期限判定が正確に機能し、期限超過時に遅延ステータスが返される', () => {
+    // Arrange
+    const reporterId = 'ENG-001';
+    const teamId = 'TEAM-A';
+    const reportDate = new Date('2024-01-15T00:00:00Z');
+    const yesterdayAccomplishment = '昨日の成果';
+    const todayPlan = '今日の予定';
+    const issuesAndConcerns = '懸念事項';
+    
+    // 朝会開始時刻: 09:00、送信時刻: 09:30（30分遅延）
+    const morningMeetingStartTime = '09:00';
+    const submissionTimestamp = new Date('2024-01-15T09:30:00Z');
+    
+    // Act
+    const result = submitReport({
+      reporterId,
+      teamId,
+      reportDate,
+      yesterdayAccomplishment,
+      todayPlan,
+      issuesAndConcerns,
+      submissionTimestamp,
+    });
+    
+    // Assert - 期限判定：朝会開始09:00に対して09:30送信のため期限超過
+    expect(result.submissionStatus).toBe('delayed');
+    expect(result.isWithinDeadline).toBe(false);
+    
+    // Assert - 残り時間：09:00 - 09:30 = -30分（30分超過）
+    expect(result.remainingTimeToDeadline).toBe(-30);
+    
+    // Assert - 基本的な戻り値の構造を検証
+    expect(result.reportId).toBeDefined();
+    expect(typeof result.reportId).toBe('string');
+    expect(result.submissionTimestamp).toEqual(submissionTimestamp);
   });
 });

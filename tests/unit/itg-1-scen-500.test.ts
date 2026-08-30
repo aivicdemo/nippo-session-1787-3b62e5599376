@@ -1,28 +1,47 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { validateReportQuality } from '../../src/logic/report-quality-validation';
 
-describe('日報の課題項目から課題キーワードを自動抽出し、発生頻度でランク付けして表示する機能', () => {
-  // SCEN-500: [error] 課題自動抽出・優先度判定機能 - 日報報告者のユーザーID が null のときエラーになる
-  test('ユーザーIDが null の日報を入力した場合、INVALID_USER_ID エラーを返却し外部サービス呼び出しを防止する', () => {
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('朝会報告管理システム - レポート品質検証', () => {
+  // SCEN-500
+  test('対策案のタイトルが空文字列のとき、エラーメッセージを含む例外を発生させる', () => {
+    const reportId = 'report-123';
+    const reportContent = {
+      sections: ['summary', 'analysis', 'recommendations'],
+      data: {
+        issueCount: 5,
+        averagePriority: 7.2
+      },
+      analysisResults: {
+        trends: 'increasing',
+        keyFindings: ['Issue A detected', 'Risk B identified']
+      }
     };
-
-    const invalidInput: any = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: null,
+    const sourceReportDataset = {
+      dailyReports: [
+        {
+          reportId: 'daily-1',
+          date: '2024-01-15',
+          extractedIssues: ['Issue A', 'Issue B'],
+          frequency: 2
+        }
+      ],
+      aggregatedMetrics: {
+        totalIssues: 5,
+        averageFrequency: 1.5
+      }
+    };
+    const validationCriteria = {
+      requiredSections: ['summary', 'analysis', 'recommendations'],
+      accuracyThreshold: 5,
+      requiredUtilityElements: ['trend_analysis', 'priority_scoring']
     };
 
     expect(() =>
-      extractAndRankIssueKeywords(invalidInput, mockTextAnalysisService)
-    ).toThrow(/報告者のユーザーID|INVALID_USER_ID/);
-
-    expect(mockTextAnalysisService.extractKeywords).not.toHaveBeenCalled();
-    expect(mockTextAnalysisService.assessImpactScore).not.toHaveBeenCalled();
-    expect(mockTextAnalysisService.classifyIssueSeverity).not.toHaveBeenCalled();
+      validateReportQuality({
+        reportId,
+        reportContent,
+        sourceReportDataset,
+        validationCriteria
+      })
+    ).toThrow(/対策案のタイトル/);
   });
 });

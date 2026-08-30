@@ -1,51 +1,28 @@
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import type { ConfirmationEmailInput, ConfirmationEmailOutput } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import { type Report } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('朝会報告集約・課題抽出・優先度判定・確認メール自動生成配信機能', () => {
-  // SCEN-440
-  test('報告受付期限時刻がnullのとき処理を中止しエラーを返す', async () => {
-    const mockNotificationServiceAdapter = {
-      sendConfirmationEmail: jest.fn(),
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
+describe('Issue Extraction and Ranking - Standard Keyword Dictionary Validation', () => {
+  test('SCEN-440: should throw DataNormalizationFailureError when standard keyword dictionary is empty', () => {
+    const analysisStartDate = new Date('2024-12-15T00:00:00Z');
+    const analysisEndDate = new Date('2025-01-14T23:59:59Z');
+
+    const reports: Report[] = [
+      {
+        reportId: 'report-001',
+        reportDate: new Date('2025-01-14T09:00:00Z'),
+        issueText: 'バグが多く発生しており、テストが失敗している状況です。',
+        teamId: 'team-a',
+      },
+    ];
+
+    const input = {
+      reports: reports,
+      analysisStartDate: analysisStartDate,
+      analysisEndDate: analysisEndDate,
+      standardKeywordDictionary: [],
+      minimumConfidenceThreshold: 50,
     };
 
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-
-    const input: ConfirmationEmailInput = {
-      reportDeadlineDateTime: null as any,
-      aggregatedReports: [
-        {
-          reportId: 'report-001',
-          reporterUserId: 'user-001',
-          reporterName: 'Engineer A',
-          yesterdayAccomplishment: 'Completed API implementation',
-          todayPlan: 'Start testing phase',
-          challenges: 'Database connection timeout issues',
-          submissionDateTime: new Date('2024-01-15T08:30:00Z'),
-        },
-      ],
-      managerUserId: 'manager-001',
-      teamId: 'team-001',
-      analysisDate: new Date('2024-01-15T09:00:00Z'),
-    };
-
-    const result = await generateAndSendConfirmationEmail(
-      input,
-      mockNotificationServiceAdapter,
-      mockTextAnalysisServiceAdapter
-    );
-
-    expect(result).toBeDefined();
-    expect(result.code).toBe('INVALID_DEADLINE_TIME');
-    expect(result.message).toBe('報告受付期限時刻が設定されていません');
-    expect(mockNotificationServiceAdapter.sendConfirmationEmail).not.toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).not.toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).not.toHaveBeenCalled();
+    expect(() => extractAndRankIssuesFromReports(input)).toThrow(/キーワード辞書が未設定です/);
   });
 });

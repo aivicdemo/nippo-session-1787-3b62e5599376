@@ -1,60 +1,41 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { TextAnalysisServiceAdapter } from '../../src/adapters/text-analysis-service-adapter';
+import { describe, test, expect } from '@jest/globals';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import type { ExtractAndRankIssuesInput } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('課題キーワード自動抽出機能', () => {
-  let mockTextAnalysisAdapter: jest.Mocked<TextAnalysisServiceAdapter>;
-
-  beforeEach(() => {
-    mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-  });
-
+describe('Issue Extraction and Ranking', () => {
   // SCEN-210
-  test('[normal] 日報テキストからOpenAI APIが正常応答し、課題キーワードが発生頻度でランク付けされる', async () => {
-    // Arrange
-    const reportText = 'データベース接続エラーが発生。サーバー再起動で一時回避。データベース接続の根本原因調査が必要。';
-    const mockKeywordFrequency = {
-      'データベース接続': 2,
-      'エラー': 1,
-      'サーバー': 1,
+  test('should throw error when issue keyword dictionary is empty', () => {
+    const thirtyDaysAgo = new Date('2024-01-01T00:00:00Z');
+    const today = new Date('2024-01-31T00:00:00Z');
+
+    const testReports = [
+      {
+        reportId: 'report-001',
+        reportDate: new Date('2024-01-31T09:00:00Z'),
+        issueText: 'バグが発生しました',
+        teamId: 'team-001',
+      },
+      {
+        reportId: 'report-002',
+        reportDate: new Date('2024-01-30T09:00:00Z'),
+        issueText: 'デプロイの遅延があります',
+        teamId: 'team-001',
+      },
+      {
+        reportId: 'report-003',
+        reportDate: new Date('2024-01-29T09:00:00Z'),
+        issueText: 'リソース不足で対応が困難です',
+        teamId: 'team-001',
+      },
+    ];
+
+    const input: ExtractAndRankIssuesInput = {
+      reports: testReports,
+      analysisStartDate: thirtyDaysAgo,
+      analysisEndDate: today,
+      minimumConfidenceThreshold: 50,
     };
 
-    mockTextAnalysisAdapter.extractKeywords.mockResolvedValue(mockKeywordFrequency);
-
-    // Act
-    const result = await extractAndRankIssueKeywords(
-      reportText,
-      mockTextAnalysisAdapter
-    );
-
-    // Assert
-    expect(result).toBeDefined();
-    expect(result.keywords).toHaveLength(3);
-    
-    // First ranked keyword: 'データベース接続' with frequency 2
-    expect(result.keywords[0]).toEqual({
-      keyword: 'データベース接続',
-      frequency: 2,
-      rank: 1,
-    });
-    
-    // Second and third ranked keywords with frequency 1
-    // Either 'エラー' or 'サーバー' could be second, but order is deterministic
-    expect(result.keywords[1].frequency).toBe(1);
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.keywords[2].frequency).toBe(1);
-    expect(result.keywords[2].rank).toBe(3);
-    
-    // Verify keywords are in descending order by frequency
-    expect(result.keywords[0].frequency).toBeGreaterThanOrEqual(result.keywords[1].frequency);
-    expect(result.keywords[1].frequency).toBeGreaterThanOrEqual(result.keywords[2].frequency);
-    
-    // Verify adapter was called with correct parameter
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalledWith(reportText);
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalledTimes(1);
+    expect(() => extractAndRankIssuesFromReports(input)).toThrow(/キーワード/);
   });
 });

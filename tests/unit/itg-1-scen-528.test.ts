@@ -1,35 +1,23 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import { type RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { extractAndRankIssuesFromReports } from "../../src/logic/issue-extraction-and-ranking";
+import { type ExtractAndRankIssuesInput } from "../../src/logic/issue-extraction-and-ranking";
 
-describe('課題キーワード自動抽出・優先度判定機能', () => {
-  // SCEN-528
-  test('日報テキストがnullの場合、処理を中断してエラーを返す', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe("朝会報告管理システム - 課題抽出・優先度ランク付け", () => {
+  test("SCEN-528: 分析開始日が分析終了日より後の場合、エラーをスロー", () => {
+    const input: ExtractAndRankIssuesInput = {
+      reports: [
+        {
+          reportId: "report-001",
+          reportDate: new Date("2024-01-12T09:00:00Z"),
+          issueText: "バグが発生しました",
+          teamId: "team-001",
+        },
+      ],
+      analysisStartDate: new Date("2024-01-15T00:00:00Z"),
+      analysisEndDate: new Date("2024-01-10T23:59:59Z"),
     };
 
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-manager-001',
-    };
-
-    const result = extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter,
-      null
+    expect(() => extractAndRankIssuesFromReports(input)).toThrow(
+      /分析開始日は終了日より前に設定してください/
     );
-
-    expect(result).toEqual({
-      error: 'InvalidInput',
-      message: '日報テキストがnullまたは空です',
-      code: 'ERR_NULL_TEXT',
-    });
-
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).not.toHaveBeenCalled();
   });
 });

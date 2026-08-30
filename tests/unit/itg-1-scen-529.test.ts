@@ -1,33 +1,29 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import { type ExtractAndRankIssuesInput, type RankedIssueList } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('課題キーワード自動抽出・優先度判定機能', () => {
-  // SCEN-529: [error] 日報テキストがundefinedの場合、処理を中断してエラーを返す
-  test('日報テキストがundefinedのとき、エラーを返しAPIは呼ばれない', () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('Issue Extraction and Ranking', () => {
+  // SCEN-529
+  test('should return empty ranked issue list when reports array is empty', () => {
+    const testStartDate = new Date('2026-01-01T00:00:00Z');
+    const testEndDate = new Date('2026-01-31T23:59:59Z');
+    const beforeExecution = new Date();
+
+    const input: ExtractAndRankIssuesInput = {
+      reports: [],
+      analysisStartDate: testStartDate,
+      analysisEndDate: testEndDate,
+      minimumConfidenceThreshold: 50,
     };
 
-    const input = {
-      reportText: undefined,
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-admin-001',
-    };
+    const result: RankedIssueList = extractAndRankIssuesFromReports(input);
 
-    const result = extractAndRankIssueKeywords(input, mockTextAnalysisAdapter);
+    const afterExecution = new Date();
 
-    expect(result).toEqual({
-      code: 'INVALID_INPUT',
-      message: '日報テキストが指定されていません',
-    });
-
-    expect(mockTextAnalysisAdapter.extractKeywords).not.toHaveBeenCalled();
-    expect(mockTextAnalysisAdapter.assessImpactScore).not.toHaveBeenCalled();
-    expect(mockTextAnalysisAdapter.classifyIssueSeverity).not.toHaveBeenCalled();
+    expect(result.issues).toEqual([]);
+    expect(result.totalIssueCount).toBe(0);
+    expect(result.lowConfidenceIssueCount).toBe(0);
+    expect(result.analysisTimestamp).toBeInstanceOf(Date);
+    expect(result.analysisTimestamp.getTime()).toBeGreaterThanOrEqual(beforeExecution.getTime());
+    expect(result.analysisTimestamp.getTime()).toBeLessThanOrEqual(afterExecution.getTime() + 1000);
   });
 });

@@ -1,26 +1,34 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
 
-describe('毎朝の定時にチームメンバーへ報告入力のリマインド通知を自動送信する機能', () => {
-  // SCEN-378
-  test('スケジュール発火時刻が指定されていない（null）のとき、処理が中断される', () => {
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
+describe('朝会報告管理システム - アクセス制御と権限管理', () => {
+  // SCEN-378: [normal] ユーザーの役割と要求されたリソース・操作に基づいて、アクセス可否を判定し、許可/拒否の結果を返す
+  test('should permit dashboard view access for manager role with all_team data filter scope', () => {
+    const userId = 'user-manager-001';
+    const resourceType = 'dashboard' as const;
+    const operation = 'view' as const;
+    const targetTeamId = null;
+    const confidentialityLevel = 'internal' as const;
 
-    const input = {
-      scheduledTime: null as unknown as Date,
-      teamIds: ['team-001', 'team-002'],
-      reportDeadlineTime: new Date('2024-01-15T09:00:00Z'),
-      notificationChannels: ['email', 'in_app', 'slack'] as const,
-    };
+    const result = judgeAccessPermission({
+      userId,
+      resourceType,
+      operation,
+      targetTeamId,
+      confidentialityLevel,
+    });
 
-    const result = sendDailyReportReminder(input, mockNotificationServiceAdapter);
+    // isPermitted should be true for manager accessing dashboard view operation
+    expect(result.isPermitted).toBe(true);
 
-    expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('INVALID_SCHEDULE_TIME');
-    expect(result.message).toMatch(/スケジュール発火時刻/);
-    expect(mockNotificationServiceAdapter.scheduleNotification).not.toHaveBeenCalled();
+    // userRole should be 'manager' for manager user
+    expect(result.userRole).toBe('manager');
+
+    // denialReason should be null when permission is granted
+    expect(result.denialReason).toBeNull();
+
+    // applicableDataFilters should contain all_team scope for manager accessing dashboards
+    expect(result.applicableDataFilters).not.toBeNull();
+    expect(result.applicableDataFilters?.visibleTeamIds.length).toBeGreaterThan(0);
+    expect(result.applicableDataFilters?.viewOnlyMode).toBe(false);
   });
 });

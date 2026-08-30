@@ -1,74 +1,152 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { searchAndRetrieveReports } from '../../src/logic/report-search-and-retrieval';
 
-describe('課題自動抽出・優先度判定機能 - 出現頻度と影響度スコアから優先度スコアが計算され課題がランク付けされる', () => {
-  // SCEN-477
-  test('出現頻度と影響度スコアから優先度スコアが計算され課題がランク付けされること', async () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          { keyword: 'サーバダウン', frequency: 5 },
-          { keyword: '納期遅延', frequency: 3 },
-          { keyword: 'リソース不足', frequency: 2 }
-        ]
-      }),
-      assessImpactScore: jest.fn()
-        .mockResolvedValueOnce({ keyword: 'サーバダウン', impactScore: 85 })
-        .mockResolvedValueOnce({ keyword: '納期遅延', impactScore: 60 })
-        .mockResolvedValueOnce({ keyword: 'リソース不足', impactScore: 40 }),
-      classifyIssueSeverity: jest.fn()
+describe('report-search-and-retrieval', () => {
+  let mockLogger: jest.Mock;
+
+  beforeEach(() => {
+    mockLogger = jest.fn();
+  });
+
+  // SCEN-477: 検索対象の日付範囲が90日を超える場合の警告ログ記録と処理の継続
+  test('should process search with 91-day range and log warning about processing time', async () => {
+    const startDate = new Date('2024-01-01T00:00:00Z');
+    const endDate = new Date('2024-04-01T23:59:59Z');
+    const userId = 'user-001';
+    const teamId = 'team-001';
+    const keywordFilter = ['バグ', 'パフォーマンス'];
+
+    const mockReportData = [
+      {
+        reportId: 'report-001',
+        reportDate: '2024-01-15',
+        submitterName: 'Engineer A',
+        teamName: 'Development Team',
+        issueContent: 'バグが報告されました',
+        extractedKeywords: ['バグ'],
+      },
+      {
+        reportId: 'report-002',
+        reportDate: '2024-01-20',
+        submitterName: 'Engineer B',
+        teamName: 'Development Team',
+        issueContent: 'パフォーマンス問題が発生',
+        extractedKeywords: ['パフォーマンス'],
+      },
+      {
+        reportId: 'report-003',
+        reportDate: '2024-02-10',
+        submitterName: 'Engineer A',
+        teamName: 'Development Team',
+        issueContent: 'バグが再度発生',
+        extractedKeywords: ['バグ'],
+      },
+      {
+        reportId: 'report-004',
+        reportDate: '2024-03-15',
+        submitterName: 'Engineer C',
+        teamName: 'Development Team',
+        issueContent: 'パフォーマンス最適化が必要',
+        extractedKeywords: ['パフォーマンス'],
+      },
+    ];
+
+    const mockDedupedIssues = {
+      mergedIssues: [
+        {
+          parentIssueId: 'issue-001',
+          content: 'バグの重複整合版',
+          mergedIssueIds: ['issue-001', 'issue-003'],
+          frequency: 2,
+          mergedFlag: true,
+        },
+        {
+          parentIssueId: 'issue-002',
+          content: 'パフォーマンス問題の重複整合版',
+          mergedIssueIds: ['issue-002', 'issue-004'],
+          frequency: 2,
+          mergedFlag: true,
+        },
+      ],
+      deduplicationSummary: {
+        totalInputIssues: 4,
+        mergedCount: 2,
+        uniqueIssuesCount: 2,
+        duplicateGroupsCount: 2,
+      },
+      normalizedIssueList: [
+        {
+          issueId: 'issue-001',
+          normalizedContent: 'バグの重複整合版',
+          sourceReportIds: ['report-001', 'report-003'],
+          frequency: 2,
+        },
+        {
+          issueId: 'issue-002',
+          normalizedContent: 'パフォーマンス問題の重複整合版',
+          sourceReportIds: ['report-002', 'report-004'],
+          frequency: 2,
+        },
+      ],
     };
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001'
+    const mockRankedIssues = [
+      {
+        issueId: 'issue-001',
+        keyword: 'バグ',
+        frequency: 2,
+        percentageOfTeam: 50,
+        rank: 1,
+        impactLevel: 'high',
+        affectedTeams: ['Development Team'],
+      },
+      {
+        issueId: 'issue-002',
+        keyword: 'パフォーマンス',
+        frequency: 2,
+        percentageOfTeam: 50,
+        rank: 2,
+        impactLevel: 'high',
+        affectedTeams: ['Development Team'],
+      },
+    ];
+
+    // Mock the dependencies using jest.mock or passing them as dependencies
+    // For this test, we'll assume the function accepts these as parameters or uses a dependency injection pattern
+
+    const searchCondition = {
+      startDate,
+      endDate,
+      keywordFilter,
+      userId,
+      teamId,
     };
 
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter
+    // Call the function - in real implementation, stubs would be injected
+    // This is a simplified test structure; actual implementation may require dependency injection
+    const result = await searchAndRetrieveReports(searchCondition, {
+      authorizationCheck: jest.fn().mockResolvedValue({ isAuthorized: true }),
+      retrieveReportsByDateRange: jest.fn().mockResolvedValue(mockReportData),
+      deduplicateAndMergeIssues: jest.fn().mockResolvedValue(mockDedupedIssues),
+      rankIssuesByFrequency: jest.fn().mockResolvedValue(mockRankedIssues),
+      logWarning: mockLogger,
+    });
+
+    // Verify the search was executed and returned correct structure
+    expect(result).toBeDefined();
+    expect(result.issues).toHaveLength(2);
+    expect(result.issues[0].rank).toBe(1);
+    expect(result.issues[1].rank).toBe(2);
+    expect(result.totalCount).toBe(2);
+    expect(result.searchExecutedAt).toBeInstanceOf(Date);
+    expect(result.deduplicationSummary.totalInputIssues).toBe(4);
+    expect(result.deduplicationSummary.mergedCount).toBe(2);
+    expect(result.deduplicationSummary.uniqueIssuesCount).toBe(2);
+    expect(result.deduplicationSummary.duplicateGroupsCount).toBe(2);
+
+    // Verify that warning was logged for 91-day range exceeding 90-day threshold
+    expect(mockLogger).toHaveBeenCalledWith(
+      expect.stringContaining('検索範囲が広いため処理に時間がかかる可能性があります')
     );
-
-    expect(result.keywords).toHaveLength(3);
-    expect(result.keywords[0]).toEqual({
-      keywordId: expect.any(String),
-      keyword: 'サーバダウン',
-      frequency: 5,
-      rank: 1
-    });
-    expect(result.keywords[0].priorityScore).toBeCloseTo(100, 1);
-
-    expect(result.keywords[1]).toEqual({
-      keywordId: expect.any(String),
-      keyword: '納期遅延',
-      frequency: 3,
-      rank: 2
-    });
-    expect(result.keywords[1].priorityScore).toBeCloseTo(42, 1);
-
-    expect(result.keywords[2]).toEqual({
-      keywordId: expect.any(String),
-      keyword: 'リソース不足',
-      frequency: 2,
-      rank: 3
-    });
-    expect(result.keywords[2].priorityScore).toBeCloseTo(19, 1);
-
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.extractedAt).toEqual(expect.any(Date));
-    expect(result.analysisperiodDays).toBe(7);
-
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledTimes(1);
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledWith({
-      teamId: 'team-001',
-      startDate: input.startDate,
-      endDate: input.endDate
-    });
-
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalledTimes(3);
   });
 });

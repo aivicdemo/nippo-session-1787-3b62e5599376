@@ -1,123 +1,132 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { ensureDashboardDataFreshness } from '../../src/logic/manager-dashboard';
+import { extractAndRankIssuesFromReports } from "../../src/logic/issue-extraction-and-ranking";
 
-describe('部長向けダッシュボード - リアルタイム報告提出状況表示', () => {
-  test('SCEN-407: 部長がダッシュボードを開いた場合、報告提出状況がリアルタイム表示される', () => {
-    // Arrange: テスト用入力データ
-    const input: DashboardDataFreshnessInput = {
-      userId: 'manager-001',
-      teamId: 'team-dev-001',
-      reportDate: '2024-01-15',
-      maxStalenessSeconds: 300,
-    };
+describe("朝会報告管理システム - 課題抽出とランク付け", () => {
+  test("SCEN-407: 複数の日報から課題キーワードを自動抽出し、発生頻度と影響度に基づいて優先度スコアを計算して、優先度別に順序付けされた課題一覧を生成する", () => {
+    const analysisStartDate = new Date("2024-12-15T00:00:00Z");
+    const analysisEndDate = new Date("2025-01-15T00:00:00Z");
+    const minimumConfidenceThreshold = 50;
 
-    // 提出済みメンバーのデータ（A～G: 7名）
-    const submittedMembers = [
-      { memberId: 'member-a', memberName: 'メンバーA', submissionTimestamp: '2024-01-14T23:30:00Z' },
-      { memberId: 'member-b', memberName: 'メンバーB', submissionTimestamp: '2024-01-14T23:45:00Z' },
-      { memberId: 'member-c', memberName: 'メンバーC', submissionTimestamp: '2024-01-14T23:20:00Z' },
-      { memberId: 'member-d', memberName: 'メンバーD', submissionTimestamp: '2024-01-14T23:55:00Z' },
-      { memberId: 'member-e', memberName: 'メンバーE', submissionTimestamp: '2024-01-14T23:10:00Z' },
-      { memberId: 'member-f', memberName: 'メンバーF', submissionTimestamp: '2024-01-14T23:50:00Z' },
-      { memberId: 'member-g', memberName: 'メンバーG', submissionTimestamp: '2024-01-14T23:35:00Z' },
+    const reports = [
+      {
+        reportId: "report_001",
+        reportDate: new Date("2025-01-15T09:00:00Z"),
+        issueText: "データベース接続エラーが発生しました",
+        teamId: "team_001",
+      },
+      {
+        reportId: "report_002",
+        reportDate: new Date("2025-01-14T09:00:00Z"),
+        issueText: "API応答時間遅延の問題があります",
+        teamId: "team_001",
+      },
+      {
+        reportId: "report_003",
+        reportDate: new Date("2025-01-13T09:00:00Z"),
+        issueText: "データベース接続エラーが再発しています",
+        teamId: "team_002",
+      },
+      {
+        reportId: "report_004",
+        reportDate: new Date("2025-01-12T09:00:00Z"),
+        issueText: "デプロイメント失敗に対応中です",
+        teamId: "team_001",
+      },
+      {
+        reportId: "report_005",
+        reportDate: new Date("2025-01-11T09:00:00Z"),
+        issueText: "データベース接続エラーの原因を特定しました",
+        teamId: "team_003",
+      },
+      {
+        reportId: "report_006",
+        reportDate: new Date("2025-01-10T09:00:00Z"),
+        issueText: "API応答時間遅延の影響でタイムアウトが発生",
+        teamId: "team_002",
+      },
+      {
+        reportId: "report_007",
+        reportDate: new Date("2025-01-09T09:00:00Z"),
+        issueText: "ネットワークリソース不足",
+        teamId: "team_001",
+      },
+      {
+        reportId: "report_008",
+        reportDate: new Date("2025-01-08T09:00:00Z"),
+        issueText: "パフォーマンスの最適化を検討中",
+        teamId: "team_003",
+      },
+      {
+        reportId: "report_009",
+        reportDate: new Date("2025-01-07T09:00:00Z"),
+        issueText: "セキュリティアップデートが完了しました",
+        teamId: "team_002",
+      },
+      {
+        reportId: "report_010",
+        reportDate: new Date("2025-01-06T09:00:00Z"),
+        issueText: "ロードバランサーの設定を確認しました",
+        teamId: "team_001",
+      },
     ];
 
-    // 未提出メンバー（H～J: 3名）
-    const unsubmittedMembers = [
-      { memberId: 'member-h', memberName: 'メンバーH' },
-      { memberId: 'member-i', memberName: 'メンバーI' },
-      { memberId: 'member-j', memberName: 'メンバーJ' },
-    ];
+    const result = extractAndRankIssuesFromReports({
+      reports: reports,
+      analysisStartDate: analysisStartDate,
+      analysisEndDate: analysisEndDate,
+      minimumConfidenceThreshold: minimumConfidenceThreshold,
+    });
 
-    // モック用のデータベース状態
-    const mockDatabaseState = {
-      submittedReports: submittedMembers,
-      unsubmittedMembers: unsubmittedMembers,
-      lastUpdatedAt: '2024-01-15T08:00:00Z',
-    };
+    expect(result.issues).toBeDefined();
+    expect(Array.isArray(result.issues)).toBe(true);
+    expect(result.totalIssueCount).toBe(3);
+    expect(result.analysisTimestamp).toBeDefined();
+    expect(result.lowConfidenceIssueCount).toBe(0);
 
-    // ダッシュボード表示時刻（固定値）
-    const displayTimestamp = '2024-01-15T08:05:30Z';
-    const lastUpdateTimestamp = '2024-01-15T08:00:00Z';
-
-    // データ遅延時間の計算（秒単位）
-    // displayTimestamp から lastUpdateTimestamp を差し引く = 330秒
-    const expectedStalenessSeconds = 330;
-
-    // Act: ensureDashboardDataFreshness を呼び出す
-    const result = ensureDashboardDataFreshness(
-      input,
-      mockDatabaseState,
-      displayTimestamp,
-      lastUpdateTimestamp,
+    const databaseConnectionIssue = result.issues.find(
+      (issue) => issue.keyword === "データベース接続エラー"
+    );
+    const apiDelayIssue = result.issues.find(
+      (issue) => issue.keyword === "API応答時間遅延"
+    );
+    const deploymentFailureIssue = result.issues.find(
+      (issue) => issue.keyword === "デプロイメント失敗"
     );
 
-    // Assert: 戻り値を検証
-    expect(result).toBeDefined();
-    expect(result.isDataFresh).toBe(true);
-    expect(result.lastUpdateTimestamp).toBe(lastUpdateTimestamp);
-    expect(result.displayTimestamp).toBe(displayTimestamp);
-    expect(result.stalenessSeconds).toBe(expectedStalenessSeconds);
+    expect(databaseConnectionIssue).toBeDefined();
+    expect(databaseConnectionIssue?.occurrenceCount).toBe(3);
+    expect(databaseConnectionIssue?.impactScore).toBe(60);
+    expect(databaseConnectionIssue?.priorityScore).toBe(36);
+    expect(databaseConnectionIssue?.priorityLevel).toBe("high");
+    expect(databaseConnectionIssue?.affectedEmployeeCount).toBe(3);
 
-    // 提出状況のサマリー検証
-    const summaryResult = result.submissionSummary;
-    expect(summaryResult).toBeDefined();
-    expect(summaryResult.totalMembers).toBe(10);
-    expect(summaryResult.submittedCount).toBe(7);
-    expect(summaryResult.unsubmittedCount).toBe(3);
-    expect(summaryResult.submissionRate).toBe(70);
+    expect(apiDelayIssue).toBeDefined();
+    expect(apiDelayIssue?.occurrenceCount).toBe(2);
+    expect(apiDelayIssue?.impactScore).toBe(40);
+    expect(apiDelayIssue?.priorityScore).toBe(17.2);
+    expect(apiDelayIssue?.priorityLevel).toBe("medium");
+    expect(apiDelayIssue?.affectedEmployeeCount).toBe(2);
 
-    // 提出済みメンバー一覧の検証
-    const submittedList = result.submittedMembers;
-    expect(submittedList).toHaveLength(7);
-    expect(submittedList.map((m) => m.memberId)).toEqual([
-      'member-a',
-      'member-b',
-      'member-c',
-      'member-d',
-      'member-e',
-      'member-f',
-      'member-g',
-    ]);
+    expect(deploymentFailureIssue).toBeDefined();
+    expect(deploymentFailureIssue?.occurrenceCount).toBe(1);
+    expect(deploymentFailureIssue?.impactScore).toBe(20);
+    expect(deploymentFailureIssue?.priorityScore).toBe(8.6);
+    expect(deploymentFailureIssue?.priorityLevel).toBe("low");
+    expect(deploymentFailureIssue?.affectedEmployeeCount).toBe(1);
 
-    // 未提出メンバー一覧の検証
-    const unsubmittedList = result.unsubmittedMembers;
-    expect(unsubmittedList).toHaveLength(3);
-    expect(unsubmittedList.map((m) => m.memberId)).toEqual([
-      'member-h',
-      'member-i',
-      'member-j',
-    ]);
+    expect(result.issues[0].priorityScore).toBeGreaterThan(
+      result.issues[1].priorityScore
+    );
+    expect(result.issues[1].priorityScore).toBeGreaterThan(
+      result.issues[2].priorityScore
+    );
+
+    expect(result.issues[0].keyword).toBe("データベース接続エラー");
+    expect(result.issues[1].keyword).toBe("API応答時間遅延");
+    expect(result.issues[2].keyword).toBe("デプロイメント失敗");
+
+    expect(result.analysisTimestamp instanceof Date).toBe(true);
+    expect(result.analysisTimestamp.getTime()).toBeLessThanOrEqual(
+      new Date().getTime()
+    );
   });
 });
-
-// 型定義（テスト用）
-interface DashboardDataFreshnessInput {
-  userId: string;
-  teamId: string;
-  reportDate: string;
-  maxStalenessSeconds?: number;
-}
-
-interface SubmissionSummary {
-  totalMembers: number;
-  submittedCount: number;
-  unsubmittedCount: number;
-  submissionRate: number;
-}
-
-interface MemberInfo {
-  memberId: string;
-  memberName: string;
-  submissionTimestamp?: string;
-}
-
-interface DashboardDataFreshnessOutput {
-  isDataFresh: boolean;
-  lastUpdateTimestamp: string;
-  displayTimestamp: string;
-  stalenessSeconds: number;
-  submissionSummary: SubmissionSummary;
-  submittedMembers: MemberInfo[];
-  unsubmittedMembers: MemberInfo[];
-}

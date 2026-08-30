@@ -1,26 +1,33 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
-import { type AuthorizationCheckInput, type AuthorizationCheckResult } from '../../src/logic/auth-authorization';
+import { evaluateInitialReportSubmission } from '../../src/logic/adoption-training-management';
 
-describe('ロール別アクセス制御機能', () => {
-  // SCEN-122
-  test('部長ロールのユーザーが日報入力フォームにアクセスしたとき、ダッシュボード閲覧用UIが表示される', () => {
-    // Arrange: 部長ロールのユーザーが日報入力フォーム(/report/input)へのアクセスを試みる
-    const authorizationCheckInput: AuthorizationCheckInput = {
-      userId: 'user-manager-001',
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-dev-001',
-      targetDataType: '自分の進捗のみ'
+describe('adoption-training-management', () => {
+  // SCEN-122: [normal] エンジニアの初回テスト報告データを検証し、必須項目・形式・品質基準を満たしているか判定して、合格なら受理、不合格なら修正指示を返す
+  test('evaluateInitialReportSubmission processes valid initial report submission and returns PASSED status with quality score and format unification degree', () => {
+    const reportId = 'RPT-001';
+    const engineerId = 'ENG-001';
+    const yesterdayAccomplishment = '昨日は機能Aの実装を完了しました';
+    const todayPlan = '本日は機能Bの設計を進めます';
+    const issuesAndConcerns = 'データベース接続のタイムアウト問題が発生';
+    const submissionTimestamp = new Date('2024-01-15T10:00:00Z');
+    const trainingPhaseId = 'PHASE-001';
+
+    const input = {
+      reportId,
+      engineerId,
+      yesterdayAccomplishment,
+      todayPlan,
+      issuesAndConcerns,
+      submissionTimestamp,
+      trainingPhaseId,
     };
 
-    // Act: アクセス制御ロジックを実行
-    const result: AuthorizationCheckResult = validateUserAuthorizationAndPermission(authorizationCheckInput);
+    const result = evaluateInitialReportSubmission(input);
 
-    // Assert: 部長ロールのユーザーは日報入力フォームへのアクセスが拒否され、
-    // ダッシュボード閲覧のみ許可されることを検証
-    expect(result.isAuthorized).toBe(false);
-    expect(result.userRole).toBe('manager');
-    expect(result.allowedDataScope).toBe('自チームのみ');
-    expect(result.editableFeatures).toEqual(['ダッシュボード表示', '課題検索']);
-    expect(result.editableFeatures).not.toContain('日報入力');
+    expect(result.reportId).toBe('RPT-001');
+    expect(result.evaluationStatus).toBe('PASSED');
+    expect(result.qualityScore).toBe(85);
+    expect(result.formatUnificationDegree).toBe(90);
+    expect(result.feedbackItems).toEqual([]);
+    expect(result.evaluationTimestamp).toBeInstanceOf(Date);
   });
 });

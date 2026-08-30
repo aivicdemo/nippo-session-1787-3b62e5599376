@@ -1,67 +1,35 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import type { AggregateReportSubmissionStatusInput, ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { syncExtractedIssuesToExternalTool } from "../../src/logic/existing-tool-integration";
 
-describe('Report Submission Status Aggregation', () => {
-  // SCEN-398: [normal] 報告提出状況の集計機能 - 本日の報告が複数件で提出済みと未提出が混在する場合、それぞれの件数が正確に集計される
-  test('should accurately aggregate submission status with 6 submitted and 4 unsubmitted members on the same day', () => {
-    const targetDate = '2024-01-15';
-    const teamId = 'team-dev-001';
-    const requestUserId = 'user-manager-001';
-    const totalMembers = 10;
-    const submittedCount = 6;
-    const unsubmittedCount = 4;
-    const delayedSubmissionCount = 0;
-
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId,
-      reportDate: targetDate,
-      requestUserId,
-      includeDelayedSubmissions: true,
-    };
-
-    const unsubmittedMembers = [
+describe("既存ツール連携処理", () => {
+  // SCEN-398: [error] 抽出済み課題データを既存ツール（JiraまたはAsana）に連携し、API通信、重複排除、データ整合性検証、リトライ処理を実行して連携完了ステータスを記録する。 - 連携試行回数が0以下または負の数のときという明示された境界条件で試行回数は1以上である必要があります
+  test("integrationAttemptが0のとき、試行回数は1以上である必要があります というエラーをスローする", () => {
+    const integrationAttemptParam = 0;
+    const errorTypeParam = "timeout";
+    const extractedIssueDataParam = [
       {
-        userId: 'user-eng-007',
-        userName: '山田太郎',
-        email: 'yamada.taro@example.com',
-        remainingMinutes: 45,
-      },
-      {
-        userId: 'user-eng-008',
-        userName: '鈴木次郎',
-        email: 'suzuki.jiro@example.com',
-        remainingMinutes: 45,
-      },
-      {
-        userId: 'user-eng-009',
-        userName: '佐藤三郎',
-        email: 'sato.saburo@example.com',
-        remainingMinutes: 45,
-      },
-      {
-        userId: 'user-eng-010',
-        userName: '田中四郎',
-        email: 'tanaka.shiro@example.com',
-        remainingMinutes: 45,
+        issueId: "issue-001",
+        issueContent: "This is a test issue that needs to be resolved",
+        priorityScore: 75,
+        impactLevel: "high" as const,
+        extractedKeywords: ["bug", "critical"],
+        reportDate: "2024-01-15",
+        reporterId: "eng-001",
+        teamId: "team-001",
       },
     ];
+    const toolConnectionConfigParam = {
+      apiEndpoint: "https://jira.example.com/rest/api/2",
+      authToken: "test-token-12345",
+      toolType: "jira" as const,
+    };
 
-    const expectedSubmissionRate = 60.0;
-
-    const result: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(input);
-
-    expect(result.teamId).toBe(teamId);
-    expect(result.reportDate).toBe(targetDate);
-    expect(result.totalMembers).toBe(totalMembers);
-    expect(result.submittedCount).toBe(submittedCount);
-    expect(result.unsubmittedCount).toBe(unsubmittedCount);
-    expect(result.delayedSubmissionCount).toBe(delayedSubmissionCount);
-    expect(result.submissionRate).toBe(expectedSubmissionRate);
-    expect(result.unsubmittedMembers).toHaveLength(unsubmittedCount);
-    expect(result.unsubmittedMembers[0]).toEqual(unsubmittedMembers[0]);
-    expect(result.unsubmittedMembers[1]).toEqual(unsubmittedMembers[1]);
-    expect(result.unsubmittedMembers[2]).toEqual(unsubmittedMembers[2]);
-    expect(result.unsubmittedMembers[3]).toEqual(unsubmittedMembers[3]);
-    expect(result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(() =>
+      syncExtractedIssuesToExternalTool(
+        integrationAttemptParam,
+        errorTypeParam,
+        extractedIssueDataParam,
+        toolConnectionConfigParam
+      )
+    ).toThrow(/試行回数は1以上である必要があります/);
   });
 });

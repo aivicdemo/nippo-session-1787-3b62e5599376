@@ -1,32 +1,41 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import { type SubmitDailyReportInput, type SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { describe, test, expect } from '@jest/globals';
+import { sendUnsubmittedMemberReminders } from '../../src/logic/reminder-notification-service';
+import type { UnsubmittedMemberReminderInput, ReminderRetryRule, UnsubmittedMember } from '../../src/logic/reminder-notification-service';
 
-describe('Daily Report Submission - Deadline Judgment', () => {
-  // SCEN-079: [edge] 日報送信期限判定機能 - 朝会開始時刻ちょうどに送信された日報が期限内と判定される
-  test('should judge daily report sent exactly at morning meeting start time as within deadline', () => {
-    const morningMeetingStartTime = '09:00:00';
-    const submissionTimestampAtDeadline = '2026-08-20T09:00:00Z';
+describe('sendUnsubmittedMemberReminders', () => {
+  // SCEN-079
+  test('should throw DeadlineCalculationError when reportingDeadlineTime is invalid', () => {
+    const unsubmittedMembers: UnsubmittedMember[] = [
+      {
+        memberId: 'ENG001',
+        memberName: 'Engineer One',
+        memberEmail: 'engineer1@example.com'
+      }
+    ];
 
-    const input: SubmitDailyReportInput = {
-      userId: 'engineer-001',
-      teamId: 'team-dev-001',
-      yesterdayAccomplishment: 'Completed API integration testing and fixed 3 bugs in authentication module.',
-      todayPlan: 'Start implementing new dashboard feature and attend code review session.',
-      challenges: 'Database query performance needs optimization for large datasets.',
-      reportDate: '2026-08-20',
+    const reminderRetryRule: ReminderRetryRule = {
+      initialNotificationMethod: 'email',
+      maxRetryCount: 2,
+      retryStages: [
+        {
+          stageNumber: 1,
+          notificationMethod: 'push',
+          waitMinutes: 120
+        }
+      ]
     };
 
-    const output: SubmitDailyReportOutput = submitDailyReport(
-      input,
-      new Date(submissionTimestampAtDeadline),
-      morningMeetingStartTime
-    );
+    const futureTime = new Date(Date.now() + 3600000);
 
-    expect(output.reportId).toBeDefined();
-    expect(output.reportId.length).toBeGreaterThan(0);
+    const invalidReminderInput: UnsubmittedMemberReminderInput = {
+      teamId: 'TEAM001',
+      unsubmittedMembers: unsubmittedMembers,
+      reportingDeadlineTime: new Date('invalid-date'),
+      morningMeetingStartTime: futureTime,
+      reminderRetryRule: reminderRetryRule,
+      previousReminderHistory: []
+    };
 
-    expect(output.submissionTimestamp).toBe(submissionTimestampAtDeadline);
-
-    expect(output.isWithinDeadline).toBe(true);
+    expect(() => sendUnsubmittedMemberReminders(invalidReminderInput)).toThrow(/報告期限/);
   });
 });

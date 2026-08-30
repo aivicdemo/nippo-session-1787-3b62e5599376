@@ -1,53 +1,18 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput } from '../../src/logic/submission-status-tracking';
+import { encryptReportData } from '../../src/logic/data-encryption-and-security';
 
-describe('朝会報告リマインド通知送信機能', () => {
-  // SCEN-277
-  test('通知に含まれる期限までの残り時間が正確に計算される', () => {
-    // Arrange
-    const mockNotificationPayloads: Array<{
-      userId: string;
-      remainingMinutes: number;
-      [key: string]: unknown;
-    }> = [];
-
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(async (payload: {
-        userId: string;
-        remainingMinutes: number;
-        [key: string]: unknown;
-      }) => {
-        mockNotificationPayloads.push(payload);
-        return {
-          status: 'sent' as const,
-          sentAt: new Date('2025-01-15T08:00:00Z'),
-        };
-      }),
-      scheduleNotification: jest.fn(async () => ({ success: true })),
-      getDeliveryStatus: jest.fn(async () => ({ delivered: true })),
+describe('朝会報告管理システム - 日報データ暗号化', () => {
+  test('SCEN-277: データベースへの保存に失敗した場合、適切なエラーをスローする', async () => {
+    // 入力データの準備
+    const reportData = {
+      reporterId: 'ENG001',
+      teamId: 'TEAM-A',
+      reportDate: '2026-08-19',
+      personalInfo: '田中太郎',
+      issueContent: 'データベース接続タイムアウト',
+      progressInfo: 'API実装50%完了'
     };
 
-    const scheduledTime = new Date('2025-01-15T08:00:00Z');
-    const reportDeadlineTime = new Date('2025-01-15T09:30:00Z');
-    const teamIds = ['team-001'];
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email'];
-
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
-    };
-
-    // Act
-    const result = sendDailyReportReminder(input, mockNotificationServiceAdapter);
-
-    // Assert
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalled();
-    expect(mockNotificationPayloads.length).toBeGreaterThan(0);
-
-    const sentPayload = mockNotificationPayloads[0];
-    const expectedRemainingMinutes = 90;
-    expect(sentPayload.remainingMinutes).toBe(expectedRemainingMinutes);
+    // encryptReportData 関数を直接呼び出し、エラーをキャッチ
+    await expect(encryptReportData(reportData)).rejects.toThrow(/保存に失敗/);
   });
 });

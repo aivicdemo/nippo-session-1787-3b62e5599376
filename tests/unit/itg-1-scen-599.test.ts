@@ -1,79 +1,66 @@
-import { describe, test, expect } from "@jest/globals";
-import { calculateIssuePriorityScore } from "../../src/logic/issue-extraction-prioritization";
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
+import { type ProductivityMetricsOutput, type DataQualityAssessment } from '../../src/logic/productivity-metrics-calculation';
 
-describe("課題の優先度スコア計算 - 重複キーワード処理", () => {
-  test("SCEN-599: 複数課題の優先度判定において、重複したキーワードを含む場合、スコア計算が正確に行われる", () => {
-    const issueA: IssuePriorityScoringInput = {
-      issueId: "issue-a-001",
-      issueContent: "DB接続エラーが発生してDB接続エラーで業務停止。ユーザーがログイン画面でエラーを報告",
-      occurrenceFrequency: 3,
-      impactScore: 85,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2,
-      reportingDate: "2024-01-15",
-      teamId: "team-001",
-    };
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-599: 指定された集約期間内の日報データから生産性指標を計算する - 提出記録データが計測期間と一致しないときの警告検出
+  test('集約期間と提出記録の日付範囲が一致しない場合、警告を記録しつつ生産性指標を正常に計算する', () => {
+    // テスト準備: 集約期間を2024年1月1日～2024年1月31日に設定
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
 
-    const issueB: IssuePriorityScoringInput = {
-      issueId: "issue-b-002",
-      issueContent: "ログイン画面でタイムアウトしてDB接続エラーになった",
-      occurrenceFrequency: 2,
-      impactScore: 72,
-      affectedTeamCount: 1,
-      resolutionDaysAverage: 1,
-      reportingDate: "2024-01-15",
-      teamId: "team-001",
-    };
+    // テスト準備: 対象チームIDを設定
+    const targetTeamIds = ['team-001'];
 
-    const textAnalysisStub = {
-      extractKeywords: jest.fn((content: string) => {
-        if (content.includes("DB接続エラーが発生してDB接続エラーで業務停止")) {
-          return Promise.resolve({
-            keywords: [
-              { keyword: "DB接続エラー", frequency: 3 },
-              { keyword: "ログイン画面", frequency: 2 },
-            ],
-          });
-        }
-        if (content.includes("ログイン画面でタイムアウトしてDB接続エラーになった")) {
-          return Promise.resolve({
-            keywords: [
-              { keyword: "ログイン画面", frequency: 1 },
-              { keyword: "DB接続エラー", frequency: 1 },
-            ],
-          });
-        }
-        return Promise.resolve({ keywords: [] });
-      }),
-      assessImpactScore: jest.fn((keyword: string) => {
-        const scoreMap: { [key: string]: number } = {
-          "DB接続エラー": 85,
-          "ログイン画面": 60,
-        };
-        return Promise.resolve({ impactScore: scoreMap[keyword] || 0 });
-      }),
-      classifyIssueSeverity: jest.fn(() => Promise.resolve({ severity: "high" })),
-    };
+    // テスト準備: 提出記録データを集約期間外の日付を含めて構成
+    // 記録1件目: 2023年12月25日（集約期間外・過去）
+    // 記録2件目: 2024年1月15日（集約期間内）
+    // 記録3件目: 2024年2月10日（集約期間外・未来）
+    const submissionRecords = [
+      { memberId: 'emp-001', submittedAt: new Date('2023-12-25T09:00:00Z') },
+      { memberId: 'emp-002', submittedAt: new Date('2024-01-15T09:30:00Z') },
+      { memberId: 'emp-003', submittedAt: new Date('2024-02-10T10:00:00Z') },
+    ];
 
-    const resultA = calculateIssuePriorityScore(issueA, textAnalysisStub);
-    const resultB = calculateIssuePriorityScore(issueB, textAnalysisStub);
+    // テスト実行: calculateProductivityMetricsを呼び出し
+    const result = calculateProductivityMetrics({
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers: false,
+      submissionData: submissionRecords,
+    });
 
-    expect(resultA.priorityScore).toBe(145);
-    expect(resultB.priorityScore).toBe(145);
-    expect(resultA.scoreBreakdown.frequencyScore).toBeGreaterThan(0);
-    expect(resultA.scoreBreakdown.impactScore).toBeGreaterThan(0);
-    expect(resultB.scoreBreakdown.frequencyScore).toBeGreaterThan(0);
-    expect(resultB.scoreBreakdown.impactScore).toBeGreaterThan(0);
+    // 期待結果: 関数は正常に完了し、ProductivityMetricsOutput型の戻り値を返す
+    expect(result).toBeDefined();
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(typeof result.reportSubmissionRate).toBe('number');
+    expect(typeof result.issueRecurrenceRate).toBe('number');
+    expect(typeof result.teamProductivityScore).toBe('number');
+
+    // 期待結果: 各メトリクスが妥当な範囲内
+    expect(result.issueResolutionSpeed).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeLessThanOrEqual(100);
+    expect(result.issueRecurrenceRate).toBeGreaterThanOrEqual(0);
+    expect(result.issueRecurrenceRate).toBeLessThanOrEqual(100);
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
+
+    // 期待結果: dataQualityAssessmentが含まれている
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(typeof result.dataQualityAssessment.completenessPercentage).toBe('number');
+    expect(typeof result.dataQualityAssessment.extractionAccuracy).toBe('number');
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
+
+    // 期待結果: 提出記録の日付範囲が計測期間と一致していないことが警告として検出される
+    // 提出記録の日付範囲は2023-12-25～2024-02-10、集約期間は2024-01-01～2024-01-31
+    expect(result.dataQualityAssessment.isReportable).toBe(false);
+
+    // 期待結果: エラーは発生せず、計算は実行される（計算結果が返却される）
+    expect(result).toHaveProperty('issueResolutionSpeed');
+    expect(result).toHaveProperty('reportSubmissionRate');
+    expect(result).toHaveProperty('issueRecurrenceRate');
+    expect(result).toHaveProperty('teamProductivityScore');
+    expect(result).toHaveProperty('dataQualityAssessment');
   });
 });
-
-interface IssuePriorityScoringInput {
-  issueId: string;
-  issueContent: string;
-  occurrenceFrequency: number;
-  impactScore: number;
-  affectedTeamCount: number;
-  resolutionDaysAverage: number;
-  reportingDate: string;
-  teamId: string;
-}

@@ -1,39 +1,45 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import type { 
-  AggregateReportSubmissionStatusInput,
-  ReportSubmissionStatusSummary
-} from '../../src/logic/submission-status-tracking';
+import { syncExtractedIssuesToExternalTool } from '../../src/logic/existing-tool-integration';
+import type {
+  ToolIntegrationRequest,
+  ToolIntegrationResult,
+  DataConsistencyCheckResult,
+} from '../../src/logic/existing-tool-integration';
 
-describe('Report submission status aggregation', () => {
-  // SCEN-401
-  test('aggregates report submission status idempotently - same input produces identical results on repeated calls', () => {
-    const testInput: AggregateReportSubmissionStatusInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-manager-001',
-      includeDelayedSubmissions: true
+describe('朝会報告管理システム - 既存ツール連携', () => {
+  // SCEN-401: 抽出済み課題データが空配列のときスキップ
+  test('抽出済み課題データが空配列のとき連携処理をスキップし成功ステータスを返す', () => {
+    const requestPayload: ToolIntegrationRequest = {
+      extractedIssueDataList: [],
+      externalToolType: 'jira',
+      toolApiEndpoint: 'https://jira.example.com/api',
+      toolApiAuthToken: 'valid_token_12345',
+      projectManagerId: 'pm_user_001',
+      maxRetryAttempts: 3,
     };
 
-    const firstResult: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(testInput);
-    const secondResult: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(testInput);
+    const result: ToolIntegrationResult =
+      syncExtractedIssuesToExternalTool(requestPayload);
 
-    expect(firstResult.teamId).toBe('team-001');
-    expect(firstResult.reportDate).toBe('2024-01-15');
-    expect(firstResult.totalMembers).toBe(10);
-    expect(firstResult.submittedCount).toBe(8);
-    expect(firstResult.unsubmittedCount).toBe(2);
-    expect(firstResult.delayedSubmissionCount).toBe(0);
-    expect(firstResult.submissionRate).toBe(80.0);
+    expect(result.integrationStatus).toBe('success');
+    expect(result.syncedIssueCount).toBe(0);
+    expect(result.failedIssueCount).toBe(0);
+    expect(result.duplicateIssuesMerged).toBe(0);
+    expect(result.retryAttemptsExecuted).toBe(0);
+    expect(result.managerNotificationRequired).toBe(false);
+    expect(result.failureReasonIfAny).toBeNull();
 
-    expect(secondResult.teamId).toBe(firstResult.teamId);
-    expect(secondResult.reportDate).toBe(firstResult.reportDate);
-    expect(secondResult.totalMembers).toBe(firstResult.totalMembers);
-    expect(secondResult.submittedCount).toBe(firstResult.submittedCount);
-    expect(secondResult.unsubmittedCount).toBe(firstResult.unsubmittedCount);
-    expect(secondResult.delayedSubmissionCount).toBe(firstResult.delayedSubmissionCount);
-    expect(secondResult.submissionRate).toBe(firstResult.submissionRate);
+    const consistencyResult: DataConsistencyCheckResult =
+      result.dataConsistencyValidationResult;
+    expect(consistencyResult.isConsistent).toBe(true);
+    expect(consistencyResult.expectedIssueCount).toBe(0);
+    expect(consistencyResult.actualIssueCountInTool).toBe(0);
+    expect(consistencyResult.fieldMappingValidation).toBe(true);
+    expect(consistencyResult.statusSyncValidation).toBe(true);
 
-    expect(firstResult.unsubmittedMembers).toEqual(secondResult.unsubmittedMembers);
-    expect(firstResult.aggregatedAt).toBe(secondResult.aggregatedAt);
+    const completedAtDate = new Date(result.integrationCompletedAt);
+    expect(completedAtDate).toBeInstanceOf(Date);
+    expect(completedAtDate.toISOString()).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/
+    );
   });
 });

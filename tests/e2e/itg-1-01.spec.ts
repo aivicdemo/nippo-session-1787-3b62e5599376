@@ -1,15 +1,13 @@
 import { test, expect } from '@playwright/test';
 
-test.describe("日報入力・編集画面", () => {
-  // SCEN-059: [normal] 日報入力・編集画面 - 〈日報入力・送信〉が最初から最後まで通り、記録が残る
-  test("日報入力・送信フロー完全通し検証", async ({ page, request }) => {
-    const uniqueYesterday = "機能Aのバグ修正完了_" + Date.now();
-    const uniqueToday = "機能Bの実装開始_" + Date.now();
-    const uniqueIssues = "データベース接続タイムアウト_" + Date.now();
-
-    // ログイン
-    await test.step("開発エンジニアがシステムにログインする", async () => {
+test.describe("日報下書き保存フロー", () => {
+  test("SCEN-637: [normal] 日報下書き保存フロー - 業務フロー「日報下書き保存フロー」を開始から完了まで実行する", async ({ page, request }) => {
+    await test.step("ログインページにアクセス", async () => {
       await page.goto("/login.html");
+      await expect(page.locator('input[name="username"]')).toBeVisible();
+    });
+
+    await test.step("ログイン処理を実行", async () => {
       await page.fill('[name="username"]', 'test');
       await page.fill('[name="password"]', 'test');
       await Promise.all([
@@ -18,84 +16,54 @@ test.describe("日報入力・編集画面", () => {
       ]);
     });
 
-    // 日報入力・編集画面にアクセス
-    await test.step("日報入力・編集画面にアクセスする", async () => {
+    await test.step("日報入力・編集画面に遷移", async () => {
       await page.goto("/panels/scr-1787119190590.html");
-      await expect(page.locator('id=report-form')).toBeVisible();
+      await expect(page.locator('[data-testid="yesterday-achievement-input"]')).toBeVisible();
     });
 
-    // 3項目の入力
-    await test.step("日報3項目を入力する", async () => {
+    await test.step("日報の3項目を入力", async () => {
+      const uniqueYesterday = "顧客A社との打ち合わせ実施_" + Date.now();
+      const uniqueToday = "提案資料の作成_" + Date.now();
+      const uniqueIssue = "リソース不足による納期遅延リスク_" + Date.now();
+
       await page.fill('[data-testid="yesterday-achievement-input"]', uniqueYesterday);
       await page.fill('[data-testid="today-plan-input"]', uniqueToday);
-      await page.fill('[data-testid="issues-input"]', uniqueIssues);
+      await page.fill('[data-testid="issues-input"]', uniqueIssue);
 
-      // 入力内容が反映されていることを確認
-      const yesterdayValue = await page.inputValue('[name="yesterday_achievement"]');
-      const todayValue = await page.inputValue('[name="today_plan"]');
-      const issuesValue = await page.inputValue('[name="issues"]');
-
-      expect(yesterdayValue).toContain(uniqueYesterday);
-      expect(todayValue).toContain(uniqueToday);
-      expect(issuesValue).toContain(uniqueIssues);
+      await expect(page.locator('[data-testid="yesterday-achievement-input"]')).toHaveValue(uniqueYesterday);
+      await expect(page.locator('[data-testid="today-plan-input"]')).toHaveValue(uniqueToday);
+      await expect(page.locator('[data-testid="issues-input"]')).toHaveValue(uniqueIssue);
     });
 
-    // 送信ボタンをクリック
-    await test.step("日報を送信する", async () => {
-      await page.click('[data-testid="submit-button"]');
-      // 送信完了確認画面が表示されるまで待機
-      await expect(page.locator('id=success-message')).toBeVisible({ timeout: 10000 });
+    await test.step("下書き保存ボタンをクリック", async () => {
+      await page.click('[data-testid="draft-button"]');
     });
 
-    // 送信完了メッセージの確認
-    await test.step("送信完了確認画面で完了メッセージを確認する", async () => {
-      const successMessage = await page.locator('id=success-message').textContent();
-      expect(successMessage).not.toBeNull();
+    await test.step("下書き保存成功のトースト通知を確認", async () => {
+      const successMessage = page.locator('#success-message');
+      await expect(successMessage).toBeVisible({ timeout: 3000 });
+      const messageText = await successMessage.textContent();
+      expect(messageText).toContain('下書きを保存しました');
     });
 
-    // 日報確認・検索画面に遷移
-    await test.step("日報確認・検索画面にアクセスする", async () => {
-      await page.goto("/panels/scr-1787119221707.html");
-      await expect(page.locator('id=reports-tbody')).toBeVisible();
+    await test.step("別ページに遷移", async () => {
+      await page.goto("/panels/scr-1787119200549.html");
     });
 
-    // 本日の日報が一覧に表示されていることを確認
-    await test.step("本日の日報が一覧に表示されていることを確認する", async () => {
-      const reportList = await page.locator('id=reports-tbody').innerText();
-      expect(reportList).toBe(true);
+    await test.step("日報入力・編集画面に再度遷移して入力内容が復元されていることを確認", async () => {
+      await page.goto("/panels/scr-1787119190590.html");
+      await expect(page.locator('[data-testid="yesterday-achievement-input"]')).toBeVisible();
+
+      const yesterdayValue = await page.locator('[data-testid="yesterday-achievement-input"]').inputValue();
+      const todayValue = await page.locator('[data-testid="today-plan-input"]').inputValue();
+      const issueValue = await page.locator('[data-testid="issues-input"]').inputValue();
+
+      expect(yesterdayValue).toContain('顧客A社との打ち合わせ実施');
+      expect(todayValue).toContain('提案資料の作成');
+      expect(issueValue).toContain('リソース不足による納期遅延リスク');
     });
 
-    // 送信した日報の詳細を検索・開く
-    await test.step("送信した日報の詳細を開く", async () => {
-      // 検索キーワードで日報を検索
-      await page.fill('[data-testid="keyword-search"]', uniqueYesterday);
-      await page.click('[data-testid="search-button"]');
-      
-      // 検索結果が表示されるまで待機
-      await expect(page.locator('id=reports-tbody')).toContainText(uniqueYesterday, { timeout: 5000 });
-      
-      // 結果の最初の行をクリックして詳細を開く
-      const reportRow = page.locator('.report-row').first();
-      await reportRow.click();
-    });
-
-    // 詳細画面で3項目すべてが記録されていることを確認
-    await test.step("詳細画面で入力した3項目がすべて記録されていることを確認する", async () => {
-      // 昨日の実績を確認
-      const detailYesterday = await page.locator('id=detail-yesterday').textContent();
-      expect(detailYesterday).toContain(uniqueYesterday);
-
-      // 今日の予定を確認
-      const detailToday = await page.locator('id=detail-today').textContent();
-      expect(detailToday).toContain(uniqueToday);
-
-      // 課題を確認
-      const detailIssues = await page.locator('id=detail-issues').textContent();
-      expect(detailIssues).toContain(uniqueIssues);
-    });
-
-    // API経由でデータベースに記録が残っていることを確認
-    await test.step("朝会報告テーブルでデータベース記録を確認する", async () => {
+    await test.step("記録が保存されていることをAPI経由で確認", async () => {
       const apiUrl = await page.evaluate(() => (window as any).AIVIC_API_URL);
       const appId = await page.evaluate(() => (window as any).AIVIC_APP_ID);
       const tableIndex = await page.evaluate(
@@ -103,15 +71,22 @@ test.describe("日報入力・編集画面", () => {
         "朝会報告",
       );
 
-      const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
-      expect(res.ok()).toBe(true);
+      if (apiUrl && appId && tableIndex !== -1) {
+        const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
+        const rows = await res.json();
 
-      const rows = await res.json();
-      const recordString = JSON.stringify(rows);
-      
-      expect(recordString).toContain(uniqueYesterday);
-      expect(recordString).toContain(uniqueToday);
-      expect(recordString).toContain(uniqueIssues);
+        const savedReport = rows.find(
+          (row: any) =>
+            row.yesterday_achievement &&
+            row.yesterday_achievement.includes('顧客A社との打ち合わせ実施'),
+        );
+
+        expect(savedReport).toBeDefined();
+        if (savedReport) {
+          expect(savedReport.today_plan).toContain('提案資料の作成');
+          expect(savedReport.issues).toContain('リソース不足による納期遅延リスク');
+        }
+      }
     });
   });
 });

@@ -1,54 +1,132 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import type { ConfirmationEmailInput, ConfirmationEmailOutput } from '../../src/logic/notification-delivery';
+import { describe, test, expect } from '@jest/globals';
+import { generateMonthlyAnalysisReport } from '../../src/logic/monthly-analysis-report';
 
-describe('generateAndSendConfirmationEmail - null dashboard config error handling', () => {
-  // SCEN-455: [error] 朝会報告集約・課題抽出・優先度判定・確認メール自動生成配信機能 - 部長向けダッシュボード表示設定がnullのとき処理を中止しエラーを返す
-  test('should abort processing and return error when manager dashboard config is null', async () => {
-    const reportDeadlineDateTime = new Date('2024-01-15T09:00:00Z');
-    const analysisDate = new Date('2024-01-15T08:30:00Z');
-
-    const aggregatedReportsInput: ConfirmationEmailInput['aggregatedReports'] = [
+describe('Monthly Analysis Report Generation', () => {
+  test('SCEN-455: should generate monthly analysis report with top priority challenges ranked by score', () => {
+    const allChallengesWithScores = [
       {
-        reportId: 'report-001',
-        reporterUserId: 'user-eng-001',
-        reporterName: 'Engineer A',
-        yesterdayAccomplishment: 'Completed API endpoint implementation',
-        todayPlan: 'Unit test implementation',
-        challenges: 'Database connection timeout issues',
-        submissionDateTime: new Date('2024-01-15T08:15:00Z'),
+        challengeId: 'C001',
+        title: 'DB接続タイムアウト',
+        priorityScore: 95,
+        frequency: 12,
+        impactLevel: '高',
       },
       {
-        reportId: 'report-002',
-        reporterUserId: 'user-eng-002',
-        reporterName: 'Engineer B',
-        yesterdayAccomplishment: 'Fixed UI rendering bug',
-        todayPlan: 'Integration testing',
-        challenges: 'Database connection timeout issues, Memory leak in cache layer',
-        submissionDateTime: new Date('2024-01-15T08:20:00Z'),
+        challengeId: 'C002',
+        title: 'API応答遅延',
+        priorityScore: 87,
+        frequency: 8,
+        impactLevel: '高',
+      },
+      {
+        challengeId: 'C003',
+        title: 'メモリリーク',
+        priorityScore: 78,
+        frequency: 5,
+        impactLevel: '中',
+      },
+      {
+        challengeId: 'C004',
+        title: 'ログ出力不完全',
+        priorityScore: 65,
+        frequency: 3,
+        impactLevel: '中',
+      },
+      {
+        challengeId: 'C005',
+        title: 'テストカバレッジ不足',
+        priorityScore: 52,
+        frequency: 2,
+        impactLevel: '中',
+      },
+      {
+        challengeId: 'C006',
+        title: 'ドキュメント更新遅れ',
+        priorityScore: 48,
+        frequency: 1,
+        impactLevel: '低',
+      },
+      {
+        challengeId: 'C007',
+        title: 'UI/UXの改善要望',
+        priorityScore: 42,
+        frequency: 1,
+        impactLevel: '低',
       },
     ];
 
-    const inputData: ConfirmationEmailInput = {
-      reportDeadlineDateTime,
-      aggregatedReports: aggregatedReportsInput,
-      managerUserId: 'user-manager-001',
-      teamId: 'team-dev-001',
-      analysisDate,
-    };
+    const topNCount = 5;
+    const minimumPriorityThreshold = 50;
 
-    const mockDashboardConfigNull = null;
+    const result = generateMonthlyAnalysisReport(
+      allChallengesWithScores,
+      topNCount,
+      minimumPriorityThreshold
+    );
 
-    const mockEmailServiceAdapter = {
-      sendEmail: jest.fn().mockResolvedValue({
-        emailId: 'email-001',
-        sentDateTime: reportDeadlineDateTime,
-      }),
-      getDashboardConfig: jest.fn().mockResolvedValue(mockDashboardConfigNull),
-    };
+    expect(result).toHaveLength(5);
 
-    expect(async () => {
-      await generateAndSendConfirmationEmail(inputData, mockEmailServiceAdapter);
-    }).rejects.toThrow(/ダッシュボード設定/);
+    expect(result[0]).toEqual({
+      challengeId: 'C001',
+      title: 'DB接続タイムアウト',
+      priorityScore: 95,
+      frequency: 12,
+      impactLevel: '高',
+      reportingRank: 1,
+    });
+
+    expect(result[1]).toEqual({
+      challengeId: 'C002',
+      title: 'API応答遅延',
+      priorityScore: 87,
+      frequency: 8,
+      impactLevel: '高',
+      reportingRank: 2,
+    });
+
+    expect(result[2]).toEqual({
+      challengeId: 'C003',
+      title: 'メモリリーク',
+      priorityScore: 78,
+      frequency: 5,
+      impactLevel: '中',
+      reportingRank: 3,
+    });
+
+    expect(result[3]).toEqual({
+      challengeId: 'C004',
+      title: 'ログ出力不完全',
+      priorityScore: 65,
+      frequency: 3,
+      impactLevel: '中',
+      reportingRank: 4,
+    });
+
+    expect(result[4]).toEqual({
+      challengeId: 'C005',
+      title: 'テストカバレッジ不足',
+      priorityScore: 52,
+      frequency: 2,
+      impactLevel: '中',
+      reportingRank: 5,
+    });
+
+    expect(result[0].priorityScore).toBe(95);
+    expect(result[4].priorityScore).toBe(52);
+    expect(result).toHaveLength(5);
+
+    const isSortedByScore = result.every(
+      (challenge, index, array) =>
+        index === 0 || challenge.priorityScore <= array[index - 1].priorityScore
+    );
+    expect(isSortedByScore).toBe(true);
+
+    result.forEach((challenge, index) => {
+      expect(challenge.reportingRank).toBe(index + 1);
+    });
+
+    result.forEach((challenge) => {
+      expect(challenge.priorityScore).toBeGreaterThanOrEqual(minimumPriorityThreshold);
+    });
   });
 });

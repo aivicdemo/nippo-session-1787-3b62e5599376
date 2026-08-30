@@ -1,27 +1,53 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect } from '@jest/globals';
+import { analyzeProductivityTrends } from '../../src/logic/productivity-metrics-calculation';
+import type {
+  ProductivityTrendsAnalysisInput,
+  ProductivityMetricsDataPoint,
+  SuccessCriteria,
+} from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題優先度スコア計算機能', () => {
-  test('SCEN-507: [edge] 課題キーワード出現頻度が0%で最低優先度に分類される', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: '特に課題はありません',
-      occurrenceFrequency: 0,
-      impactScore: 0,
-      affectedTeamCount: 0,
-      resolutionDaysAverage: 0,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
+describe('productivity-metrics-calculation', () => {
+  // SCEN-507
+  test('should throw error when countermeasure plan ID is empty string', () => {
+    const successCriteriaValue: SuccessCriteria = {
+      productivityImprovementRateTarget: 15,
+      issueRecurrenceRateReductionTarget: 30,
+      deadlineComplianceRateTarget: 90,
     };
 
-    const result = calculateIssuePriorityScore(input);
+    const dataPointsValue: ProductivityMetricsDataPoint[] = [
+      {
+        periodDate: new Date('2024-01-01'),
+        issueResolutionSpeed: 5.2,
+        reportSubmissionRate: 85,
+        issueRecurrenceRate: 12,
+        teamProductivityScore: 72,
+      },
+      {
+        periodDate: new Date('2024-02-01'),
+        issueResolutionSpeed: 4.8,
+        reportSubmissionRate: 88,
+        issueRecurrenceRate: 10,
+        teamProductivityScore: 75,
+      },
+      {
+        periodDate: new Date('2024-03-01'),
+        issueResolutionSpeed: 4.5,
+        reportSubmissionRate: 92,
+        issueRecurrenceRate: 8,
+        teamProductivityScore: 78,
+      },
+    ];
 
-    expect(result.priorityScore).toBe(0);
-    expect(result.priorityRank).toBe('低');
-    expect(result.colorCode).toBe('#00FF00');
-    expect(result.scoreBreakdown.frequencyScore).toBe(0);
-    expect(result.scoreBreakdown.impactScore).toBe(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBe(0);
-    expect(result.issueId).toBe('issue-001');
-    expect(typeof result.calculatedAt).toBe('string');
+    const inputValue: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart: new Date('2024-01-01'),
+      aggregationPeriodEnd: new Date('2024-03-31'),
+      productivityMetricsDataPoints: dataPointsValue,
+      successCriteria: successCriteriaValue,
+      teamId: 'team-001',
+      analysisContext: '',
+    };
+
+    expect(() => analyzeProductivityTrends(inputValue)).toThrow(/対策計画/);
   });
 });

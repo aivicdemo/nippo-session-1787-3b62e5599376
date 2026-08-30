@@ -1,88 +1,116 @@
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import { type ConfirmationEmailInput, type ConfirmationEmailOutput } from '../../src/logic/notification-delivery';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { generateWeeklyAnalysisReport } from '../../src/logic/weekly-analysis-report';
+import type { WeeklyAnalysisReportInput, WeeklyAnalysisReport } from '../../src/logic/weekly-analysis-report';
 
-describe('generateAndSendConfirmationEmail - 課題キーワード抽出と確認メール生成配信', () => {
-  // SCEN-436: [normal] TextAnalysisServiceAdapterが課題キーワード抽出を正常応答した場合、抽出結果が確認メールに反映される
-  test('should generate confirmation email with extracted keywords ranked by frequency when TextAnalysisServiceAdapter returns successfully', async () => {
-    // Arrange: TextAnalysisServiceAdapterのスタブを初期化
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'DB接続エラー', frequency: 2 },
-        { keyword: 'デプロイ遅延', frequency: 1 }
-      ]),
-      assessImpactScore: jest.fn().mockResolvedValue([
-        { keyword: 'DB接続エラー', impactScore: 85 },
-        { keyword: 'デプロイ遅延', impactScore: 60 }
-      ]),
-      classifyIssueSeverity: jest.fn().mockResolvedValue([
-        { keyword: 'DB接続エラー', severity: 'high' },
-        { keyword: 'デプロイ遅延', severity: 'medium' }
-      ])
-    };
+describe('generateWeeklyAnalysisReport', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    // 日報データを準備
-    const aggregatedReports = [
-      {
-        reportId: 'report-001',
-        reporterUserId: 'user-001',
-        reporterName: 'Engineer A',
-        yesterdayAccomplishment: 'Database optimization completed',
-        todayPlan: 'Deployment preparation',
-        challenges: 'DB接続エラーが発生している。デプロイ遅延の可能性あり。',
-        submissionDateTime: new Date('2024-01-15T08:30:00Z')
+  // SCEN-436
+  test('should generate weekly analysis report when valid record count is 80-90% of minimum threshold', async () => {
+    const teamId = 'team-001';
+    const analysisStartDate = new Date('2024-01-08T00:00:00Z');
+    const analysisEndDate = new Date('2024-01-14T23:59:59Z');
+    const minimumReportThreshold = 50;
+
+    const fullyCompleteRecords = Array.from({ length: 40 }, (_, i) => ({
+      reportId: `report-${i + 1}`,
+      employeeId: `emp-${(i % 10) + 1}`,
+      reportDate: new Date(`2024-01-${8 + Math.floor(i / 8)}`),
+      yesterday: `Completed task ${i + 1}`,
+      today: `Planned task ${i + 1}`,
+      issue: `Issue encountered in task ${i + 1}`,
+      submittedAt: new Date(`2024-01-${8 + Math.floor(i / 8)}T09:00:00Z`),
+    }));
+
+    const incompleteRecords = Array.from({ length: 5 }, (_, i) => ({
+      reportId: `report-incomplete-${i + 1}`,
+      employeeId: `emp-${(i % 10) + 1}`,
+      reportDate: new Date(`2024-01-${10 + i}`),
+      yesterday: i % 2 === 0 ? '' : `Partial task ${i + 1}`,
+      today: '',
+      issue: i % 2 === 0 ? `Partial issue ${i + 1}` : '',
+      submittedAt: new Date(`2024-01-${10 + i}T10:00:00Z`),
+    }));
+
+    const allReports = [...fullyCompleteRecords, ...incompleteRecords];
+
+    const completenessScores = allReports.map((record) => {
+      const fieldCount = [record.yesterday, record.today, record.issue].filter(
+        (field) => field != null && field.trim() !== ''
+      ).length;
+      return fieldCount / 3;
+    });
+
+    const averageCompleteness = completenessScores.reduce((a, b) => a + b, 0) / completenessScores.length;
+    expect(averageCompleteness).toBeGreaterThanOrEqual(0.8);
+
+    const validRecordCount = fullyCompleteRecords.length;
+    const recordThresholdPercentage = (validRecordCount / minimumReportThreshold) * 100;
+    expect(recordThresholdPercentage).toBeGreaterThanOrEqual(80);
+    expect(recordThresholdPercentage).toBeLessThan(90);
+
+    const input: WeeklyAnalysisReportInput = {
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
+      aggregatedReportData: {
+        reportRecords: allReports,
+        extractedIssues: [
+          {
+            issueId: 'issue-1',
+            issueKeyword: 'バグ',
+            occurrenceCount: 8,
+            affectedMemberCount: 4,
+            reportedDate: new Date('2024-01-10'),
+          },
+          {
+            issueId: 'issue-2',
+            issueKeyword: '遅延',
+            occurrenceCount: 5,
+            affectedMemberCount: 3,
+            reportedDate: new Date('2024-01-11'),
+          },
+        ],
+        dataQualityMetrics: {
+          completenessRate: averageCompleteness,
+          deduplicationRate: 0.95,
+          validityRate: 0.9,
+        },
       },
-      {
-        reportId: 'report-002',
-        reporterUserId: 'user-002',
-        reporterName: 'Engineer B',
-        yesterdayAccomplishment: 'API review completed',
-        todayPlan: 'Testing phase',
-        challenges: 'DB接続エラーが再度発生。対応が急務。',
-        submissionDateTime: new Date('2024-01-15T08:45:00Z')
-      }
-    ];
-
-    const confirmationEmailInput: ConfirmationEmailInput = {
-      reportDeadlineDateTime: new Date('2024-01-15T09:00:00Z'),
-      aggregatedReports: aggregatedReports,
-      managerUserId: 'manager-001',
-      teamId: 'team-001',
-      analysisDate: new Date('2024-01-15')
+      minimumReportThreshold,
     };
 
-    // Act: generateAndSendConfirmationEmailを呼び出し
-    const result: ConfirmationEmailOutput = await generateAndSendConfirmationEmail(
-      confirmationEmailInput,
-      mockTextAnalysisServiceAdapter
-    );
+    const report = await generateWeeklyAnalysisReport(input);
 
-    // Assert: メール送信の成功を検証
-    expect(result).toBeDefined();
-    expect(result.emailId).toBeTruthy();
-    expect(result.sentDateTime).toEqual(new Date('2024-01-15T09:00:00Z'));
-    
-    // メール内容に抽出された課題キーワードが含まれていることを検証
-    expect(result.extractedIssuesCount).toBe(2);
-    expect(result.prioritizedIssuesList).toHaveLength(2);
-    
-    // 課題が出現頻度の高い順に並んでいることを検証
-    expect(result.prioritizedIssuesList[0].keyword).toBe('DB接続エラー');
-    expect(result.prioritizedIssuesList[0].frequency).toBe(2);
-    expect(result.prioritizedIssuesList[0].impactScore).toBe(85);
-    expect(result.prioritizedIssuesList[0].severity).toBe('high');
-    
-    expect(result.prioritizedIssuesList[1].keyword).toBe('デプロイ遅延');
-    expect(result.prioritizedIssuesList[1].frequency).toBe(1);
-    expect(result.prioritizedIssuesList[1].impactScore).toBe(60);
-    expect(result.prioritizedIssuesList[1].severity).toBe('medium');
-    
-    // 提出状況サマリーを検証
-    expect(result.submissionStatus.submittedCount).toBe(2);
-    expect(result.submissionStatus.unsubmittedMembers).toEqual([]);
-    
-    // TextAnalysisServiceAdapterが正しく呼ばれたことを検証
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.classifyIssueSeverity).toHaveBeenCalled();
+    expect(report).toBeDefined();
+    expect(report.reportId).toBeDefined();
+    expect(typeof report.reportId).toBe('string');
+    expect(report.reportId.length).toBeGreaterThan(0);
+
+    expect(report.aggregationPeriod).toBeDefined();
+    expect(report.aggregationPeriod.startDate).toEqual(analysisStartDate);
+    expect(report.aggregationPeriod.endDate).toEqual(analysisEndDate);
+
+    expect(Array.isArray(report.issueRanking)).toBe(true);
+
+    expect(Array.isArray(report.priorityScores)).toBe(true);
+    report.priorityScores.forEach((scoreItem) => {
+      expect(typeof scoreItem.priorityScore).toBe('number');
+      expect(scoreItem.priorityScore).toBeGreaterThanOrEqual(0);
+      expect(scoreItem.priorityScore).toBeLessThanOrEqual(100);
+      expect(['high', 'medium', 'low']).toContain(scoreItem.priorityRank);
+    });
+
+    expect(Array.isArray(report.recommendedActions)).toBe(true);
+
+    expect(Array.isArray(report.colorCodedIssueList)).toBe(true);
+    report.colorCodedIssueList.forEach((colorItem) => {
+      expect(['red', 'yellow', 'green']).toContain(colorItem.displayColor);
+    });
+
+    expect(report.generatedAt).toBeInstanceOf(Date);
+    expect(report.generatedAt.getTime()).toBeLessThanOrEqual(new Date().getTime());
   });
 });

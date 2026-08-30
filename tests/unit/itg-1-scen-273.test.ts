@@ -1,83 +1,69 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import { type SubmitDailyReportInput, type SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
+import type { AccessPermissionRequest, AccessPermissionResult } from '../../src/logic/access-control-and-permissions';
 
-describe('Daily Report Submission - Consistent Delay Judgment for Multiple Users', () => {
-  // SCEN-273
-  test('should apply identical delay judgment to all users when submission timestamps are the same', async () => {
-    // Setup: Base deadline is 09:00:00 JST, submission time is 09:15:30 JST for all 3 users
-    // Expected: All users should have isWithinDeadline = false (delayed), delay duration = 15 minutes 30 seconds
-    const deadline = new Date('2024-01-15T09:00:00+09:00');
-    const sharedSubmissionTimestamp = new Date('2024-01-15T09:15:30+09:00');
-    const expectedDelayMinutes = 15; // 15 minutes 30 seconds = 15.5 minutes, rounded or truncated to 15
-
-    const userA_input: SubmitDailyReportInput = {
-      userId: 'user-a-001',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Completed API integration testing',
-      todayPlan: 'Begin database optimization',
-      challenges: 'Performance bottleneck in query execution',
-      reportDate: '2024-01-15',
+describe('Access Control and Permissions', () => {
+  test('SCEN-273: Engineer user is denied view access to team reports due to insufficient role permission', () => {
+    // Arrange
+    const request: AccessPermissionRequest = {
+      userId: 'engineer_001',
+      resourceType: 'report',
+      operation: 'view',
+      targetTeamId: 'team_A',
+      confidentialityLevel: undefined,
     };
 
-    const userB_input: SubmitDailyReportInput = {
-      userId: 'user-b-002',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Reviewed pull requests from team members',
-      todayPlan: 'Finalize code review documentation',
-      challenges: 'Code quality standards inconsistency',
-      reportDate: '2024-01-15',
-    };
+    // Mock extractUserRoleFromContext to return engineer role
+    const mockExtractUserRoleFromContext = jest.fn().mockReturnValue({
+      userId: 'engineer_001',
+      normalizedRole: 'engineer',
+      roleHierarchyLevel: 1,
+      teamId: 'team_A',
+    });
 
-    const userC_input: SubmitDailyReportInput = {
-      userId: 'user-c-003',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Fixed critical bug in payment module',
-      todayPlan: 'Deploy fix to staging environment',
-      challenges: 'Deployment process delays',
-      reportDate: '2024-01-15',
-    };
+    // Mock validateRoleHierarchy to pass validation
+    const mockValidateRoleHierarchy = jest.fn().mockReturnValue({
+      isValid: true,
+      hierarchyLevel: 1,
+    });
 
-    // Mock implementation of submitDailyReport
-    // In production, this would interact with a database and deadline service
-    // For this test, we assume the function accepts deadline as context or configuration
-    const resultA = await submitDailyReport(userA_input);
-    const resultB = await submitDailyReport(userB_input);
-    const resultC = await submitDailyReport(userC_input);
+    // Mock mapRoleToPermissionSet to deny team_reports view for engineer
+    const mockMapRoleToPermissionSet = jest.fn().mockReturnValue({
+      role: 'engineer',
+      allowedOperations: ['view'],
+      editableFieldsByContext: {
+        report_input: ['yesterday', 'today', 'issues'],
+      },
+      resourcePermissions: {
+        own_report: { view: true, edit: true, delete: false, export: false },
+        team_reports: { view: false, edit: false, delete: false, export: false },
+        dashboard: { view: false, edit: false, delete: false, export: false },
+        notification: { view: false, edit: false, delete: false, export: false },
+      },
+    });
 
-    // Verify results structure
-    expect(resultA).toHaveProperty('reportId');
-    expect(resultA).toHaveProperty('submissionTimestamp');
-    expect(resultA).toHaveProperty('isWithinDeadline');
-    expect(resultB).toHaveProperty('reportId');
-    expect(resultB).toHaveProperty('submissionTimestamp');
-    expect(resultB).toHaveProperty('isWithinDeadline');
-    expect(resultC).toHaveProperty('reportId');
-    expect(resultC).toHaveProperty('submissionTimestamp');
-    expect(resultC).toHaveProperty('isWithinDeadline');
+    // Inject mocks into the function context
+    const originalExtract = (global as any).extractUserRoleFromContext;
+    const originalValidate = (global as any).validateRoleHierarchy;
+    const originalMap = (global as any).mapRoleToPermissionSet;
 
-    // All three users submitted at 09:15:30 JST, which is 15 minutes 30 seconds after the 09:00:00 JST deadline
-    // Therefore, all should be marked as delayed (isWithinDeadline = false)
-    expect(resultA.isWithinDeadline).toBe(false);
-    expect(resultB.isWithinDeadline).toBe(false);
-    expect(resultC.isWithinDeadline).toBe(false);
+    (global as any).extractUserRoleFromContext = mockExtractUserRoleFromContext;
+    (global as any).validateRoleHierarchy = mockValidateRoleHierarchy;
+    (global as any).mapRoleToPermissionSet = mockMapRoleToPermissionSet;
 
-    // Verify that all submission timestamps are identical (same delay basis)
-    expect(resultA.submissionTimestamp).toBe(resultB.submissionTimestamp);
-    expect(resultB.submissionTimestamp).toBe(resultC.submissionTimestamp);
+    try {
+      // Act
+      const result: AccessPermissionResult = judgeAccessPermission(request);
 
-    // Verify that all users received unique report IDs (distinct submissions)
-    expect(resultA.reportId).not.toBe(resultB.reportId);
-    expect(resultB.reportId).not.toBe(resultC.reportId);
-    expect(resultA.reportId).not.toBe(resultC.reportId);
-
-    // Consistency check: delay judgment logic is based solely on submission time vs deadline,
-    // independent of user ID order or any other user-specific property
-    // All three users should have identical delay judgment outcome
-    const delayJudgmentA = resultA.isWithinDeadline;
-    const delayJudgmentB = resultB.isWithinDeadline;
-    const delayJudgmentC = resultC.isWithinDeadline;
-
-    expect(delayJudgmentA).toBe(delayJudgmentB);
-    expect(delayJudgmentB).toBe(delayJudgmentC);
+      // Assert
+      expect(result.isPermitted).toBe(false);
+      expect(result.userRole).toBe('engineer');
+      expect(result.denialReason).toBe('この操作を実行する権限がありません');
+      expect(result.applicableDataFilters).toBeNull();
+    } finally {
+      // Cleanup
+      (global as any).extractUserRoleFromContext = originalExtract;
+      (global as any).validateRoleHierarchy = originalValidate;
+      (global as any).mapRoleToPermissionSet = originalMap;
+    }
   });
 });

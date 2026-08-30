@@ -1,25 +1,26 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { updateDashboardOnReportSubmission } from '../../src/logic/real-time-dashboard-update';
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
-  // SCEN-175: [error] 日報暗号化・復号化機能 - 個人情報フィールドが空文字列のとき暗号化処理がエラーになる
-  test('個人情報フィールドが空文字列のとき、暗号化処理がエラーを返す', () => {
-    const encryptionKeyId = 'key-2024-001';
-    const executorUserId = 'user-director-001';
-    const reporterId = 'eng-employee-001';
-    const reportDate = new Date('2024-01-15');
-
-    const inputWithEmptyReporterId = {
-      reporterId: '',
-      reportDate: reportDate,
-      yesterdayAccomplishment: 'Completed API implementation',
-      todayPlan: 'Start testing module',
-      challenges: 'Database connection timeout issue',
-      encryptionKeyId: encryptionKeyId,
-      executorUserId: executorUserId,
+describe('Real-time Dashboard Update', () => {
+  // SCEN-175: [error] ダッシュボード表示データの集計・整形処理に失敗した場合、エラー例外が発生し、ダッシュボード更新に失敗したというエラーメッセージが返される
+  test('should throw error with correct message when aggregateCurrentSubmissionStatus fails', () => {
+    const reportId = 'RPT-001';
+    const reportData = {
+      yesterday: '昨日のタスク完了',
+      today: '今日のタスク計画',
+      issues: '依存関係の遅延',
     };
+    const submittedByUserId = 'USR-002';
+    const submissionTimestamp = new Date('2024-01-15T09:30:00Z');
+    const viewerUserId = 'USR-001';
 
     expect(() =>
-      encryptDailyReportData(inputWithEmptyReporterId)
-    ).toThrow(/個人情報フィールド|EMPTY_PERSONAL_INFO/);
+      updateDashboardOnReportSubmission(
+        reportId,
+        reportData,
+        submittedByUserId,
+        submissionTimestamp,
+        viewerUserId
+      )
+    ).toThrow(/ダッシュボード更新に失敗しました/);
   });
 });

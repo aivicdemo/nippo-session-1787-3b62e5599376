@@ -1,80 +1,43 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { searchAndRetrieveReports, type ReportSearchCondition } from '../../src/logic/report-search-and-retrieval';
 
-describe('部長向けダッシュボード - 本日の報告提出状況リアルタイム表示', () => {
-  // SCEN-112
-  test('全10名のメンバーが報告送信完了した時点で、提出済み一覧に全員が表示される', () => {
-    const teamId = 'team-001';
-    const reportDate = '2024-01-15';
-    const requestUserId = 'user-manager-001';
-
-    const memberIds = Array.from({ length: 10 }, (_, i) => `user-member-${String(i + 1).padStart(2, '0')}`);
-    const memberNames = Array.from({ length: 10 }, (_, i) => `メンバー${i + 1}`);
-    const memberEmails = Array.from({ length: 10 }, (_, i) => `member${i + 1}@example.com`);
-
-    const submissionTimestamps = Array.from({ length: 10 }, (_, i) => {
-      const minutes = i * 5;
-      const date = new Date('2024-01-15T09:00:00Z');
-      date.setMinutes(date.getMinutes() + minutes);
-      return date.toISOString();
-    });
-
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId,
-      reportDate,
-      requestUserId,
-      includeDelayedSubmissions: true,
+describe('朝会報告管理システム - 日報検索・抽出機能', () => {
+  // SCEN-112: [error] 指定された日付範囲とキーワード条件で日報を検索・抽出し、発生頻度順にランク付けして表示用に整形する。 - 開始日が終了日より後、または日付範囲が30日を超える場合。のとき検索期間は終了日以前で、30日以内で指定してください。となる
+  test('日付範囲の検証: 開始日が終了日より後の場合、期間超過エラーをスローする', () => {
+    const condition: ReportSearchCondition = {
+      startDate: new Date('2026-01-20T00:00:00Z'),
+      endDate: new Date('2026-01-10T00:00:00Z'),
+      keywordFilter: [],
+      userId: 'user123',
     };
 
-    const result: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(
-      input,
-      {
-        getTeamMemberCount: async (tId: string) => {
-          return tId === teamId ? 10 : 0;
-        },
-        getSubmittedMembers: async (tId: string, rDate: string) => {
-          if (tId === teamId && rDate === reportDate) {
-            return memberIds.map((memberId, index) => ({
-              userId: memberId,
-              userName: memberNames[index],
-              email: memberEmails[index],
-              submittedAt: submissionTimestamps[index],
-            }));
-          }
-          return [];
-        },
-        getUnsubmittedMembers: async (tId: string, rDate: string) => {
-          if (tId === teamId && rDate === reportDate) {
-            return [];
-          }
-          return [];
-        },
-        getReportDeadline: async (tId: string, rDate: string) => {
-          if (tId === teamId && rDate === reportDate) {
-            return new Date('2024-01-15T10:00:00Z');
-          }
-          return new Date();
-        },
-        canUserAccessTeam: async (uId: string, tId: string) => {
-          return tId === teamId;
-        },
-      },
-    );
+    expect(() => searchAndRetrieveReports(condition)).toThrow(/検索期間は終了日以前で、30日以内で指定してください/);
+  });
 
-    expect(result.teamId).toBe(teamId);
-    expect(result.reportDate).toBe(reportDate);
-    expect(result.totalMembers).toBe(10);
-    expect(result.submittedCount).toBe(10);
-    expect(result.unsubmittedCount).toBe(0);
-    expect(result.delayedSubmissionCount).toBe(0);
-    expect(result.submissionRate).toBe(100.0);
+  test('日付範囲の検証: 日付範囲が30日を超える場合、期間超過エラーをスローする', () => {
+    const condition: ReportSearchCondition = {
+      startDate: new Date('2026-01-01T00:00:00Z'),
+      endDate: new Date('2026-02-01T00:00:00Z'),
+      keywordFilter: [],
+      userId: 'user123',
+    };
 
-    expect(result.unsubmittedMembers).toHaveLength(0);
+    expect(() => searchAndRetrieveReports(condition)).toThrow(/検索期間は終了日以前で、30日以内で指定してください/);
+  });
 
-    expect(result.aggregatedAt).toBeTruthy();
-    expect(typeof result.aggregatedAt).toBe('string');
+  test('日付範囲の検証: startDate と endDate が同一の場合は許可される', () => {
+    const condition: ReportSearchCondition = {
+      startDate: new Date('2026-01-15T00:00:00Z'),
+      endDate: new Date('2026-01-15T00:00:00Z'),
+      keywordFilter: [],
+      userId: 'user123',
+    };
 
-    const parsedAggregatedAt = new Date(result.aggregatedAt);
-    expect(parsedAggregatedAt instanceof Date && !isNaN(parsedAggregatedAt.getTime())).toBe(true);
+    const result = searchAndRetrieveReports(condition);
+
+    expect(result).toBeDefined();
+    expect(result.totalCount).toBe(0);
+    expect(result.issues).toEqual([]);
+    expect(result.searchExecutedAt).toBeDefined();
+    expect(result.deduplicationSummary).toBeDefined();
   });
 });

@@ -1,84 +1,41 @@
-import { generateAndSendSummaryEmail, type GenerateAndSendSummaryEmailInput, type GenerateAndSendSummaryEmailOutput } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from "../../src/logic/issue-extraction-and-ranking";
+import { type Report } from "../../src/logic/issue-extraction-and-ranking";
 
-describe('部長向けダッシュボードリアルタイム表示 - 報告提出状況', () => {
-  // SCEN-225
-  test('提出完了数がメンバー数を超過したときエラーになる', () => {
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      managerUserId: 'mgr-001',
-      submittedReports: [
-        {
-          reporterId: 'emp-001',
-          reporterName: 'Alice',
-          submittedAt: '2024-01-15T08:15:00Z',
-          challenges: ['Database performance issue']
-        },
-        {
-          reporterId: 'emp-002',
-          reporterName: 'Bob',
-          submittedAt: '2024-01-15T08:20:00Z',
-          challenges: ['API timeout']
-        },
-        {
-          reporterId: 'emp-003',
-          reporterName: 'Carol',
-          submittedAt: '2024-01-15T08:25:00Z',
-          challenges: ['Deployment delay']
-        },
-        {
-          reporterId: 'emp-004',
-          reporterName: 'David',
-          submittedAt: '2024-01-15T08:30:00Z',
-          challenges: []
-        },
-        {
-          reporterId: 'emp-005',
-          reporterName: 'Eve',
-          submittedAt: '2024-01-15T08:35:00Z',
-          challenges: ['Network connectivity']
-        },
-        {
-          reporterId: 'emp-006',
-          reporterName: 'Frank',
-          submittedAt: '2024-01-15T08:40:00Z',
-          challenges: []
-        },
-        {
-          reporterId: 'emp-007',
-          reporterName: 'Grace',
-          submittedAt: '2024-01-15T08:45:00Z',
-          challenges: ['Code review backlog']
-        },
-        {
-          reporterId: 'emp-008',
-          reporterName: 'Henry',
-          submittedAt: '2024-01-15T08:50:00Z',
-          challenges: []
-        },
-        {
-          reporterId: 'emp-009',
-          reporterName: 'Ivy',
-          submittedAt: '2024-01-15T08:55:00Z',
-          challenges: ['Testing framework upgrade']
-        },
-        {
-          reporterId: 'emp-010',
-          reporterName: 'Jack',
-          submittedAt: '2024-01-15T09:00:00Z',
-          challenges: []
-        },
-        {
-          reporterId: 'emp-011',
-          reporterName: 'Karen',
-          submittedAt: '2024-01-15T09:05:00Z',
-          challenges: ['Configuration issue']
-        }
-      ],
-      unsubmittedMemberIds: [],
-      reportDeadlineTime: '09:30'
-    };
+describe("朝会報告管理システム - 課題抽出・優先度ランク付け", () => {
+  // SCEN-225: [error] 複数の日報から課題キーワードを自動抽出し、発生頻度と影響度に基づいて優先度スコアを計算して、優先度別に順序付けされた課題一覧を生成する。 - 課題キーワード辞書が未定義のときという明示された境界条件で課題キーワード辞書が設定されていません。管理者に連絡してください
+  test("should throw DataNormalizationFailureError when issue keyword dictionary is undefined", () => {
+    const analysisStartDate = new Date("2024-12-16T00:00:00Z");
+    const analysisEndDate = new Date("2025-01-15T00:00:00Z");
 
-    expect(() => generateAndSendSummaryEmail(input)).toThrow(/超過/);
+    const reports: Report[] = [
+      {
+        reportId: "report-001",
+        reportDate: new Date("2025-01-15T09:00:00Z"),
+        issueText: "バグが発生している",
+        teamId: "team-001",
+      },
+      {
+        reportId: "report-002",
+        reportDate: new Date("2025-01-14T09:00:00Z"),
+        issueText: "遅延が発生している",
+        teamId: "team-002",
+      },
+      {
+        reportId: "report-003",
+        reportDate: new Date("2025-01-13T09:00:00Z"),
+        issueText: "リソース不足",
+        teamId: "team-001",
+      },
+    ];
+
+    expect(() =>
+      extractAndRankIssuesFromReports({
+        reports,
+        analysisStartDate,
+        analysisEndDate,
+        teamIds: undefined,
+        minimumConfidenceThreshold: 50,
+      })
+    ).toThrow(/課題キーワード/);
   });
 });

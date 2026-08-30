@@ -1,49 +1,81 @@
-import { describe, test, expect } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from "../../src/logic/productivity-metrics-calculation";
 
-describe('Issue Keyword Extraction and Ranking', () => {
-  // SCEN-553: [edge] 課題キーワード自動抽出・優先度判定機能 - 同じ影響度スコアを持つ複数の課題が発生頻度の降順で順序付けられる
-  test('should rank keywords with identical impact scores by descending occurrence frequency', async () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          { keyword: 'Issue A', frequency: 5 },
-          { keyword: 'Issue B', frequency: 3 },
-          { keyword: 'Issue C', frequency: 8 },
-        ],
-      }),
-      assessImpactScore: jest.fn().mockImplementation((keyword: string) => {
-        return Promise.resolve(65);
-      }),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('medium'),
+describe("朝会報告管理システム - 生産性指標計算", () => {
+  // SCEN-553: [edge] 指定された集約期間内の日報データから課題解決速度、提出率、課題再発率を定量化し、生産性指標を計算する - 提出日報件数が期待件数の50%未満のときという明示された境界条件でデータ提出率が著しく低いため、分析結果の信頼度が低下します
+  test("should calculate productivity metrics with low data completeness and return warning flags when submission rate is below 50%", () => {
+    const aggregationStartDate = new Date("2024-01-01");
+    const aggregationEndDate = new Date("2024-01-31");
+    const targetTeamIds = ["team-001"];
+
+    const businessDays = 20;
+    const teamSize = 10;
+    const expectedSubmissionCount = businessDays * teamSize;
+    const totalReportCount = 95;
+
+    const extractedIssueCount = 12;
+    const issueFrequencyDistribution = {
+      対応遅延: 5,
+      認識不足: 4,
+      リソース不足: 3,
     };
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-pm-001',
-    };
+    const improvementMeasures = [
+      { title: "朝会リマインド強化", estimatedImpact: 75, resourceRequired: 20 },
+      { title: "報告テンプレート改善", estimatedImpact: 60, resourceRequired: 15 },
+    ];
 
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(input, mockTextAnalysisAdapter);
+    const managerReviewThreshold = 70;
 
-    expect(result.keywords).toHaveLength(3);
-    expect(result.keywords[0].keyword).toBe('Issue C');
-    expect(result.keywords[0].frequency).toBe(8);
-    expect(result.keywords[0].rank).toBe(1);
+    const result = calculateProductivityMetrics({
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      expectedSubmissionCount,
+      totalReportCount,
+      extractedIssueCount,
+      issueFrequencyDistribution,
+      improvementMeasures,
+      managerReviewThreshold,
+    });
 
-    expect(result.keywords[1].keyword).toBe('Issue A');
-    expect(result.keywords[1].frequency).toBe(5);
-    expect(result.keywords[1].rank).toBe(2);
+    const expectedDataCompletenessRatio = 95 / 200;
+    expect(result.dataCompletenessRatio).toBe(0.475);
 
-    expect(result.keywords[2].keyword).toBe('Issue B');
-    expect(result.keywords[2].frequency).toBe(3);
-    expect(result.keywords[2].rank).toBe(3);
+    const issueKeywordCount = 3;
+    const frequencyVariance = Math.sqrt(
+      (Math.pow(5 - 4, 2) + Math.pow(4 - 4, 2) + Math.pow(3 - 4, 2)) / 3
+    );
+    const expectedIssueExtractionConfidence =
+      Math.min(100, 50 + issueKeywordCount * 5 - frequencyVariance * 2);
+    expect(result.issueExtractionConfidence).toBeGreaterThanOrEqual(61);
+    expect(result.issueExtractionConfidence).toBeLessThan(70);
 
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toEqual(expect.any(Date));
+    const avgImpactScore = (75 + 60) / 2;
+    const avgResourceRequired = (20 + 15) / 2;
+    const expectedImprovementMeasuresFeasibility = (avgImpactScore / avgResourceRequired) * 100;
+    expect(result.improvementMeasuresFeasibility).toBeGreaterThanOrEqual(65);
+    expect(result.improvementMeasuresFeasibility).toBeLessThan(70);
+
+    const dataCompletenessComponent = 0.475 * 0.4;
+    const issueExtractionComponent = result.issueExtractionConfidence * 0.0035;
+    const improvementMeasuresComponent =
+      result.improvementMeasuresFeasibility * 0.0025;
+    const expectedTrustworthinessScore =
+      (dataCompletenessComponent +
+        issueExtractionComponent +
+        improvementMeasuresComponent) *
+      100;
+
+    expect(result.trustworthinessScore).toBeGreaterThanOrEqual(60);
+    expect(result.trustworthinessScore).toBeLessThan(65);
+
+    expect(result.reportApproved).toBe(false);
+    expect(result.recommendedAction).toBe("追加分析が必要");
+
+    expect(result.warningFlags).toContain(
+      "データ提出率が著しく低いため、分析結果の信頼度が低下します"
+    );
+    expect(Array.isArray(result.warningFlags)).toBe(true);
+    expect(result.warningFlags.length).toBeGreaterThan(0);
   });
 });

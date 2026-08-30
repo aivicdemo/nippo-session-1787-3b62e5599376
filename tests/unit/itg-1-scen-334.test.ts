@@ -1,24 +1,22 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('朝会報告管理システム', () => {
-  // SCEN-334: [edge] 日報入力バリデーション機能 - 抱えている課題が空文字列のとき該当項目がエラー表示される
-  test('抱えている課題が空文字列の場合、バリデーションエラーが返される', () => {
-    const input = {
-      userId: 'user-001',
-      teamId: 'team-a',
-      yesterdayAccomplishment: '昨日は機能Aの開発を完了しました',
-      todayPlan: '今日は機能Bのテストを実施します',
-      challenges: '',
-      reportDate: '2024-01-15',
-    };
+describe('朝会報告管理システム - 優先度スコア計算エンジン', () => {
+  // SCEN-334: [error] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 影響を受けるメンバー数がチーム全体の人数を超えるときという明示された境界条件で影響メンバー数がチーム規模を超えています
+  test('影響を受けるメンバー数がチーム全体の人数を超えるときはエラーを発生させる', () => {
+    const issueKeyword = 'ビルドエラー';
+    const occurrenceCount = 3;
+    const affectedMemberCount = 11;
+    const teamSize = 10;
+    const issueCategory = 'technical_failure';
 
-    const result = submitDailyReport(input);
-
-    expect(result.isValid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/課題/),
-      ])
-    );
+    expect(() =>
+      calculatePriorityScoreForIssue(
+        issueKeyword,
+        occurrenceCount,
+        affectedMemberCount,
+        teamSize,
+        issueCategory
+      )
+    ).toThrow(/影響メンバー数がチーム規模を超えています/);
   });
 });

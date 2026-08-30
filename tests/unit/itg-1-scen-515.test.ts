@@ -1,53 +1,82 @@
-import { describe, test, expect, beforeEach } from "@jest/globals";
-import { calculateIssuePriorityScore } from "../../src/logic/issue-extraction-prioritization";
+import { analyzeProductivityTrends, type ProductivityTrendsAnalysisInput } from '../../src/logic/productivity-metrics-calculation';
 
-describe("issue priority score calculation", () => {
-  test("SCEN-515: completely duplicate extracted issues are merged with combined frequency and single priority score", () => {
-    const issueId1 = "issue-001";
-    const issueId2 = "issue-002";
-    const keyword = "データベース接続エラー";
-    const frequency1 = 3;
-    const frequency2 = 3;
-    const totalFrequency = frequency1 + frequency2;
-    const impactScore = 85;
-    const occurrenceFrequency = 6;
-    const affectedTeamCount = 2;
-    const resolutionDaysAverage = 2;
-    const reportingDate = "2024-01-15T09:00:00Z";
-    const teamId = "team-alpha";
-
-    const input: IssuePriorityScoringInput = {
-      issueId: issueId1,
-      issueContent: keyword,
-      occurrenceFrequency: totalFrequency,
-      impactScore: impactScore,
-      affectedTeamCount: affectedTeamCount,
-      resolutionDaysAverage: resolutionDaysAverage,
-      reportingDate: reportingDate,
-      teamId: teamId,
+describe('analyzeProductivityTrends - Issue Recurrence Rate Boundary Validation', () => {
+  // SCEN-515
+  test('should throw AnalysisDataQualityValidationFailedError when issue recurrence rate is negative', () => {
+    const negativeRecurrenceInput: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart: new Date('2024-01-01'),
+      aggregationPeriodEnd: new Date('2024-03-31'),
+      productivityMetricsDataPoints: [
+        {
+          periodDate: new Date('2024-01-31'),
+          issueResolutionSpeed: 5.5,
+          reportSubmissionRate: 85,
+          issueRecurrenceRate: -5,
+          teamProductivityScore: 75
+        },
+        {
+          periodDate: new Date('2024-02-29'),
+          issueResolutionSpeed: 5.8,
+          reportSubmissionRate: 87,
+          issueRecurrenceRate: 8,
+          teamProductivityScore: 76
+        },
+        {
+          periodDate: new Date('2024-03-31'),
+          issueResolutionSpeed: 5.2,
+          reportSubmissionRate: 89,
+          issueRecurrenceRate: 6,
+          teamProductivityScore: 78
+        }
+      ],
+      successCriteria: {
+        productivityImprovementRateTarget: 15,
+        issueRecurrenceRateReductionTarget: 30,
+        deadlineComplianceRateTarget: 90
+      },
+      teamId: 'team-001',
+      analysisContext: 'Q1 performance analysis for improvement measures'
     };
 
-    const result = calculateIssuePriorityScore(input);
+    expect(() => analyzeProductivityTrends(negativeRecurrenceInput)).toThrow(/分析対象データの品質検証に失敗しました/);
+  });
 
-    expect(result.issueId).toBe(issueId1);
-    expect(result.priorityScore).toBe(impactScore);
-    expect(result.priorityRank).toBe("高");
-    expect(result.scoreBreakdown).toBeDefined();
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThan(0);
-    expect(result.scoreBreakdown.impactScore).toBeGreaterThan(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThan(0);
-    expect(result.colorCode).toBe("#FF0000");
-    expect(result.calculatedAt).toBeDefined();
+  test('should throw AnalysisDataQualityValidationFailedError when issue recurrence rate exceeds 100', () => {
+    const exceedingRecurrenceInput: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart: new Date('2024-01-01'),
+      aggregationPeriodEnd: new Date('2024-03-31'),
+      productivityMetricsDataPoints: [
+        {
+          periodDate: new Date('2024-01-31'),
+          issueResolutionSpeed: 5.5,
+          reportSubmissionRate: 85,
+          issueRecurrenceRate: 12,
+          teamProductivityScore: 75
+        },
+        {
+          periodDate: new Date('2024-02-29'),
+          issueResolutionSpeed: 5.8,
+          reportSubmissionRate: 87,
+          issueRecurrenceRate: 9,
+          teamProductivityScore: 76
+        },
+        {
+          periodDate: new Date('2024-03-31'),
+          issueResolutionSpeed: 5.2,
+          reportSubmissionRate: 89,
+          issueRecurrenceRate: 105,
+          teamProductivityScore: 78
+        }
+      ],
+      successCriteria: {
+        productivityImprovementRateTarget: 15,
+        issueRecurrenceRateReductionTarget: 30,
+        deadlineComplianceRateTarget: 90
+      },
+      teamId: 'team-001',
+      analysisContext: 'Q1 performance analysis for improvement measures'
+    };
+
+    expect(() => analyzeProductivityTrends(exceedingRecurrenceInput)).toThrow(/分析対象データの品質検証に失敗しました/);
   });
 });
-
-interface IssuePriorityScoringInput {
-  issueId: string;
-  issueContent: string;
-  occurrenceFrequency: number;
-  impactScore: number;
-  affectedTeamCount: number;
-  resolutionDaysAverage: number;
-  reportingDate: string;
-  teamId: string;
-}

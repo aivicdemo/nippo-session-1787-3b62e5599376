@@ -1,45 +1,27 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { prioritizeAndColorizeIssues } from '../../src/logic/issue-extraction-prioritization';
-import type { PrioritizeAndColorizeIssuesInput, ColorizedIssueList, IssueSummary, ColorThresholdConfig } from '../../src/logic/issue-extraction-prioritization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
 
-describe('prioritizeAndColorizeIssues', () => {
-  // SCEN-519
-  test('should display issue with priority score 0 without color highlighting', () => {
-    const testIssue: IssueSummary = {
-      issueId: 'ISSUE-001',
-      priorityScore: 0,
-      keyword: 'テスト課題',
-      impactLevel: 'low',
+describe('朝会報告管理システム - アクセス制御と権限管理', () => {
+  // SCEN-519: ユーザーのロールが定義されていないときの境界条件エラー
+  test('ユーザーのロール情報が不正な場合、InvalidRoleErrorをスロー', () => {
+    const userAuthContext = {
+      userId: 'user-001',
+      userName: 'test-user',
+      roleAttribute: undefined,
+      teamId: undefined,
+      departmentId: undefined,
+      authenticationTimestamp: 1705315200000
     };
 
-    const colorThresholds: ColorThresholdConfig = {
-      redThresholdMin: 70,
-      yellowThresholdMin: 40,
+    const accessPermissionRequest = {
+      userId: 'user-001',
+      resourceType: 'report' as const,
+      operation: 'view' as const,
+      targetTeamId: null,
+      confidentialityLevel: 'public' as const
     };
 
-    const input: PrioritizeAndColorizeIssuesInput = {
-      issues: [testIssue],
-      colorThresholds,
-      requestedBy: 'user-123',
-    };
-
-    const result: ColorizedIssueList = prioritizeAndColorizeIssues(input);
-
-    expect(result.colorizedIssues).toHaveLength(1);
-    
-    const colorizedIssue = result.colorizedIssues[0];
-    expect(colorizedIssue.issueId).toBe('ISSUE-001');
-    expect(colorizedIssue.priorityScore).toBe(0);
-    expect(colorizedIssue.highlightColor).toBe('none');
-    expect(colorizedIssue.shouldHighlight).toBe(false);
-
-    expect(result.colorDistribution).toEqual({
-      red: 0,
-      yellow: 0,
-      green: 0,
-    });
-
-    expect(typeof result.processedAt).toBe('string');
-    expect(new Date(result.processedAt).getTime()).toBeGreaterThan(0);
+    expect(() => {
+      judgeAccessPermission(userAuthContext, accessPermissionRequest);
+    }).toThrow(/役割|role/i);
   });
 });

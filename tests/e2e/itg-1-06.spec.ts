@@ -1,168 +1,113 @@
 import { test, expect } from '@playwright/test';
 
-test.describe("部長向けダッシュボード", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login.html");
-    await page.fill('[name="username"]', 'manager');
-    await page.fill('[name="password"]', 'password');
-    await Promise.all([
-      page.waitForURL(url => !url.toString().includes('/login.html')),
-      page.click('button[type="submit"]'),
-    ]);
-    await page.goto("/panels/scr-1787119200549.html");
-  });
+test.describe("日報編集フロー", () => {
+  // SCEN-643
+  test("[normal] 日報編集フロー - 業務フロー「日報編集フロー」を開始から完了まで実行する", async ({
+    page,
+    request,
+  }) => {
+    // 一意な値を生成
+    const uniqueTimestamp = Date.now();
+    const yesterdayText = `実装作業完了_${uniqueTimestamp}`;
+    const todayText = `テスト実施_${uniqueTimestamp}`;
+    const issueText = `リソース不足_${uniqueTimestamp}`;
 
-  // SCEN-019
-  test("[normal] 部長向けダッシュボード - 本日の報告提出状況サマリーが表示される", async ({ page }) => {
-    await page.waitForSelector('[data-testid="submitted-count"]');
-    const submittedCount = await page.locator('[data-testid="submitted-count"]').textContent();
-    const unsubmittedCount = await page.locator('[data-testid="unsubmitted-count"]').textContent();
-    
-    expect(submittedCount).not.toBeNull();
-    expect(unsubmittedCount).not.toBeNull();
-    const submitted = parseInt(submittedCount || '0');
-    const unsubmitted = parseInt(unsubmittedCount || '0');
-    expect(submitted + unsubmitted).toBeLessThanOrEqual(10);
-  });
+    await test.step("工程1: ログイン", async () => {
+      await page.goto("/login.html");
+      await page.fill('[name="username"]', "test");
+      await page.fill('[name="password"]', "test");
+      await Promise.all([
+        page.waitForURL((url) => !url.toString().includes("/login.html")),
+        page.click('button[type="submit"]'),
+      ]);
+    });
 
-  // SCEN-020
-  test("[normal] 部長向けダッシュボード - 未提出メンバー一覧が表示される", async ({ page }) => {
-    await page.waitForSelector('#unsubmitted-list');
-    const unsubmittedList = page.locator('#unsubmitted-list');
-    const listItems = await unsubmittedList.locator('li, tr').count();
-    expect(listItems).toBeGreaterThanOrEqual(0);
-  });
+    await test.step("工程2: 日報編集フロー画面を開く", async () => {
+      await page.goto("/panels/scr-1787119190590.html");
+      await expect(page.locator("id=report-form")).toBeVisible();
+    });
 
-  // SCEN-021
-  test("[edge] 部長向けダッシュボード - 未提出メンバーが0件のとき空表示になる", async ({ page }) => {
-    await page.waitForSelector('#unsubmitted-empty, #unsubmitted-list');
-    const emptyElement = page.locator('#unsubmitted-empty');
-    const listElement = page.locator('#unsubmitted-list');
-    
-    const emptyVisible = await emptyElement.isVisible();
-    expect(emptyVisible).toBe(true);
-    if (emptyVisible) {
-      await expect(emptyElement).toContainText(/未提出者なし|0件/i);
-    } else {
-      const itemCount = await listElement.locator('li, tr').count();
-      expect(itemCount).toBe(0);
-    }
-  });
-
-  // SCEN-022
-  test("[edge] 部長向けダッシュボード - 未提出メンバーが複数件のとき全員表示される", async ({ page }) => {
-    await page.waitForSelector('#unsubmitted-list');
-    const unsubmittedList = page.locator('#unsubmitted-list');
-    const itemCount = await unsubmittedList.locator('li, tr').count();
-    
-    expect(itemCount).toBeLessThanOrEqual(10);
-    if (itemCount > 0) {
-      expect(itemCount).toBeGreaterThan(0);
-    }
-  });
-
-  // SCEN-023
-  test("[normal] 部長向けダッシュボード - 優先度別課題一覧が色分け表示される", async ({ page }) => {
-    await page.waitForSelector('#issues-list');
-    const issuesList = page.locator('#issues-list');
-    const issueElements = await issuesList.locator('li, tr, .issue-item').all();
-    
-    if (issueElements.length > 0) {
-      let hasColorVariation = false;
-      for (const element of issueElements) {
-        const bgColor = await element.evaluate((el: Element) => {
-          return window.getComputedStyle(el).backgroundColor;
-        });
-        if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
-          hasColorVariation = true;
-          break;
-        }
-      }
-      expect(hasColorVariation).toBe(true);
-    }
-  });
-
-  // SCEN-024
-  test("[normal] 部長向けダッシュボード - 課題キーワード発生頻度ランキングが表示される", async ({ page }) => {
-    await page.waitForSelector('[id*="ranking"], [id*="keyword"]');
-    
-    const rankingElement = page.locator('[id*="ranking"], .ranking-section, .keyword-ranking').first();
-    const isVisible = await rankingElement.isVisible();
-    expect(isVisible).toBe(true);
-    
-    if (isVisible) {
-      const keywords = await rankingElement.locator('li, tr, .ranking-item').all();
-      expect(keywords.length).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  // SCEN-025
-  test("[normal] 部長向けダッシュボード - 優先度スコア順序付け課題リストが優先度順に表示される", async ({ page }) => {
-    await page.waitForSelector('#issues-list');
-    const issuesList = page.locator('#issues-list');
-    const issues = await issuesList.locator('li, tr, .issue-item').all();
-    
-    if (issues.length > 1) {
-      const scores = [];
-      for (const issue of issues) {
-        const scoreText = await issue.textContent();
-        const scoreMatch = scoreText?.match(/(\d+)/);
-        if (scoreMatch) {
-          scores.push(parseInt(scoreMatch[1]));
-        }
-      }
+    await test.step("工程3: 日報の3項目を入力", async () => {
+      // 昨日やったこと
+      await page.fill('[name="yesterday_achievement"]', yesterdayText);
       
-      if (scores.length > 1) {
-        for (let i = 0; i < scores.length - 1; i++) {
-          expect(scores[i]).toBeGreaterThanOrEqual(scores[i + 1]);
-        }
-      }
-    }
-  });
+      // 今日やること
+      await page.fill('[name="today_plan"]', todayText);
+      
+      // 抱えている課題
+      await page.fill('[name="issues"]', issueText);
+    });
 
-  // SCEN-026
-  test("[normal] 部長向けダッシュボード - 高優先度課題がハイライト表示される", async ({ page }) => {
-    await page.waitForSelector('#high-priority-section, #high-priority-list');
-    
-    const highPrioritySection = page.locator('#high-priority-section, #high-priority-list');
-    const isSectionVisible = await highPrioritySection.isVisible();
-    expect(isSectionVisible).toBe(true);
-    
-    if (isSectionVisible) {
-      const highPriorityItems = await highPrioritySection.locator('li, tr, .priority-item').count();
-      expect(highPriorityItems).toBeGreaterThanOrEqual(0);
-    }
-  });
+    await test.step("工程4: 入力内容を保存", async () => {
+      await page.click('button:has-text("下書き保存")');
+      
+      // 保存完了メッセージの確認
+      const successMessage = page.locator("id=success-message");
+      await expect(successMessage).toBeVisible();
+    });
 
-  // SCEN-027
-  test("[normal] 部長向けダッシュボード - 課題の影響度（チーム波及度）が表示される", async ({ page }) => {
-    await page.waitForSelector('#issues-list');
-    const issuesList = page.locator('#issues-list');
-    const issues = await issuesList.locator('li, tr, .issue-item').all();
-    
-    let hasImpactScore = false;
-    for (const issue of issues) {
-      const text = await issue.textContent();
-      if (text && /(\d{1,3})/.test(text)) {
-        hasImpactScore = true;
-        break;
-      }
-    }
-    expect(hasImpactScore || issues.length === 0).toBe(true);
-  });
+    await test.step("工程5: 日報を送信", async () => {
+      await page.click('button:has-text("送信")');
+      
+      // 送信確認ダイアログが表示されることを確認
+      const modal = page.locator("id=modalContent");
+      await expect(modal).toBeVisible();
+      
+      // ダイアログ内の送信ボタンを実行
+      const submitButton = page.locator('button:has-text("送信")').last();
+      await submitButton.click();
+    });
 
-  // SCEN-028
-  test("[normal] 部長向けダッシュボード - 課題詳細確認ボタン押下で詳細画面に遷移する", async ({ page }) => {
-    await page.waitForSelector('#issues-list');
-    const detailButton = page.locator('button:has-text("詳細確認")').first();
-    const isButtonVisible = await detailButton.isVisible();
-    expect(isButtonVisible).toBe(true);
-    
-    if (isButtonVisible) {
-      await detailButton.click();
-      await page.waitForSelector('#detail-modal-overlay, .modal, #detail-content');
-      const detailContent = page.locator('#detail-modal-overlay, .modal, #detail-content');
-      await expect(detailContent).toBeVisible();
-    }
+    await test.step("工程6: 日報確認・検索画面へ遷移を確認", async () => {
+      // 朝会報告管理システム (日報確認・検索画面) へのナビゲーション完了を待機
+      await page.waitForURL(/scr-1787119221707/);
+      
+      // 遷移完了後、日報確認・検索画面のレコード一覧が表示されることを確認
+      const recordList = page.locator("id=reports-tbody");
+      await expect(recordList).toBeVisible();
+    });
+
+    await test.step("工程7: 送信した日報が一覧に表示されていることを確認", async () => {
+      // APIを使用して直接データベースを確認
+      const apiUrl = await page.evaluate(
+        () => (window as any).AIVIC_API_URL
+      );
+      const appId = await page.evaluate(
+        () => (window as any).AIVIC_APP_ID
+      );
+      const tableIndex = await page.evaluate(
+        (name: string) =>
+          ((window as any).AIVIC_TABLES || []).findIndex(
+            (t: any) => t.tableName === name
+          ),
+        "朝会報告"
+      );
+
+      const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
+      const rows = await res.json();
+
+      // 送信内容が記録に存在するかを確認
+      expect(JSON.stringify(rows)).toContain(uniqueTimestamp);
+      expect(JSON.stringify(rows)).toContain(yesterdayText);
+      expect(JSON.stringify(rows)).toContain(todayText);
+      expect(JSON.stringify(rows)).toContain(issueText);
+    });
+
+    await test.step("工程8: 画面上の一覧に提出した日報が表示されていることを確認", async () => {
+      // ページが完全に読み込まれるまで待機
+      await page.waitForLoadState("networkidle");
+      
+      // 一覧行を取得して、入力したデータが含まれているかを確認
+      const reportRows = page.locator("tr[class='report-row']");
+      const rowCount = await reportRows.count();
+      
+      // 少なくとも1行が存在することを確認
+      expect(rowCount).toBeGreaterThan(0);
+      
+      // 最後に追加された行に一意値が含まれていることを確認
+      const lastRow = reportRows.nth(rowCount - 1);
+      const rowContent = await lastRow.textContent();
+      expect(rowContent).toContain(uniqueTimestamp);
+    });
   });
 });

@@ -1,68 +1,54 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import type { AggregateReportSubmissionStatusInput, ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { generateWeeklyAnalysisReport } from "../../src/logic/weekly-analysis-report";
+import type {
+  WeeklyAnalysisReportInput,
+  AggregatedWeeklyReportData,
+  WeeklyReportRecord,
+  ExtractedIssue,
+} from "../../src/logic/weekly-analysis-report";
 
-describe('報告提出状況の集計・表示機能', () => {
-  // SCEN-422
-  test('報告期限を1秒未満で切る直前（期限1秒前）の状態で、メンバーが未提出として集計される', () => {
-    // Arrange: モック時刻を「2026-08-20T08:59:59.999Z」（期限の1秒前）に固定
-    const mockCurrentTime = new Date('2026-08-20T08:59:59.999Z');
-    jest.useFakeTimers();
-    jest.setSystemTime(mockCurrentTime);
+describe("generateWeeklyAnalysisReport", () => {
+  // SCEN-422: [error] 指定された週の開始日が月曜日ではないときは例外を発生させる
+  test("should throw error when analysisStartDate is not a Monday", () => {
+    const analysisStartDate = new Date("2026-08-20T00:00:00Z"); // Thursday
+    const analysisEndDate = new Date("2026-08-23T23:59:59Z"); // Sunday
+    const teamId = "team-001";
 
-    const reportDeadlineTime = new Date('2026-08-20T09:00:00.000Z');
-    const teamId = 'team-001';
-    const requestUserId = 'manager-001';
-
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId: teamId,
-      reportDate: '2026-08-20',
-      requestUserId: requestUserId,
-      includeDelayedSubmissions: true,
+    const weeklyReportRecord: WeeklyReportRecord = {
+      reportId: "report-001",
+      reporterTeamId: teamId,
+      submittedAt: new Date("2026-08-19T08:00:00Z"),
+      yesterdayWork: "completed task A",
+      todayPlan: "plan task B",
+      issues: "blocker issue X",
     };
 
-    // モック対象: 内部で使用される報告データ、ユーザー情報、期限設定
-    // 実装では、このinputに基づいて集計処理を実行
-    // メンバーA（未提出状態）を含むチームメンバー3名のシナリオを想定
-    // - メンバーA: 未提出
-    // - メンバーB: 期限内に提出済み
-    // - メンバーC: 期限内に提出済み
+    const extractedIssue: ExtractedIssue = {
+      issueId: "issue-001",
+      issueContent: "blocker issue X",
+      reporterTeamId: teamId,
+      occurrenceCount: 1,
+    };
 
-    // Act: aggregateReportSubmissionStatusを呼び出し
-    const result: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(input);
+    const aggregatedReportData: AggregatedWeeklyReportData = {
+      reportRecords: [weeklyReportRecord],
+      extractedIssues: [extractedIssue],
+      dataQualityMetrics: {
+        completenessRate: 0.95,
+        deduplicationRate: 0.98,
+        validityRate: 0.96,
+      },
+    };
 
-    // Assert: 
-    // 1. メンバーAが「未提出」として集計されていることを確認
-    expect(result.unsubmittedCount).toBe(1);
-    
-    // 2. 提出済みメンバー数が2名（メンバーB、C）であることを確認
-    expect(result.submittedCount).toBe(2);
-    
-    // 3. 総メンバー数が3名であることを確認
-    expect(result.totalMembers).toBe(3);
-    
-    // 4. 未提出メンバーリストにメンバーAが含まれていることを確認
-    expect(result.unsubmittedMembers).toContainEqual(
-      expect.objectContaining({
-        userId: 'member-a',
-        userName: expect.any(String),
-        email: expect.any(String),
-        remainingMinutes: expect.any(Number),
-      })
+    const input: WeeklyAnalysisReportInput = {
+      analysisStartDate,
+      analysisEndDate,
+      teamId,
+      aggregatedReportData,
+      minimumReportThreshold: 5,
+    };
+
+    expect(() => generateWeeklyAnalysisReport(input)).toThrow(
+      /月曜日/
     );
-    
-    // 5. メンバーAの残り時間が1分未満（正確には1秒未満）であることを確認
-    const memberARemaining = result.unsubmittedMembers.find((m) => m.userId === 'member-a');
-    expect(memberARemaining?.remainingMinutes).toBeGreaterThanOrEqual(0);
-    expect(memberARemaining?.remainingMinutes).toBeLessThanOrEqual(1);
-    
-    // 6. 提出率が66.7%（2/3）であることを確認
-    expect(result.submissionRate).toBe(66.7);
-    
-    // 7. 集計実行時刻がISO 8601形式で記録されていることを確認
-    expect(result.aggregatedAt).toBeDefined();
-    expect(typeof result.aggregatedAt).toBe('string');
-    expect(result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-
-    jest.useRealTimers();
   });
 });

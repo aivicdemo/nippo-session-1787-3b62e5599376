@@ -1,169 +1,98 @@
 import { test, expect } from '@playwright/test';
 
-test.describe("部長向けダッシュボード", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login.html");
-    await page.fill('[name="username"]', 'manager');
-    await page.fill('[name="password"]', 'test');
-    await Promise.all([
-      page.waitForURL(url => !url.toString().includes('/login.html')),
-      page.click('button[type="submit"]'),
-    ]);
-    await page.goto("/panels/scr-1787119200549.html");
-    await page.waitForLoadState('networkidle');
-  });
-
-  // SCEN-029: [normal] 部長向けダッシュボード - 未提出メンバーへのリマインド送信ボタン押下でリマインドが送信される
-  test('SCEN-029: リマインド送信ボタン押下でリマインドが送信される', async ({ page }) => {
-    await page.waitForSelector('[data-testid="send-reminder-button"]');
-    const unsubmittedCount = await page.locator('[data-testid="unsubmitted-count"]').textContent();
-    
-    if (parseInt(unsubmittedCount || '0') > 0) {
-      await page.click('[data-testid="send-reminder-button"]');
-      await page.waitForSelector('#reminder-confirm-overlay');
-      await page.click('#reminder-confirm-btn');
-      const toast = await page.locator('.toast').first();
-      await expect(toast).toBeVisible();
-    }
-  });
-
-  // SCEN-030: [normal] 部長向けダッシュボード - リマインド送信成功時に完了メッセージが表示される
-  test('SCEN-030: リマインド送信成功時に完了メッセージが表示される', async ({ page }) => {
-    await page.waitForSelector('[data-testid="send-reminder-button"]');
-    const unsubmittedCount = parseInt(await page.locator('[data-testid="unsubmitted-count"]').textContent() || '0');
-    
-    if (unsubmittedCount > 0) {
-      await page.click('[data-testid="send-reminder-button"]');
-      await page.waitForSelector('#reminder-confirm-overlay');
-      await page.click('#reminder-confirm-btn');
-      
-      const toast = await page.locator('.toast').first();
-      await expect(toast).toBeVisible();
-      await expect(toast).toContainText('リマインド');
-    }
-  });
-
-  // SCEN-031: [error] 部長向けダッシュボード - リマインド送信失敗時にエラーメッセージが表示される
-  test('SCEN-031: リマインド送信失敗時にエラーメッセージが表示される', async ({ page }) => {
-    await page.evaluateHandle(() => {
-      (window as any).__REMINDER_SEND_FAIL = true;
+test.describe("ダッシュボード戻るフロー", () => {
+  // SCEN-644: [normal] ダッシュボード戻るフロー - 業務フロー「ダッシュボード戻るフロー」を開始から完了まで実行する
+  test("部長向けダッシュボードから日報確認・検索画面へ正常に遷移し、戻るボタンで履歴スタックに記録される", async ({ page }) => {
+    await test.step("工程1: ログイン処理を実行する", async () => {
+      await page.goto("/login.html");
+      await page.fill('[name="username"]', 'test');
+      await page.fill('[name="password"]', 'test');
+      await Promise.all([
+        page.waitForURL(url => !url.toString().includes('/login.html')),
+        page.click('button[type="submit"]'),
+      ]);
     });
-    
-    const sendButton = await page.locator('[data-testid="send-reminder-button"]');
-    if ((await expect(sendButton).toBeVisible(), true)) {
-      await page.click('[data-testid="send-reminder-button"]');
-      const errorMsg = await page.locator('text=通知送信に遅延');
-      await expect(errorMsg).toBeVisible();
-    }
-  });
 
-  // SCEN-032: [normal] 部長向けダッシュボード - ダッシュボード設定カスタマイズボタン押下で設定画面に遷移する
-  test('SCEN-032: ダッシュボード設定カスタマイズボタン押下で設定画面に遷移する', async ({ page }) => {
-    const settingsButton = await page.locator('button[title="設定"], [data-testid="settings-button"], .header-right button:has-text("⚙")').first();
-    
-    if ((await expect(settingsButton).toBeVisible(), true)) {
-      await settingsButton.click();
-      const urlAfter = page.url();
-      expect(urlAfter).toMatch(/settings|configure/i);
-    }
-  });
-
-  // SCEN-033: [normal] 部長向けダッシュボード - 報告提出状況の時系列推移グラフが表示される
-  test('SCEN-033: 報告提出状況の時系列推移グラフが表示される', async ({ page }) => {
-    
-    const chartElement = await page.locator('[data-testid="submission-timeline-chart"], svg').first();
-    if ((await expect(chartElement).toBeVisible(), true)) {
-      await expect(chartElement).toBeVisible();
-    } else {
-      const scrollable = await page.locator('.content-area');
-      if ((await expect(scrollable).toBeVisible(), true)) {
-        await scrollable.evaluate(el => el.scrollTop = el.scrollHeight);
-      }
-    }
-  });
-
-  // SCEN-034: [normal] 部長向けダッシュボード - 課題キーワード別フィルタリング機能で特定キーワードを選択すると一覧が絞り込まれる
-  test('SCEN-034: 課題キーワード別フィルタリング機能で特定キーワードを選択すると一覧が絞り込まれる', async ({ page }) => {
-    const keywordFilter = await page.locator('#issues-list .card').first();
-    const initialCount = await page.locator('#issues-list .card').count();
-    
-    if (initialCount > 1) {
-      const firstKeyword = await keywordFilter.locator('.keyword-tag').first();
-      if ((await expect(firstKeyword).toBeVisible(), true)) {
-        await firstKeyword.click();
-        const filteredCount = await page.locator('#issues-list .card').count();
-        expect(filteredCount).toBeLessThanOrEqual(initialCount);
-      }
-    }
-  });
-
-  // SCEN-035: [edge] 部長向けダッシュボード - 課題キーワードフィルタで0件の場合空表示になる
-  test('SCEN-035: 課題キーワードフィルタで0件の場合空表示になる', async ({ page }) => {
-    const filterInput = await page.locator('input[placeholder*="キーワード"], input[placeholder*="課題"]').first();
-    
-    if ((await expect(filterInput).toBeVisible(), true)) {
-      await filterInput.fill('ZZZNOTEXIST');
-      await page.keyboard.press('Enter');
-      
-      const emptyMsg = await page.locator('#issues-empty, text=該当する課題');
-      if ((await expect(emptyMsg).toBeVisible(), true)) {
-        await expect(emptyMsg).toBeVisible();
-      }
-    }
-  });
-
-  // SCEN-036: [normal] 部長向けダッシュボード - 課題キーワードフィルタを解除すると全件表示に戻る
-  test('SCEN-036: 課題キーワードフィルタを解除すると全件表示に戻る', async ({ page }) => {
-    const filterInput = await page.locator('input[placeholder*="キーワード"], input[placeholder*="課題"]').first();
-    const clearBtn = await page.locator('button:has-text("クリア"), button:has-text("解除")').first();
-    
-    if ((await expect(filterInput).toBeVisible(), true)) {
-      const initialCount = await page.locator('#issues-list .card').count();
-      
-      await filterInput.fill('テスト');
-      await page.keyboard.press('Enter');
-      
-      if ((await expect(clearBtn).toBeVisible(), true)) {
-        await clearBtn.click();
-        const finalCount = await page.locator('#issues-list .card').count();
-        expect(finalCount).toBeGreaterThanOrEqual(initialCount);
-      }
-    }
-  });
-
-  // SCEN-037: [edge] 部長向けダッシュボード - 優先度別課題が0件のとき空表示になる
-  test('SCEN-037: 優先度別課題が0件のとき空表示になる', async ({ page }) => {
-    await page.evaluateHandle(() => {
-      (window as any).__NO_ISSUES = true;
+    await test.step("工程2: 部長向けダッシュボード画面を開く", async () => {
+      await page.goto("/panels/scr-1787119200549.html");
+      // ダッシュボード画面の主要要素が表示されることを確認
+      const header = page.locator('h1, h2, .header');
+      await expect(header).toBe(true);
     });
-    
-    await page.reload();
-    
-    const highPriorityList = await page.locator('#high-priority-list, #high-priority-section');
-    const emptyMsg = await page.locator('#issues-empty, text=課題がありません').first();
-    
-    if ((await expect(highPriorityList).toBeVisible(), true)) {
-      const count = await highPriorityList.locator('.issue-item').count();
-      if (count === 0) {
-        await expect(emptyMsg).toBeVisible();
-      }
-    }
-  });
 
-  // SCEN-038: [edge] 部長向けダッシュボード - 優先度別課題が複数件のとき全件表示される
-  test('SCEN-038: 優先度別課題が複数件のとき全件表示される', async ({ page }) => {
-    await page.waitForSelector('#high-priority-section');
-    
-    const highPriorityItems = await page.locator('#high-priority-list .card, #high-priority-list .issue-item').count();
-    const mediumPriorityItems = await page.locator('#medium-priority-list .card, #medium-priority-list .issue-item').count();
-    const lowPriorityItems = await page.locator('#low-priority-list .card, #low-priority-list .issue-item').count();
-    
-    const totalItems = highPriorityItems + mediumPriorityItems + lowPriorityItems;
-    
-    if (totalItems > 0) {
-      const allIssues = await page.locator('#issues-list .card, #issues-list .issue-item');
-      const issueCount = await allIssues.count();
-      expect(issueCount).toBeGreaterThan(0);
-    }
+    await test.step("工程3: ダッシュボード上の『戻る』ボタン（またはナビゲーション要素）を確認", async () => {
+      // data-aivic-nav="scr-1787119221707" のナビゲーション要素を探す
+      // （日報確認・検索画面へのリンク）
+      const reportSearchNavItem = page.locator('[data-aivic-nav="scr-1787119221707"]');
+      await expect(reportSearchNavItem).toBe(true);
+    });
+
+    await test.step("工程4: 日報確認・検索画面へのナビゲーション要素をクリック", async () => {
+      const reportSearchNavItem = page.locator('[data-aivic-nav="scr-1787119221707"]');
+      await reportSearchNavItem.click();
+      // 画面遷移待機
+      await page.waitForURL(url => url.toString().includes('scr-1787119221707'));
+    });
+
+    await test.step("工程5: 日報確認・検索画面へ正常に遷移したことを確認", async () => {
+      // 現在のURLが日報確認・検索画面であることを確認
+      const currentUrl = page.url();
+      expect(currentUrl).toContain('scr-1787119221707');
+      
+      // 日報確認・検索画面の特徴的な要素が表示されることを確認
+      // （例：「日報確認・検索」というテキストを含む見出しやラベル）
+      const pageTitle = page.locator('text=/日報確認|検索/i');
+      await expect(pageTitle).toBe(true);
+    });
+
+    await test.step("工程6: 過去の提出済み日報一覧が表示されていることを確認", async () => {
+      // 日報リスト表示領域（reports-tbody）の存在確認
+      const reportList = page.locator('#reports-tbody');
+      // リストが存在し、何らかの行が表示されている状態を期待
+      const reportRows = reportList.locator('tr');
+      // 実際に行があるかどうかは環境に依存するが、テーブル構造そのものは存在するはず
+      await expect(reportList).toBe(true);
+    });
+
+    await test.step("工程7: ブラウザの履歴スタックにダッシュボード画面が記録されていることを確認", async () => {
+      // ブラウザの戻るボタン（history API）が機能することを確認
+      // Playwrightでは履歴スタックの内容を直接検査できないため、
+      // 戻るナビゲーションが可能な状態を確認することで検証
+      
+      // 現在の画面が日報確認・検索画面であることを再確認
+      expect(page.url()).toContain('scr-1787119221707');
+      
+      // 戻るナビゲーション要素（ダッシュボードへのリンク）を確認
+      const dashboardNavItem = page.locator('[data-aivic-nav="scr-1787119200549"]');
+      await expect(dashboardNavItem).toBe(true);
+    });
+
+    await test.step("工程8: 戻るナビゲーション要素をクリックしてダッシュボードに戻る", async () => {
+      const dashboardNavItem = page.locator('[data-aivic-nav="scr-1787119200549"]');
+      await dashboardNavItem.click();
+      // ダッシュボード画面への遷移待機
+      await page.waitForURL(url => url.toString().includes('scr-1787119200549'));
+    });
+
+    await test.step("工程9: ダッシュボード画面に正常に戻ったことを確認", async () => {
+      // 現在のURLがダッシュボード画面であることを確認
+      const currentUrl = page.url();
+      expect(currentUrl).toContain('scr-1787119200549');
+      
+      // ダッシュボードの特徴的な要素が表示されていることを確認
+      // 提出状況や課題リストなどの表示領域が存在することを検証
+      const dashboard = page.locator('.shell-container, .content-area, main');
+      await expect(dashboard).toBe(true);
+    });
+
+    await test.step("工程10: ブラウザの履歴スタック検証の追加確認", async () => {
+      // ダッシュボード画面に正常に戻った状態で、
+      // 再度日報確認・検索画面へ遷移可能であることを確認
+      const reportSearchNavItem = page.locator('[data-aivic-nav="scr-1787119221707"]');
+      await expect(reportSearchNavItem).toBe(true);
+      
+      // これにより、ブラウザの履歴スタックに両画面が記録されていることが
+      // 間接的に確認される
+    });
   });
 });

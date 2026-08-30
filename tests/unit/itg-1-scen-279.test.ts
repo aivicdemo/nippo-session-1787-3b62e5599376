@@ -1,111 +1,174 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput, type ReminderNotificationDetail } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect, jest, beforeEach } from "@jest/globals";
+import { generateAndSendManagerConfirmationEmail } from "../../src/logic/confirmation-email-generation";
 
-describe('SendDailyReportReminder', () => {
-  // SCEN-279: [normal] 朝会報告リマインド通知送信機能 - 同じトリガー条件（営業日朝8時30分）で2回実行しても、同じユーザーセットに対して重複なく通知が送信される
-  test('should send reminder notifications idempotently on same business day at same time without duplication', async () => {
-    const businessDayMorning = new Date('2024-01-15T08:30:00Z'); // Monday 8:30 AM
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00Z');
+describe("confirmation-email-generation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    const mockTeamIds = ['team-001', 'team-002'];
-    const mockNotificationChannels: ('email' | 'in_app' | 'slack')[] = ['email', 'slack'];
-
-    // Track all sendReminderNotification calls across both invocations
-    const callHistory: Array<{
-      userId: string;
-      timestamp: Date;
-      status: 'sent' | 'failed' | 'skipped';
-    }> = [];
-
-    const mockSendReminderNotification = jest.fn(async (userId: string): Promise<{ status: 'sent' | 'failed' | 'skipped'; sentAt?: Date; errorMessage?: string }> => {
-      const result = { status: 'sent' as const, sentAt: new Date('2024-01-15T08:30:15Z') };
-      callHistory.push({ userId, timestamp: result.sentAt, status: result.status });
-      return result;
+  // SCEN-279
+  test("should generate and send manager confirmation email with unsubmitted members and prioritized issues on report aggregation completion", async () => {
+    const mockBuildEmailContent = jest.fn().mockResolvedValue({
+      subject: "朝会報告集約結果 - 2026年8月19日",
+      body: `
+        <h2>朝会報告集約結果</h2>
+        <h3>提出済み報告一覧（9件）</h3>
+        <p>9名のメンバーから報告を受け取りました。</p>
+        <h3>未提出者リスト</h3>
+        <ul>
+          <li>田中太郎（EMP010）</li>
+        </ul>
+        <h3>優先度付き課題一覧</h3>
+        <ul>
+          <li><strong>システム障害</strong>（優先度: 高） - 発生回数: 3</li>
+          <li><strong>ネットワーク遅延</strong>（優先度: 中） - 発生回数: 2</li>
+          <li><strong>ドキュメント未整備</strong>（優先度: 低） - 発生回数: 1</li>
+        </ul>
+      `,
+      generatedAt: new Date("2026-08-19T09:05:00Z"),
     });
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: mockSendReminderNotification,
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
-
-    const notificationLogStorage: Array<{
-      userId: string;
-      sentAt: Date;
-      status: 'sent' | 'failed' | 'skipped';
-      teamId: string;
-      reportDate: string;
-    }> = [];
-
-    const mockLogNotificationSent = jest.fn((record: {
-      userId: string;
-      sentAt: Date;
-      status: 'sent' | 'failed' | 'skipped';
-      teamId: string;
-      reportDate: string;
-    }) => {
-      notificationLogStorage.push(record);
+    const mockDetermineRecipients = jest.fn().mockResolvedValue({
+      recipients: [
+        {
+          userId: "MGR001",
+          emailAddress: "manager@company.example.com",
+          displayName: "山田部長",
+          teamId: "TEAM001",
+        },
+      ],
+      recipientCount: 1,
     });
 
-    // First trigger execution at 8:30 AM
-    const input1: SendDailyReportReminderInput = {
-      scheduledTime: businessDayMorning,
-      teamIds: mockTeamIds,
-      reportDeadlineTime: reportDeadlineTime,
-      notificationChannels: mockNotificationChannels,
+    const mockSendEmailWithRetry = jest.fn().mockResolvedValue({
+      success: true,
+      messageId: "msg_abc123xyz",
+      attemptCount: 1,
+    });
+
+    const mockRecordHistory = jest.fn().mockResolvedValue({
+      recordedAt: new Date("2026-08-19T09:05:30Z"),
+      historyId: "hist_001",
+    });
+
+    const input = {
+      managerUserId: "MGR001",
+      aggregationDate: "2026-08-19",
+      submissionDeadline: "2026-08-19T09:00:00Z",
+      teamId: "TEAM001",
+      unsubmittedMembers: [
+        {
+          employeeId: "EMP010",
+          name: "田中太郎",
+          elapsedMinutes: 5,
+        },
+      ],
+      submittedCount: 9,
+      totalMemberCount: 10,
+      prioritizedIssues: [
+        {
+          issueId: "ISS001",
+          keyword: "システム障害",
+          frequency: 3,
+          priority: "high" as const,
+          colorCode: "#FF0000",
+          impactScore: 85,
+        },
+        {
+          issueId: "ISS002",
+          keyword: "ネットワーク遅延",
+          frequency: 2,
+          priority: "medium" as const,
+          colorCode: "#FFAA00",
+          impactScore: 55,
+        },
+        {
+          issueId: "ISS003",
+          keyword: "ドキュメント未整備",
+          frequency: 1,
+          priority: "low" as const,
+          colorCode: "#00AA00",
+          impactScore: 30,
+        },
+      ],
     };
 
-    const output1: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input1,
-      mockNotificationServiceAdapter,
-      mockLogNotificationSent
+    const result = await generateAndSendManagerConfirmationEmail(
+      input,
+      {
+        buildManagerConfirmationEmailContent: mockBuildEmailContent,
+        determineManagerEmailRecipients: mockDetermineRecipients,
+        sendEmailWithRetry: mockSendEmailWithRetry,
+        recordEmailSendingHistory: mockRecordHistory,
+      }
     );
 
-    expect(output1.sentCount).toBe(10); // 2 teams × 5 members each
-    expect(output1.failedCount).toBe(0);
-    expect(output1.remainingTimeMinutes).toBe(30); // 9:00 - 8:30 = 30 minutes
-    expect(output1.notificationDetails).toHaveLength(10);
-    expect(mockSendReminderNotification).toHaveBeenCalledTimes(10);
-    expect(notificationLogStorage).toHaveLength(10);
+    expect(result.sendingStatus).toBe("success");
+    expect(result.sentDateTime).toEqual(new Date("2026-08-19T09:05:30Z"));
+    expect(result.messageId).toBe("msg_abc123xyz");
+    expect(result.errorMessage).toBeUndefined();
 
-    const firstExecutionCallCount = mockSendReminderNotification.mock.calls.length;
-    const firstExecutionLogRecords = notificationLogStorage.length;
-
-    // Second trigger execution at same time 8:30 AM on same business day
-    const input2: SendDailyReportReminderInput = {
-      scheduledTime: businessDayMorning,
-      teamIds: mockTeamIds,
-      reportDeadlineTime: reportDeadlineTime,
-      notificationChannels: mockNotificationChannels,
-    };
-
-    const output2: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input2,
-      mockNotificationServiceAdapter,
-      mockLogNotificationSent
+    expect(mockBuildEmailContent).toHaveBeenCalledTimes(1);
+    expect(mockBuildEmailContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submittedCount: 9,
+        totalMemberCount: 10,
+        unsubmittedMembers: expect.arrayContaining([
+          expect.objectContaining({
+            employeeId: "EMP010",
+            name: "田中太郎",
+          }),
+        ]),
+        prioritizedIssues: expect.arrayContaining([
+          expect.objectContaining({
+            keyword: "システム障害",
+            frequency: 3,
+            priority: "high",
+          }),
+          expect.objectContaining({
+            keyword: "ネットワーク遅延",
+            frequency: 2,
+            priority: "medium",
+          }),
+          expect.objectContaining({
+            keyword: "ドキュメント未整備",
+            frequency: 1,
+            priority: "low",
+          }),
+        ]),
+      })
     );
 
-    // Verify no additional calls were made on second invocation
-    expect(mockSendReminderNotification.mock.calls.length).toBe(firstExecutionCallCount);
-    expect(notificationLogStorage).toHaveLength(firstExecutionLogRecords);
-    expect(output2.sentCount).toBe(0); // No new sends
-    expect(output2.failedCount).toBe(0);
-    expect(output2.notificationDetails).toHaveLength(0);
+    expect(mockDetermineRecipients).toHaveBeenCalledTimes(1);
+    expect(mockDetermineRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: "TEAM001",
+      })
+    );
 
-    // Verify no duplicate logs in storage
-    const userIdCounts = new Map<string, number>();
-    for (const log of notificationLogStorage) {
-      userIdCounts.set(log.userId, (userIdCounts.get(log.userId) ?? 0) + 1);
-    }
+    expect(mockSendEmailWithRetry).toHaveBeenCalledTimes(1);
+    expect(mockSendEmailWithRetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: "manager@company.example.com",
+        subject: expect.stringContaining("朝会報告集約結果"),
+      })
+    );
 
-    for (const count of userIdCounts.values()) {
-      expect(count).toBe(1); // Each user appears exactly once
-    }
+    expect(mockRecordHistory).toHaveBeenCalledTimes(1);
+    expect(mockRecordHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: "manager@company.example.com",
+        sendingStatus: "success",
+        messageId: "msg_abc123xyz",
+      })
+    );
 
-    expect(callHistory).toHaveLength(10);
-    for (const call of callHistory) {
-      expect(call.status).toBe('sent');
-      expect(call.timestamp).toEqual(new Date('2024-01-15T08:30:15Z'));
-    }
+    const emailBody = mockSendEmailWithRetry.mock.calls[0][0].body;
+    expect(emailBody).toMatch(/提出済み報告一覧.*9/);
+    expect(emailBody).toMatch(/未提出者/);
+    expect(emailBody).toMatch(/田中太郎/);
+    expect(emailBody).toMatch(/システム障害/);
+    expect(emailBody).toMatch(/ネットワーク遅延/);
+    expect(emailBody).toMatch(/ドキュメント未整備/);
   });
 });

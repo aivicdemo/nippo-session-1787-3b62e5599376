@@ -1,50 +1,31 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import type {
-  SendDailyReportReminderInput,
-  SendDailyReportReminderOutput,
-  NotificationServiceAdapter,
-} from '../../src/logic/submission-status-tracking';
+import { deleteArchivedReports } from "../../src/logic/report-persistence";
+import type { ExecutionContext } from "../../src/logic/report-persistence";
 
-describe('Send Daily Report Reminder - Schedule Registration', () => {
-  // SCEN-158
-  test('should schedule reminder notification for next day at 09:00 when current time is 08:59', async () => {
-    const mockNotificationAdapter: NotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({ sentAt: new Date() }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduledId: 'sched-001' }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ status: 'pending' }),
+describe("Report Persistence - deleteArchivedReports", () => {
+  test("SCEN-158: throws ArchiveDataNotFoundError when no archived reports older than retention threshold exist", () => {
+    // Setup: Create test ExecutionContext
+    const executionContext: ExecutionContext = {
+      systemUserId: "system",
+      operationTimestamp: "2024-12-15T10:30:00Z",
     };
 
-    const currentDateTime = new Date('2024-01-15T08:59:00+09:00');
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00+09:00');
-    const scheduledTime = new Date('2024-01-15T08:59:00+09:00');
+    // Setup: Set retention threshold to 365 days
+    const retentionThresholdDays = 365;
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds: ['team-001'],
-      reportDeadlineTime,
-      notificationChannels: ['email', 'in_app', 'slack'],
-    };
+    // Setup: Mock identifyArchivedReportsForDeletion to return empty array
+    // (simulating scenario where no archived reports older than 1 year exist)
+    jest.mock("../../src/logic/report-persistence", () => {
+      const actual = jest.requireActual("../../src/logic/report-persistence");
+      return {
+        ...actual,
+        identifyArchivedReportsForDeletion: jest.fn(() => []),
+      };
+    });
 
-    const result: SendDailyReportReminderOutput = await sendDailyReportReminder(input, mockNotificationAdapter);
-
-    expect(result).toBeDefined();
-    expect(result.sentCount).toBeGreaterThanOrEqual(0);
-    expect(result.failedCount).toBeGreaterThanOrEqual(0);
-    expect(result.remainingTimeMinutes).toBe(1);
-
-    expect(mockNotificationAdapter.scheduleNotification).toHaveBeenCalled();
-
-    const scheduleCall = (mockNotificationAdapter.scheduleNotification as jest.Mock).mock.calls[0];
-    expect(scheduleCall).toBeDefined();
-
-    const scheduledDateTime = scheduleCall[0];
-    const expectedScheduledDateTime = new Date('2024-01-16T09:00:00+09:00');
-
-    expect(scheduledDateTime.getUTCHours()).toBe(expectedScheduledDateTime.getUTCHours());
-    expect(scheduledDateTime.getUTCMinutes()).toBe(0);
-    expect(scheduledDateTime.getDate()).toBe(16);
-
-    expect(result.notificationDetails).toBeDefined();
-    expect(Array.isArray(result.notificationDetails)).toBe(true);
+    // Execute: Call deleteArchivedReports with empty archive list
+    // Expected: ArchiveDataNotFoundError should be thrown with specific message
+    expect(() => {
+      deleteArchivedReports(retentionThresholdDays, executionContext);
+    }).toThrow(/削除対象のアーカイブ日報が見つかりません/);
   });
 });

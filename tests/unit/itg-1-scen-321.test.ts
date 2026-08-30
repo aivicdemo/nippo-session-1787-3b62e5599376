@@ -1,17 +1,47 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { generateAndSendManagerConfirmationEmail } from "../../src/logic/confirmation-email-generation";
 
-describe('朝会報告管理システム - 日報送信検証', () => {
-  // SCEN-321: [error] 朝会報告入力フォーム検証 - 「抱えている課題」項目が未定義（undefined）のとき、エラー表示される
-  test('submitDailyReport - challenges フィールドが undefined の場合、検証エラーを返す', () => {
+describe("generateAndSendManagerConfirmationEmail", () => {
+  test("SCEN-321: throws ManagerEmailRecipientNotFoundError when manager email address is empty", async () => {
+    const mockDetermineManagerEmailRecipients = jest.fn().mockResolvedValue({
+      recipients: [
+        {
+          userId: "manager001",
+          emailAddress: "",
+          displayName: "Manager User",
+          teamId: "team-dev",
+        },
+      ],
+      recipientCount: 1,
+    });
+
+    const mockSendEmailWithRetry = jest.fn();
+    const mockRecordEmailSendingHistory = jest.fn();
+
     const input = {
-      userId: 'user-123',
-      teamId: 'team-456',
-      yesterdayAccomplishment: '昨日は機能Aの実装を完了した',
-      todayPlan: '本日は機能Bのテストを実施する予定',
-      challenges: undefined as unknown as string,
-      reportDate: '2024-01-15',
+      managerUserId: "manager001",
+      aggregationDate: "2026-01-15",
+      unsubmittedMembers: [],
+      prioritizedIssues: [
+        {
+          issueText: "バグ",
+          frequency: 3,
+          impactScore: 10,
+          priority: "high" as const,
+        },
+      ],
+      submissionDeadline: "2026-01-15T09:00:00Z",
+      teamId: "team-dev",
     };
 
-    expect(() => submitDailyReport(input)).toThrow(/課題/);
+    try {
+      await generateAndSendManagerConfirmationEmail(input);
+      fail("Should have thrown an error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(/部長のメールアドレスが見つかりません/);
+    }
+
+    expect(mockSendEmailWithRetry).not.toHaveBeenCalled();
+    expect(mockRecordEmailSendingHistory).not.toHaveBeenCalled();
   });
 });

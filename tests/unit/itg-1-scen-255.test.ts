@@ -1,19 +1,17 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from "../../src/logic/priority-scoring-engine";
 
-describe('朝会報告管理システム - 報告送信時刻の遅延判定機能', () => {
-  // SCEN-255
-  test('報告送信時刻が空文字列のとき、バリデーションエラーが発生して処理が中断される', () => {
+describe("朝会報告管理システム - 優先度スコア計算エンジン", () => {
+  test("SCEN-255: チームサイズが0以下のとき、InsufficientHistoryDataError を発生させる", () => {
     const input = {
-      reportId: 'report-001',
-      userId: 'user-123',
-      submissionTimestamp: new Date('2024-01-15T09:15:00Z'),
-      reportContent: {
-        yesterdayAccomplishment: 'テスト環境のセットアップを完了した',
-        todayPlan: 'ユーザー認証機能の実装を開始する',
-        challenges: '外部API連携に遅延が発生している'
-      }
+      issueId: "ISSUE-001",
+      frequency: 50,
+      impactScore: 60,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
     };
 
-    expect(() => submitDailyReport(input)).toThrow(/報告送信時刻/);
+    expect(() => calculatePriorityScoreForIssue(input, 0)).toThrow(
+      /優先度スコア計算に必要な過去30日間の課題発生履歴データが不足しています/
+    );
   });
 });

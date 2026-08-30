@@ -1,24 +1,19 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { archiveAndManageIssueDataRetention } from '../../src/logic/issue-data-persistence';
+import { type IssueRetentionPolicy } from '../../src/logic/issue-data-persistence';
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
-  // SCEN-172: [error] 日報暗号化・復号化機能 - 個人情報フィールドが欠落しているとき暗号化処理がエラーになる
-  test('個人情報フィールドが欠落した場合、暗号化処理がエラーをスロー', () => {
-    // Arrange: 個人情報フィールド（reporterId）を意図的に欠落させた日報オブジェクトを構成
-    const incompleteReportData = {
-      // reporterId は意図的に省略
-      reportDate: new Date('2024-01-15'),
-      yesterdayAccomplishment: '前日は機能Aの実装を完了した',
-      todayPlan: '本日は機能Bのテストを実施する',
-      challenges: 'データベース接続のタイムアウト問題が発生している',
-      encryptionKeyId: 'key-001',
-      executorUserId: 'user-manager-001',
+describe('朝会報告管理システム - 課題データ保持管理', () => {
+  // SCEN-172
+  test('アーカイブ移行時に課題データの整合性検証に失敗した場合、処理を中止して例外を発生させる', () => {
+    const retentionPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: 30,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: ['audit_required'],
+      aggregationPeriodStart: '2024-01-01T00:00:00Z',
+      aggregationPeriodEnd: '2024-01-31T23:59:59Z',
     };
 
-    // Act & Assert: 暗号化処理がエラーをスロー
-    expect(() =>
-      encryptDailyReportData(
-        incompleteReportData as any
-      )
-    ).toThrow(/個人情報フィールド/);
+    expect(() => {
+      archiveAndManageIssueDataRetention(retentionPolicy);
+    }).toThrow(/整合性検証/);
   });
 });

@@ -1,21 +1,32 @@
-import { describe, test, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { conductEngineerGroupTraining } from '../../src/logic/adoption-training-management';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-580
-  test('reporterIdがundefinedのとき、エラーをスローする', () => {
+describe('朝会報告管理システム - 全エンジニア向け集合研修実施', () => {
+  test('SCEN-580: formCompletionTime が 0 秒のときエラーがスローされる', () => {
+    const trainingSessionId = 'SESSION-001';
+    const engineerIds = [
+      'ENG001',
+      'ENG002',
+      'ENG003',
+      'ENG004',
+      'ENG005',
+      'ENG006',
+      'ENG007',
+      'ENG008',
+      'ENG009',
+      'ENG010',
+    ];
+    const trainingDate = new Date('2024-01-15T10:00:00Z');
+    const practiceEnvironmentUrl = 'https://practice.example.com/app';
+
     const input = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが発生している',
-      occurrenceFrequency: 5,
-      impactScore: 85,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:30:00Z',
-      teamId: 'team-001',
-      reporterId: undefined as unknown as string,
+      trainingSessionId,
+      engineerIds,
+      trainingDate,
+      practiceEnvironmentUrl,
     };
 
-    expect(() => calculateIssuePriorityScore(input)).toThrow(/reporterId/);
+    expect(() => {
+      conductEngineerGroupTraining(input);
+    }).toThrow(/入力時間データが不正です/);
   });
 });

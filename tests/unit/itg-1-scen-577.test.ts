@@ -1,47 +1,80 @@
-import { describe, test, expect, beforeEach } from "@jest/globals";
-import { calculateIssuePriorityScore } from "../../src/logic/issue-extraction-prioritization";
-import type {
-  IssuePriorityScoringInput,
-  IssuePriorityScoringOutput,
-} from "../../src/logic/issue-extraction-prioritization";
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { saveExtractedIssueData, type SaveExtractedIssueDataInput, type SaveExtractedIssueDataOutput } from '../../src/logic/issue-data-persistence';
 
-// Mock TextAnalysisServiceAdapter
-interface MockTextAnalysisServiceAdapter {
-  extractKeywords: jest.Mock;
-  assessImpactScore: jest.Mock;
-  classifyIssueSeverity: jest.Mock;
-}
-
-describe("課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能", () => {
-  let mockTextAnalysisServiceAdapter: MockTextAnalysisServiceAdapter;
+describe('Issue Data Persistence - saveExtractedIssueData', () => {
+  let consoleWarnSpy: jest.SpyInstance;
+  let mockEncryptReportData: jest.Mock;
+  let mockRecordIssueAuditLog: jest.Mock;
+  let mockValidateIssueDataIntegrity: jest.Mock;
 
   beforeEach(() => {
-    mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    
+    mockEncryptReportData = jest.fn().mockResolvedValue({
+      encryptedContent: 'encrypted_content_string',
+      encryptionTimestamp: '2024-01-15T09:30:00Z',
+      encryptionVersion: 'v1.0',
+    });
+
+    mockRecordIssueAuditLog = jest.fn().mockResolvedValue({
+      auditLogId: 'audit-log-001',
+      recordedAt: new Date('2024-01-15T09:30:00Z'),
+    });
+
+    mockValidateIssueDataIntegrity = jest.fn().mockResolvedValue({
+      isValid: true,
+      violationDetails: undefined,
+    });
+
+    jest.doMock('../../src/logic/issue-data-persistence', () => ({
+      encryptReportData: mockEncryptReportData,
+      recordIssueAuditLog: mockRecordIssueAuditLog,
+      validateIssueDataIntegrity: mockValidateIssueDataIntegrity,
+      saveExtractedIssueData: saveExtractedIssueData,
+    }));
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+    consoleWarnSpy.mockRestore();
   });
 
   // SCEN-577
-  test("チーム波及度スコアがundefinedのとき影響度スコア計算エラーが発生する", () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: "issue-001",
-      issueContent: "システム障害が発生しており、対応が必要です",
-      occurrenceFrequency: 5,
-      impactScore: undefined as any,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: "2024-01-15T09:00:00Z",
-      teamId: "team-A",
+  test('should save extracted issue data with empty analysis metadata and emit warning', async () => {
+    const input: SaveExtractedIssueDataInput = {
+      reportId: 'report-001',
+      issueContent: 'データベース接続エラーが頻発',
+      issueType: '技術的課題',
+      priorityScore: 85,
+      impactLevel: '高',
+      extractedKeywords: ['データベース', '接続', 'エラー'],
+      analysisResult: {
+        metadata: {},
+      },
+      executorId: 'user-pm-001',
     };
 
-    mockTextAnalysisServiceAdapter.assessImpactScore.mockReturnValue(
-      undefined
+    const result: SaveExtractedIssueDataOutput = await saveExtractedIssueData(input);
+
+    expect(result.encryptionStatus).toBe('encrypted');
+    expect(result.issueDataId).toBeDefined();
+    expect(typeof result.issueDataId).toBe('string');
+    expect(result.issueDataId.length).toBeGreaterThan(0);
+    expect(result.savedTimestamp).toBeDefined();
+    expect(typeof result.savedTimestamp).toBe('string');
+    const savedDate = new Date(result.savedTimestamp);
+    expect(savedDate.toISOString()).toBe(result.savedTimestamp);
+
+    expect(mockRecordIssueAuditLog).toHaveBeenCalled();
+    const auditLogCall = mockRecordIssueAuditLog.mock.calls[0];
+    expect(auditLogCall[0]).toEqual({});
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('分析結果にメタデータが含まれていません。記録は続行されます')
     );
 
-    expect(() => {
-      calculateIssuePriorityScore(input, mockTextAnalysisServiceAdapter);
-    }).toThrow(/影響度スコア|波及度|計算エラー/);
+    expect(mockEncryptReportData).toHaveBeenCalled();
+    expect(mockValidateIssueDataIntegrity).toHaveBeenCalled();
   });
 });

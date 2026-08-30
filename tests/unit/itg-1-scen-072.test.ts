@@ -1,32 +1,30 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import type { ReportSubmissionInput, ReportSubmissionRecord } from '../../src/logic/daily-report-management';
+import { describe, test, expect, beforeEach } from "@jest/globals";
+import { aggregateReportsByPeriod } from "../../src/logic/report-data-aggregation";
 
-describe('毎朝の定時にチームメンバーへ報告入力のリマインド通知を自動送信', () => {
-  // SCEN-072
-  test('日報送信期限判定機能 - ユーザーIDが空文字のとき処理が進まずエラーを返す', () => {
-    const mockNotificationAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
+describe("aggregateReportsByPeriod", () => {
+  // SCEN-072: [error] 指定された期間の開始日が終了日より後、または期間が0日である場合、InvalidAggregationPeriodErrorがスローされる
+  test("should throw InvalidAggregationPeriodError when startDate is after endDate", () => {
+    const invalidStartDate = new Date("2026-01-15T00:00:00Z");
+    const invalidEndDate = new Date("2026-01-10T00:00:00Z");
+    const periodType = "daily";
 
-    const invalidInput: ReportSubmissionInput = {
-      reportId: 'report-001',
-      userId: '',
-      submissionTimestamp: new Date('2024-01-15T09:00:00Z'),
-      reportContent: {
-        yesterdayAccomplishment: 'Completed feature A',
-        todayPlan: 'Start feature B',
-        challenges: 'Integration issue',
-      },
-    };
+    expect(() =>
+      aggregateReportsByPeriod(
+        invalidStartDate,
+        invalidEndDate,
+        periodType,
+        undefined,
+        false
+      )
+    ).toThrow(/集約期間が無効です。開始日は終了日以前である必要があります。/);
+  });
 
-    expect(() => {
-      submitDailyReport(invalidInput, mockNotificationAdapter);
-    }).toThrow(/INVALID_USER_ID/);
+  test("should throw InvalidAggregationPeriodError when startDate equals endDate (zero-length period)", () => {
+    const sameDate = new Date("2026-01-15T00:00:00Z");
+    const periodType = "daily";
 
-    expect(mockNotificationAdapter.sendReminderNotification).not.toHaveBeenCalled();
-    expect(mockNotificationAdapter.scheduleNotification).not.toHaveBeenCalled();
-    expect(mockNotificationAdapter.getDeliveryStatus).not.toHaveBeenCalled();
+    expect(() =>
+      aggregateReportsByPeriod(sameDate, sameDate, periodType, undefined, false)
+    ).toThrow(/集約期間が無効です。開始日は終了日以前である必要があります。/);
   });
 });

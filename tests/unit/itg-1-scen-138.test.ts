@@ -1,36 +1,57 @@
-import { evaluateDataAccessPermission } from "../../src/logic/auth-authorization";
-import { type DataAccessEvaluationInput, type DataAccessPermissionResult } from "../../src/logic/auth-authorization";
+import { encryptReportData } from "../../src/logic/data-encryption-and-security";
 
-// SCEN-138
-describe("日報の課題項目から課題キーワードを自動抽出し、発生頻度でランク付けして表示する機能", () => {
-  test("SCEN-138: エンジニア役割ユーザーが日報入力フォームにアクセスしたとき、入力可能な機能のみ表示される", () => {
-    // Precondition: エンジニア役割ユーザーでログインし、朝会報告管理システムが稼働している状態
-    // Trigger: エンジニアが日報入力フォームにアクセスするとき
-    // Expected outcome: エンジニア役割に応じて、アクセス可能な機能と表示内容が自動的に制限される
+describe("朝会報告管理システム - データ暗号化・セキュリティ", () => {
+  test("SCEN-138: encryptReportDataが代表的な正常入力を設計どおり処理する", async () => {
+    // スタブ関数の定義
+    const encryptSensitiveFieldStub = jest.fn()
+      .mockResolvedValueOnce({
+        encryptedText: "encrypted_personal_xxx",
+        encryptionTimestamp: new Date("2026-08-19T10:00:00Z"),
+      })
+      .mockResolvedValueOnce({
+        encryptedText: "encrypted_issue_yyy",
+        encryptionTimestamp: new Date("2026-08-19T10:00:00Z"),
+      })
+      .mockResolvedValueOnce({
+        encryptedText: "encrypted_progress_zzz",
+        encryptionTimestamp: new Date("2026-08-19T10:00:00Z"),
+      });
 
-    const engineerInput: DataAccessEvaluationInput = {
-      userId: "eng_user_001",
-      userRole: "engineer",
-      userTeamId: "team_001",
-      targetDataType: "report",
-      targetTeamId: "team_001",
-      requestedOperation: "view",
+    const judgeAccessPermissionStub = jest.fn().mockResolvedValue(true);
+
+    // 入力値の構成
+    const reporterIdInput = "user-001";
+    const teamIdInput = "team-A";
+    const reportDateInput = "2026-08-19";
+    const personalInfoInput = "田中太郎（営業部）";
+    const issueContentInput = "顧客A向けシステム連携遅延";
+    const progressInfoInput = "API仕様書レビュー完了、実装開始";
+
+    const reportDataToEncrypt = {
+      reporterId: reporterIdInput,
+      teamId: teamIdInput,
+      reportDate: reportDateInput,
+      personalInfo: personalInfoInput,
+      issueContent: issueContentInput,
+      progressInfo: progressInfoInput,
     };
 
-    const result: DataAccessPermissionResult = evaluateDataAccessPermission(engineerInput);
+    // encryptReportDataを呼び出し
+    const result = await encryptReportData(
+      reportDataToEncrypt,
+      encryptSensitiveFieldStub,
+      judgeAccessPermissionStub
+    );
 
-    // アクセス権限チェック: エンジニアは自分のチーム内での日報作成・閲覧が許可される
-    expect(result.isPermitted).toBe(true);
+    // 期待値の検証
+    expect(result).toBeDefined();
+    expect(result.reportId).toMatch(/^[a-zA-Z0-9\-_]+$/);
+    expect(result.encryptedPersonalInfo).toBe("encrypted_personal_xxx");
+    expect(result.encryptedIssueContent).toBe("encrypted_issue_yyy");
+    expect(result.encryptedProgressInfo).toBe("encrypted_progress_zzz");
 
-    // 許可される操作: view のみ（作成・編集・削除ではなく、指定されたとおり view を許可）
-    expect(result.permittedOperations).toEqual(["view"]);
-
-    // データスコープ: 自分のチームのみ（他のチームの日報は見られない）
-    expect(result.dataScope).toBe("own_team");
-
-    // 復号化鍵: アクセスが許可されているため鍵が返される（暗号化された日報内容を閲覧可能）
-    expect(result.decryptionKey).not.toBeNull();
-    expect(typeof result.decryptionKey).toBe("string");
-    expect(result.decryptionKey!.length).toBeGreaterThan(0);
+    // スタブの呼び出し回数を検証
+    expect(encryptSensitiveFieldStub).toHaveBeenCalledTimes(3);
+    expect(judgeAccessPermissionStub).toHaveBeenCalled();
   });
 });

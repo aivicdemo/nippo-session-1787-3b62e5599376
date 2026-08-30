@@ -1,24 +1,21 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
 
-describe('ユーザー役割による機能アクセス制御', () => {
-  // SCEN-128
-  test('ユーザー役割が空文字列のとき、アクセス制御ロジックがエラーを返す', () => {
-    const input: AuthorizationCheckInput = {
-      userId: 'user-001',
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-001',
-      targetDataType: '自分の進捗のみ',
-    };
-
-    const emptyRoleContext: UserAuthContext = {
-      userId: 'user-001',
-      role: '',
-      teamIds: ['team-001'],
-      isActive: true,
-    };
+describe('access-control-and-permissions', () => {
+  test('SCEN-128: engineer role cannot access dashboard view operation', () => {
+    const userId = 'user-001';
+    const resourceType: 'report' | 'dashboard' | 'issue_data' | 'analysis_report' = 'dashboard';
+    const operation: 'view' | 'edit' | 'delete' | 'export' = 'view';
+    const targetTeamId: string | null = null;
+    const confidentialityLevel: 'public' | 'internal' | 'confidential' | 'executive_only' = 'internal';
 
     expect(() => {
-      validateUserAuthorizationAndPermission(input, emptyRoleContext);
-    }).toThrow(/役割/);
+      judgeAccessPermission({
+        userId,
+        resourceType,
+        operation,
+        targetTeamId,
+        confidentialityLevel,
+      });
+    }).toThrow(/アクセス権限/);
   });
 });

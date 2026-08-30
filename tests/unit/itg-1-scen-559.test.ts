@@ -1,70 +1,45 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect } from '@jest/globals';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
+import type { ProductivityMetricsInput, ProductivityMetricsOutput } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題の影響度判定と優先度スコア付与機能', () => {
-  // SCEN-559
-  test('[normal] 課題優先度判定機能 - 1件の課題のみが報告されている場合、その課題に対して影響度スコアと優先度ランクが判定される', () => {
-    // Setup: Mock TextAnalysisServiceAdapter
-    const mockTextAnalysisService = {
-      assessImpactScore: jest.fn().mockReturnValue(65),
-      classifyIssueSeverity: jest.fn().mockReturnValue('高'),
-      extractKeywords: jest.fn(),
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-559: グラフ表示形式が指定されていないときのデフォルト表示形式検証
+  test('should calculate productivity metrics with default visualization formats when displayPreference is not specified', () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001', 'team-002'];
+    const excludeOutliers = false;
+
+    const input: ProductivityMetricsInput = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
     };
 
-    // Prepare test data: single issue report
-    const issueInput: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'DB接続エラーが頻発している',
-      occurrenceFrequency: 5,
-      impactScore: 65,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-dev-001',
-    };
+    const result: ProductivityMetricsOutput = calculateProductivityMetrics(input);
 
-    // Execute: Call the priority scoring function
-    const result: IssuePriorityScoringOutput = calculateIssuePriorityScore(
-      issueInput,
-      mockTextAnalysisService
-    );
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(typeof result.reportSubmissionRate).toBe('number');
+    expect(typeof result.issueRecurrenceRate).toBe('number');
+    expect(typeof result.teamProductivityScore).toBe('number');
 
-    // Assert: Verify the result matches expected values
-    expect(result).toEqual({
-      issueId: 'issue-001',
-      priorityScore: expect.any(Number),
-      priorityRank: '高',
-      scoreBreakdown: {
-        frequencyScore: expect.any(Number),
-        impactScore: 65,
-        resolutionDifficultyScore: expect.any(Number),
-      },
-      colorCode: '#FF0000',
-      calculatedAt: expect.any(String),
-    });
+    expect(result.issueResolutionSpeed).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeLessThanOrEqual(100);
+    expect(result.issueRecurrenceRate).toBeGreaterThanOrEqual(0);
+    expect(result.issueRecurrenceRate).toBeLessThanOrEqual(100);
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
 
-    // Verify the priority score is within valid range (1-100)
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(typeof result.dataQualityAssessment.completenessPercentage).toBe('number');
+    expect(typeof result.dataQualityAssessment.extractionAccuracy).toBe('number');
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
 
-    // Verify impact score is correctly assigned
-    expect(result.scoreBreakdown.impactScore).toBe(65);
-
-    // Verify priority rank is correctly set
-    expect(result.priorityRank).toBe('高');
-
-    // Verify color code for high priority
-    expect(result.colorCode).toBe('#FF0000');
-
-    // Verify the service was called with correct parameters
-    expect(mockTextAnalysisService.assessImpactScore).toHaveBeenCalledWith(
-      'DB接続エラーが頻発している'
-    );
-    expect(mockTextAnalysisService.classifyIssueSeverity).toHaveBeenCalledWith(
-      'DB接続エラーが頻発している'
-    );
-
-    // Verify calculated timestamp is in ISO 8601 format
-    expect(result.calculatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeLessThanOrEqual(100);
   });
 });

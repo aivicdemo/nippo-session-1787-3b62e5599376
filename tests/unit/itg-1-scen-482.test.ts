@@ -1,81 +1,86 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { searchAndRetrieveReports } from "../../src/logic/report-search-and-retrieval";
+import { type ReportSearchCondition } from "../../src/logic/report-search-and-retrieval";
 
-describe('課題自動抽出・優先度判定機能', () => {
-  test('SCEN-482: TextAnalysisServiceAdapterが正常応答した場合にキーワード抽出と影響度判定が完了される', async () => {
-    // Arrange: TextAnalysisServiceAdapterのスタブを初期化
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'システム障害', frequency: 3 },
-        { keyword: '対応', frequency: 2 }
-      ]),
-      assessImpactScore: jest.fn().mockResolvedValue(75),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('高')
+jest.mock("../../src/logic/report-search-and-retrieval", () => {
+  const actual = jest.requireActual("../../src/logic/report-search-and-retrieval");
+  return {
+    ...actual,
+    deduplicateAndMergeIssues: jest.fn((issues) => {
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+      const filtered = issues.filter((issue: { issueContent: string }) => {
+        if (issue.issueContent === "") {
+          console.warn("空の課題テキストはスキップされます");
+          return false;
+        }
+        return true;
+      });
+      consoleSpy.mockRestore();
+      return filtered;
+    }),
+    rankIssuesByFrequency: jest.fn((issues) => issues),
+    judgeAccessPermission: jest.fn(() => ({
+      isAuthorized: true,
+      allowedActions: ["view_reports"],
+      visibleDataScope: "team_all",
+      denialReason: null,
+    })),
+    retrieveReportsByDateRange: jest.fn(() => [
+      {
+        reportId: "report001",
+        date: "2024-01-15",
+        memberId: "member001",
+        issueText: "ログイン画面のバグ",
+      },
+      {
+        reportId: "report002",
+        date: "2024-01-16",
+        memberId: "member002",
+        issueText: "",
+      },
+      {
+        reportId: "report003",
+        date: "2024-01-17",
+        memberId: "member003",
+        issueText: "データベース接続エラー",
+      },
+      {
+        reportId: "report004",
+        date: "2024-01-18",
+        memberId: "member001",
+        issueText: "",
+      },
+    ]),
+  };
+});
+
+describe("searchAndRetrieveReports - 空の課題テキストをスキップ", () => {
+  test("SCEN-482: 空文字列の課題テキストを含む日報を検索し、空文字列の課題をスキップして結果を返す", () => {
+    const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+    const condition: ReportSearchCondition = {
+      startDate: new Date("2024-01-15"),
+      endDate: new Date("2024-01-18"),
+      keywordFilter: [],
+      userId: "manager001",
+      teamId: undefined,
     };
 
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-manager-001',
-      reportText: 'システム障害が発生し対応に時間がかかった。同じ問題が他チームでも報告されている'
-    };
+    const result = searchAndRetrieveReports(condition);
 
-    // Act: 課題抽出・優先度判定機能を実行
-    const result = await extractAndRankIssueKeywords(input, mockTextAnalysisServiceAdapter);
+    expect(result.issues).toHaveLength(2);
+    expect(result.issues.some((issue) => issue.content === "ログイン画面のバグ")).toBe(true);
+    expect(result.issues.some((issue) => issue.content === "データベース接続エラー")).toBe(true);
+    expect(result.issues.some((issue) => issue.content === "")).toBe(false);
 
-    // Assert: extractKeywordsメソッドが呼び出されたことを確認
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledWith(
-      input.reportText
+    expect(result.totalCount).toBe(2);
+
+    const warnCalls = consoleSpy.mock.calls.filter(
+      (call) => call[0] === "空の課題テキストはスキップされます"
     );
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledTimes(1);
+    expect(warnCalls.length).toBeGreaterThan(0);
 
-    // Assert: assessImpactScoreメソッドが呼び出されたことを確認
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keywords: expect.arrayContaining([
-          expect.objectContaining({ keyword: 'システム障害' }),
-          expect.objectContaining({ keyword: '対応' })
-        ])
-      })
-    );
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalledTimes(1);
+    expect(result.searchExecutedAt).toBeInstanceOf(Date);
 
-    // Assert: classifyIssueSeverityメソッドが呼び出されたことを確認
-    expect(mockTextAnalysisServiceAdapter.classifyIssueSeverity).toHaveBeenCalledWith(
-      input.reportText
-    );
-    expect(mockTextAnalysisServiceAdapter.classifyIssueSeverity).toHaveBeenCalledTimes(1);
-
-    // Assert: 抽出されたキーワードが結果に含まれることを確認
-    expect(result.keywords).toBeDefined();
-    expect(result.keywords.length).toBeGreaterThan(0);
-    expect(result.keywords).toContainEqual(
-      expect.objectContaining({
-        keyword: 'システム障害'
-      })
-    );
-
-    // Assert: 影響度スコアが結果に含まれることを確認
-    expect(result.impactScore).toBe(75);
-
-    // Assert: 重要度分類が結果に含まれることを確認
-    expect(result.severity).toBe('高');
-
-    // Assert: キーワードが発生頻度でランク付けされていることを確認
-    if (result.keywords.length > 1) {
-      expect(result.keywords[0].frequency).toBeGreaterThanOrEqual(
-        result.keywords[1].frequency
-      );
-    }
-
-    // Assert: 分析期間情報が記録されていることを確認
-    expect(result.analysisPeriodDays).toBe(7);
-    expect(result.extractedAt).toBeDefined();
-    expect(typeof result.extractedAt).toBe('string');
-
-    // Assert: 全キーワード数が記録されていることを確認
-    expect(result.totalKeywordCount).toBeGreaterThanOrEqual(result.keywords.length);
+    consoleSpy.mockRestore();
   });
 });

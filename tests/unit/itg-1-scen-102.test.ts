@@ -1,34 +1,20 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('部長向けダッシュボード提出状況リアルタイム表示機能', () => {
-  // SCEN-102: [error] 部長ダッシュボード提出状況リアルタイム表示機能 - メンバーの提出ステータスが null のとき、色分け判定でエラーになる
-  test('メンバーの提出ステータスが null のとき、エラーハンドリングが適切に動作すること', () => {
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-102
+  test('集約期間が30日未満、または開始日が終了日より後の場合、InvalidAggregationPeriodErrorをスロー', () => {
+    const aggregationEndDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationStartDate = new Date('2024-01-15T00:00:00Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = false;
+
     const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'manager-001',
-      includeDelayedSubmissions: true,
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
     };
 
-    const mockTeamMembers = [
-      {
-        userId: 'member-001',
-        userName: 'エンジニアA',
-        email: 'engineer-a@example.com',
-        submissionStatus: null,
-        submissionTimestamp: null,
-      },
-      {
-        userId: 'member-002',
-        userName: 'エンジニアB',
-        email: 'engineer-b@example.com',
-        submissionStatus: 'submitted',
-        submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-      },
-    ];
-
-    expect(() => {
-      aggregateReportSubmissionStatus(input, mockTeamMembers);
-    }).toThrow(/ステータス/);
+    expect(() => calculateProductivityMetrics(input)).toThrow(/集約期間は30日以上で、開始日が終了日以前である必要があります/);
   });
 });

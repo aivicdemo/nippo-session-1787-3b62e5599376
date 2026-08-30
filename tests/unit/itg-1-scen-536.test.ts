@@ -1,48 +1,89 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('extractAndRankIssueKeywords - TextAnalysisServiceAdapter timeout handling', () => {
-  // SCEN-536: [error] 課題キーワード自動抽出・優先度判定機能 - TextAnalysisServiceAdapterのassessImpactScoreが30秒以内にタイムアウトした場合、3回の再試行後に失敗を返す
-  test('should return failure after 3 retries when assessImpactScore times out at 30 seconds', async () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(async () => ({
-        keywords: [
-          { keyword: 'database_performance', frequency: 5 },
-          { keyword: 'memory_leak', frequency: 3 },
-          { keyword: 'API_timeout', frequency: 2 }
-        ],
-        totalCount: 10
-      })),
-      assessImpactScore: jest.fn(async () => {
-        // Simulate 30 second timeout by throwing a timeout error
-        await new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('assessImpactScore timeout: 30000ms exceeded')), 100);
-        });
-      }),
-      classifyIssueSeverity: jest.fn(async () => ({ severity: 'high' }))
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-536: [normal] 指定された集約期間内の日報データから課題解決速度、提出率、課題再発率を定量化し、生産性指標を計算する
+  test('calculateProductivityMetricsが設計された計算式の代表値を返す', () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = false;
+
+    const mockIssueResolutionSpeedResult = {
+      averageResolutionDays: 5.5,
+      resolvedIssueCount: 20,
+      openIssueCount: 3,
+      resolutionSpeedByIssue: [],
+      calculatedAt: new Date('2024-01-31T10:00:00Z'),
     };
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-123',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-456'
+    const mockSubmissionRateResult = {
+      submissionRate: 85.0,
+      actualSubmissionCount: 170,
+      expectedSubmissionCount: 200,
+      calculationTimestamp: new Date('2024-01-31T10:00:00Z'),
     };
 
-    const result = await extractAndRankIssueKeywords(input, mockTextAnalysisServiceAdapter);
+    const mockRecurrenceRateResult = {
+      overallRecurrenceRate: 12.5,
+      recurrenceByKeyword: [
+        { keyword: 'バグ', totalOccurrences: 8, recurrenceCount: 2, recurrenceRate: 25.0 },
+      ],
+      recurrentIssueIds: ['issue-001', 'issue-002'],
+      calculationTimestamp: '2024-01-31T10:00:00Z',
+    };
 
-    // Verify the result indicates failure
-    expect(result).toBeDefined();
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/timeout/i);
-    expect(result.retryCount).toBe(3);
+    const mockTeamProductivityScoreResult = {
+      teamId: 'team-001',
+      overallProductivityScore: 78.3,
+      submissionRateContribution: 25.5,
+      resolutionSpeedContribution: 26.4,
+      recurrenceRateContribution: 26.4,
+      scoreRank: '良好',
+      calculatedAt: '2024-01-31T10:00:00Z',
+    };
 
-    // Verify assessImpactScore was called 4 times (initial + 3 retries)
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalledTimes(4);
+    const mockAnomalies: any[] = [];
 
-    // Verify extractKeywords was still called to attempt the operation
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalled();
+    const mockDataQualityAssessment = {
+      completenessPercentage: 95.0,
+      extractionAccuracy: 92.5,
+      isReportable: true,
+    };
+
+    jest.mock('../../src/logic/productivity-metrics-calculation', () => ({
+      calculateProductivityMetrics: jest.fn(),
+      calculateIssueResolutionSpeed: jest.fn(() => mockIssueResolutionSpeedResult),
+      calculateReportSubmissionRate: jest.fn(() => mockSubmissionRateResult),
+      calculateIssueRecurrenceRate: jest.fn(() => mockRecurrenceRateResult),
+      calculateTeamProductivityScore: jest.fn(() => mockTeamProductivityScoreResult),
+      identifyProductivityAnomalies: jest.fn(() => mockAnomalies),
+      validateProductivityAnalysisDataQuality: jest.fn(() => mockDataQualityAssessment),
+    }));
+
+    const result = calculateProductivityMetrics(
+      {
+        aggregationStartDate,
+        aggregationEndDate,
+        targetTeamIds,
+        excludeOutliers,
+      },
+      {
+        calculateIssueResolutionSpeed: jest.fn(() => mockIssueResolutionSpeedResult),
+        calculateReportSubmissionRate: jest.fn(() => mockSubmissionRateResult),
+        calculateIssueRecurrenceRate: jest.fn(() => mockRecurrenceRateResult),
+        calculateTeamProductivityScore: jest.fn(() => mockTeamProductivityScoreResult),
+        identifyProductivityAnomalies: jest.fn(() => mockAnomalies),
+        validateProductivityAnalysisDataQuality: jest.fn(() => mockDataQualityAssessment),
+      }
+    );
+
+    expect(result.issueResolutionSpeed).toBe(5.5);
+    expect(result.reportSubmissionRate).toBe(85.0);
+    expect(result.issueRecurrenceRate).toBe(12.5);
+    expect(result.teamProductivityScore).toBe(78.3);
+    expect(result.detectedAnomalies).toEqual([]);
+    expect(result.dataQualityAssessment.completenessPercentage).toBe(95.0);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBe(92.5);
+    expect(result.dataQualityAssessment.isReportable).toBe(true);
   });
 });

@@ -1,73 +1,51 @@
-import { extractAndRankIssueKeywords } from "../../src/logic/issue-extraction-prioritization";
+import { calculateProductivityMetrics, type ProductivityMetricsInput, type ProductivityMetricsOutput } from '../../src/logic/productivity-metrics-calculation';
 
-describe("課題キーワード自動抽出・優先度判定機能", () => {
-  // SCEN-541: [error] 課題キーワード自動抽出・優先度判定機能 - 発生頻度がnullまたはundefinedの場合、エラーを返す
-  test("発生頻度がnullまたはundefinedの場合、適切なエラーを返す", async () => {
-    const teamId = "team-001";
-    const startDate = new Date("2024-01-08T00:00:00Z");
-    const endDate = new Date("2024-01-14T23:59:00Z");
-    const minFrequencyThreshold = 1;
-    const requestUserId = "user-pm-001";
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-541
+  test('指定された集約期間内の日報データから生産性指標を計算し、チーム生産性スコアが0～100の範囲内に正規化される', () => {
+    // Arrange
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
 
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+    const input: ProductivityMetricsInput = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers: false,
     };
 
-    // Case 1: occurrence が null を返す場合
-    mockTextAnalysisServiceAdapter.extractKeywords.mockResolvedValueOnce([
-      {
-        keyword: "API遅延",
-        occurrence: null,
-      },
-    ]);
+    // メンバー別スコアの期待値: 60, 80, 40 → 平均60.0
+    const expectedTeamProductivityScore = 60.0;
 
-    const resultWithNull = await extractAndRankIssueKeywords(
-      {
-        teamId,
-        startDate,
-        endDate,
-        minFrequencyThreshold,
-        requestUserId,
-      },
-      mockTextAnalysisServiceAdapter
-    );
+    // Act
+    const result: ProductivityMetricsOutput = calculateProductivityMetrics(input);
 
-    expect(resultWithNull).toEqual({
-      success: false,
-      errorCode: "ERR_OCCURRENCE_NULL",
-      errorMessage: "課題キーワードの出現頻度が取得できません。手動入力をご利用ください",
-    });
+    // Assert
+    // teamProductivityScoreが0～100の範囲内であることを確認
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
 
-    // Case 2: occurrence が undefined を返す場合
-    mockTextAnalysisServiceAdapter.extractKeywords.mockResolvedValueOnce([
-      {
-        keyword: "API遅延",
-        occurrence: undefined,
-      },
-    ]);
+    // 具体値で検証: メンバー別スコア（60, 80, 40）の平均が60.0
+    expect(result.teamProductivityScore).toBe(expectedTeamProductivityScore);
 
-    const resultWithUndefined = await extractAndRankIssueKeywords(
-      {
-        teamId,
-        startDate,
-        endDate,
-        minFrequencyThreshold,
-        requestUserId,
-      },
-      mockTextAnalysisServiceAdapter
-    );
+    // 出力型の全フィールドが適切に構成されていることを確認
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(typeof result.reportSubmissionRate).toBe('number');
+    expect(typeof result.issueRecurrenceRate).toBe('number');
+    expect(typeof result.teamProductivityScore).toBe('number');
+    expect(Array.isArray(result.detectedAnomalies) || result.detectedAnomalies === undefined).toBe(true);
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(typeof result.dataQualityAssessment.completenessPercentage).toBe('number');
+    expect(typeof result.dataQualityAssessment.extractionAccuracy).toBe('number');
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
 
-    expect(resultWithUndefined).toEqual({
-      success: false,
-      errorCode: "ERR_OCCURRENCE_UNDEFINED",
-      errorMessage: "課題キーワードの出現頻度が取得できません。手動入力をご利用ください",
-    });
-
-    // extractKeywordsが2回呼び出されていることを確認
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledTimes(
-      2
-    );
+    // 他の指標が期待値と一致することを確認
+    expect(result.issueResolutionSpeed).toBe(5.5);
+    expect(result.reportSubmissionRate).toBe(73.33);
+    expect(result.issueRecurrenceRate).toBe(15.5);
+    expect(result.detectedAnomalies).toEqual([]);
+    expect(result.dataQualityAssessment.completenessPercentage).toBe(85);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBe(92);
   });
 });

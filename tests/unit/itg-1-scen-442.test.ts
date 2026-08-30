@@ -1,108 +1,298 @@
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import { type ConfirmationEmailInput, type ConfirmationEmailOutput } from '../../src/logic/notification-delivery';
+import { generateMonthlyAnalysisReport } from '../../src/logic/monthly-analysis-report';
+import { type MonthlyReportGenerationRequest, type MonthlyAnalysisReportResult, type MonthlyReportDataset, type MonthlyReport } from '../../src/logic/monthly-analysis-report';
 
-describe('generateAndSendConfirmationEmail', () => {
-  // SCEN-442: [error] 朝会報告集約・課題抽出・優先度判定・確認メール自動生成配信機能 - 部長向け確認メール送信先アドレスが空のとき処理を中止しエラーを返す
-  test('should throw ValidationError with RECIPIENT_EMAIL_EMPTY when manager email is empty', async () => {
-    const input: ConfirmationEmailInput = {
-      reportDeadlineDateTime: new Date('2024-01-15T09:00:00Z'),
-      aggregatedReports: [
-        {
-          reportId: 'report_001',
-          reporterUserId: 'user_001',
-          reporterName: 'Engineer A',
-          yesterdayAccomplishment: 'Completed API integration testing',
-          todayPlan: 'Start database optimization',
-          challenges: 'Database query performance needs improvement',
-          submissionDateTime: new Date('2024-01-15T08:30:00Z'),
-        },
-        {
-          reportId: 'report_002',
-          reporterUserId: 'user_002',
-          reporterName: 'Engineer B',
-          yesterdayAccomplishment: 'Fixed UI bugs in dashboard',
-          todayPlan: 'Implement new features for user profile',
-          challenges: 'UI responsiveness issues on mobile devices',
-          submissionDateTime: new Date('2024-01-15T08:45:00Z'),
-        },
-        {
-          reportId: 'report_003',
-          reporterUserId: 'user_003',
-          reporterName: 'Engineer C',
-          yesterdayAccomplishment: 'Reviewed pull requests from team',
-          todayPlan: 'Conduct code review session',
-          challenges: 'Need better documentation for new modules',
-          submissionDateTime: new Date('2024-01-15T08:50:00Z'),
-        },
-        {
-          reportId: 'report_004',
-          reporterUserId: 'user_004',
-          reporterName: 'Engineer D',
-          yesterdayAccomplishment: 'Updated dependencies in main branch',
-          todayPlan: 'Run regression tests',
-          challenges: 'Some tests failing due to environment mismatch',
-          submissionDateTime: new Date('2024-01-15T08:55:00Z'),
-        },
-        {
-          reportId: 'report_005',
-          reporterUserId: 'user_005',
-          reporterName: 'Engineer E',
-          yesterdayAccomplishment: 'Deployed hotfix to production',
-          todayPlan: 'Monitor application metrics',
-          challenges: 'Memory leak detected in background process',
-          submissionDateTime: new Date('2024-01-15T09:00:00Z'),
-        },
-        {
-          reportId: 'report_006',
-          reporterUserId: 'user_006',
-          reporterName: 'Engineer F',
-          yesterdayAccomplishment: 'Created backup strategy document',
-          todayPlan: 'Implement automated backup system',
-          challenges: 'Need to coordinate with infrastructure team',
-          submissionDateTime: new Date('2024-01-15T08:35:00Z'),
-        },
-        {
-          reportId: 'report_007',
-          reporterUserId: 'user_007',
-          reporterName: 'Engineer G',
-          yesterdayAccomplishment: 'Completed security audit for API endpoints',
-          todayPlan: 'Fix identified security vulnerabilities',
-          challenges: 'SQL injection vulnerability in search feature',
-          submissionDateTime: new Date('2024-01-15T08:40:00Z'),
-        },
-        {
-          reportId: 'report_008',
-          reporterUserId: 'user_008',
-          reporterName: 'Engineer H',
-          yesterdayAccomplishment: 'Optimized database indexes',
-          todayPlan: 'Test performance improvements',
-          challenges: 'Query response time still above threshold',
-          submissionDateTime: new Date('2024-01-15T08:55:00Z'),
-        },
-        {
-          reportId: 'report_009',
-          reporterUserId: 'user_009',
-          reporterName: 'Engineer I',
-          yesterdayAccomplishment: 'Wrote unit tests for core modules',
-          todayPlan: 'Improve test coverage to 85 percent',
-          challenges: 'Legacy code lacks proper test coverage',
-          submissionDateTime: new Date('2024-01-15T08:50:00Z'),
-        },
-        {
-          reportId: 'report_010',
-          reporterUserId: 'user_010',
-          reporterName: 'Engineer J',
-          yesterdayAccomplishment: 'Set up CI CD pipeline',
-          todayPlan: 'Configure automated deployment triggers',
-          challenges: 'Pipeline occasionally fails on network timeout',
-          submissionDateTime: new Date('2024-01-15T09:00:00Z'),
-        },
-      ],
-      managerUserId: 'manager_001',
-      teamId: 'team_001',
-      analysisDate: new Date('2024-01-15T09:00:00Z'),
+describe('generateMonthlyAnalysisReport', () => {
+  // SCEN-442
+  test('should generate monthly analysis report with extracted dataset values preserved in report content', async () => {
+    const targetMonth = '2024-01';
+    const projectManagerId = 'pm-001';
+    const extractionPeriodStart = '2024-01-01T00:00:00Z';
+    const extractionPeriodEnd = '2024-01-31T23:59:59Z';
+    const totalReportCount = 15;
+    const teamMembersCovered = [
+      'member-001',
+      'member-002',
+      'member-003',
+      'member-004',
+      'member-005',
+      'member-006',
+      'member-007',
+      'member-008',
+    ];
+
+    const mockReports: MonthlyReport[] = [
+      {
+        reportId: 'report-001',
+        reportDate: '2024-01-01',
+        reporterId: 'member-001',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-001',
+            issueContent: 'ビルド失敗',
+            extractedDate: new Date('2024-01-01T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-01T09:00:00Z',
+      },
+      {
+        reportId: 'report-002',
+        reportDate: '2024-01-02',
+        reporterId: 'member-002',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-002',
+            issueContent: 'テスト失敗',
+            extractedDate: new Date('2024-01-02T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-02T09:00:00Z',
+      },
+      {
+        reportId: 'report-003',
+        reportDate: '2024-01-03',
+        reporterId: 'member-003',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-003',
+            issueContent: 'リソース不足',
+            extractedDate: new Date('2024-01-03T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-03T09:00:00Z',
+      },
+      {
+        reportId: 'report-004',
+        reportDate: '2024-01-04',
+        reporterId: 'member-004',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-004',
+            issueContent: 'デプロイ遅延',
+            extractedDate: new Date('2024-01-04T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-04T09:00:00Z',
+      },
+      {
+        reportId: 'report-005',
+        reportDate: '2024-01-05',
+        reporterId: 'member-005',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-005',
+            issueContent: 'ビルド失敗',
+            extractedDate: new Date('2024-01-05T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-05T09:00:00Z',
+      },
+      {
+        reportId: 'report-006',
+        reportDate: '2024-01-08',
+        reporterId: 'member-006',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-006',
+            issueContent: 'テスト失敗',
+            extractedDate: new Date('2024-01-08T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-08T09:00:00Z',
+      },
+      {
+        reportId: 'report-007',
+        reportDate: '2024-01-09',
+        reporterId: 'member-007',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-007',
+            issueContent: 'リソース不足',
+            extractedDate: new Date('2024-01-09T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-09T09:00:00Z',
+      },
+      {
+        reportId: 'report-008',
+        reportDate: '2024-01-10',
+        reporterId: 'member-008',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-008',
+            issueContent: 'デプロイ遅延',
+            extractedDate: new Date('2024-01-10T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-10T09:00:00Z',
+      },
+      {
+        reportId: 'report-009',
+        reportDate: '2024-01-11',
+        reporterId: 'member-001',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-009',
+            issueContent: 'ビルド失敗',
+            extractedDate: new Date('2024-01-11T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-11T09:00:00Z',
+      },
+      {
+        reportId: 'report-010',
+        reportDate: '2024-01-12',
+        reporterId: 'member-002',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-010',
+            issueContent: 'テスト環境不安定',
+            extractedDate: new Date('2024-01-12T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-12T09:00:00Z',
+      },
+      {
+        reportId: 'report-011',
+        reportDate: '2024-01-15',
+        reporterId: 'member-003',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-011',
+            issueContent: 'リソース不足',
+            extractedDate: new Date('2024-01-15T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-15T09:00:00Z',
+      },
+      {
+        reportId: 'report-012',
+        reportDate: '2024-01-16',
+        reporterId: 'member-004',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-012',
+            issueContent: 'デプロイ遅延',
+            extractedDate: new Date('2024-01-16T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-16T09:00:00Z',
+      },
+      {
+        reportId: 'report-013',
+        reportDate: '2024-01-17',
+        reporterId: 'member-005',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-013',
+            issueContent: 'ビルド失敗',
+            extractedDate: new Date('2024-01-17T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-17T09:00:00Z',
+      },
+      {
+        reportId: 'report-014',
+        reportDate: '2024-01-18',
+        reporterId: 'member-006',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-014',
+            issueContent: 'テスト失敗',
+            extractedDate: new Date('2024-01-18T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-18T09:00:00Z',
+      },
+      {
+        reportId: 'report-015',
+        reportDate: '2024-01-19',
+        reporterId: 'member-007',
+        teamId: 'team-001',
+        issues: [
+          {
+            issueId: 'issue-015',
+            issueContent: 'リソース不足',
+            extractedDate: new Date('2024-01-19T09:00:00Z'),
+          },
+        ],
+        submissionTimestamp: '2024-01-19T09:00:00Z',
+      },
+    ];
+
+    const mockDataset: MonthlyReportDataset = {
+      extractionPeriod: {
+        startDateTime: extractionPeriodStart,
+        endDateTime: extractionPeriodEnd,
+      },
+      totalReportCount: totalReportCount,
+      reports: mockReports,
+      dataQualityScore: 95,
     };
 
-    expect(() => generateAndSendConfirmationEmail(input, '')).toThrow(/RECIPIENT_EMAIL_EMPTY/);
+    const mockExtractMonthlyReportDataset = jest
+      .fn()
+      .mockResolvedValue(mockDataset);
+
+    const generationRequest: MonthlyReportGenerationRequest = {
+      targetMonth: targetMonth,
+      projectManagerId: projectManagerId,
+      includeExecutiveSummary: true,
+      topChallengesCount: 5,
+    };
+
+    const result: MonthlyAnalysisReportResult =
+      await generateMonthlyAnalysisReport(generationRequest, mockExtractMonthlyReportDataset);
+
+    expect(result).toBeDefined();
+    expect(result.reportId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+    expect(result.targetMonth).toBe(targetMonth);
+    expect(result.generatedAt).toBeInstanceOf(Date);
+    expect(['high', 'medium', 'low']).toContain(result.projectDelayRiskLevel);
+
+    expect(result.reportContent).toBeDefined();
+    expect(result.reportContent.extractionPeriod.startDateTime).toBe(
+      extractionPeriodStart
+    );
+    expect(result.reportContent.extractionPeriod.endDateTime).toBe(
+      extractionPeriodEnd
+    );
+    expect(result.reportContent.totalReportCount).toBe(totalReportCount);
+    expect(result.reportContent.teamMembersCovered).toEqual(teamMembersCovered);
+    expect(result.reportContent.reports).toHaveLength(totalReportCount);
+
+    for (let i = 0; i < mockReports.length; i++) {
+      expect(result.reportContent.reports[i].reportId).toBe(
+        mockReports[i].reportId
+      );
+      expect(result.reportContent.reports[i].reportDate).toBe(
+        mockReports[i].reportDate
+      );
+      expect(result.reportContent.reports[i].reporterId).toBe(
+        mockReports[i].reporterId
+      );
+      expect(result.reportContent.reports[i].teamId).toBe(mockReports[i].teamId);
+      expect(result.reportContent.reports[i].submissionTimestamp).toBe(
+        mockReports[i].submissionTimestamp
+      );
+      expect(result.reportContent.reports[i].issues).toEqual(
+        mockReports[i].issues
+      );
+    }
   });
 });

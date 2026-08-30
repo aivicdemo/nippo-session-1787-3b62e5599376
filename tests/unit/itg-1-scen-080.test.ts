@@ -1,42 +1,56 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import type { SubmitDailyReportInput, SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { sendConfirmationEmailToManager } from '../../src/logic/reminder-notification-service';
 
-describe('Daily Report Submission Deadline Check', () => {
-  // SCEN-080: [edge] 日報送信期限判定機能 - 朝会開始時刻の1秒前に送信された日報が期限内と判定される
-  test('should accept daily report submitted 1 second before morning meeting start time as within deadline', () => {
-    // Setup: Define morning meeting start time
-    const morningMeetingStartTime = new Date('2024-01-15T09:00:00Z');
-    const submissionTimestamp = new Date('2024-01-15T08:59:59Z');
+describe('朝会報告管理システム - 部長向け確認メール送信', () => {
+  // SCEN-080: [normal] 日報集約完了時に部長向け確認メールを自動生成・配信し、未提出者リストと優先度付き課題一覧を含める
+  test('sendConfirmationEmailToManagerが代表的な正常入力を設計どおり処理する', async () => {
+    const managerUserId = 'MGR-001';
+    const aggregationDate = '2026-08-19';
+    const submissionDeadline = '2026-08-19T09:30:00Z';
+    const teamId = 'TEAM-A';
 
-    // Create test input
-    const reportInput: SubmitDailyReportInput = {
-      userId: 'eng-001',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Completed feature A implementation and unit tests',
-      todayPlan: 'Start integration testing for feature A and begin feature B design',
-      challenges: 'Database query optimization took longer than expected, may impact timeline',
-      reportDate: '2024-01-15',
-    };
+    const unsubmittedMembers = [
+      {
+        employeeId: 'ENG-002',
+        employeeName: '山田太郎'
+      },
+      {
+        employeeId: 'ENG-005',
+        employeeName: '鈴木花子'
+      }
+    ];
 
-    // Mock the submission context with 1 second before deadline
-    const mockContext = {
-      submissionTimestamp,
-      morningMeetingStartTime,
-    };
+    const prioritizedIssues = [
+      {
+        issueKeyword: 'ビルドエラー',
+        frequency: 3,
+        priority: 'high'
+      },
+      {
+        issueKeyword: 'テスト環境不安定',
+        frequency: 2,
+        priority: 'medium'
+      },
+      {
+        issueKeyword: 'レビュー待ち',
+        frequency: 1,
+        priority: 'low'
+      }
+    ];
 
-    // Execute: Submit daily report
-    const result: SubmitDailyReportOutput = submitDailyReport(
-      reportInput,
-      mockContext.submissionTimestamp,
-      mockContext.morningMeetingStartTime
-    );
+    const result = await sendConfirmationEmailToManager({
+      managerUserId,
+      aggregationDate,
+      unsubmittedMembers,
+      prioritizedIssues,
+      submissionDeadline,
+      teamId
+    });
 
-    // Assert: Report should be accepted as within deadline
-    expect(result.isWithinDeadline).toBe(true);
-    expect(result.reportId).toBeDefined();
-    expect(typeof result.reportId).toBe('string');
-    expect(result.reportId.length).toBeGreaterThan(0);
-    expect(result.submissionTimestamp).toBe(submissionTimestamp.toISOString());
+    expect(result.sendingStatus).toBe('success');
+    expect(result.sentDateTime).toBeDefined();
+    expect(typeof result.sentDateTime).toBe('string');
+    expect(result.messageId).toBeDefined();
+    expect(typeof result.messageId).toBe('string');
+    expect(result.messageId.length).toBeGreaterThan(0);
   });
 });

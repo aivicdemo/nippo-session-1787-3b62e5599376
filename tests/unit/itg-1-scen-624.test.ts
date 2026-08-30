@@ -1,27 +1,51 @@
-import { describe, test, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { sendUnsubmittedMemberReminders } from '../../src/logic/reminder-notification-service';
 
-describe('Issue Priority Score Calculation', () => {
-  test('SCEN-624: should throw ValidationError when impact score is negative', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: 'Database connection timeout',
-      occurrenceFrequency: 3,
-      impactScore: -5,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 1.5,
-      reportingDate: '2024-01-15T09:30:00Z',
-      teamId: 'team-engineering',
+describe('朝会報告管理システム - 未提出メンバー催促通知サービス', () => {
+  // SCEN-624: 連絡先情報が不完全な場合の催促通知送信失敗テスト
+  test('未提出メンバーのメールアドレスが登録されていない場合、催促通知送信に失敗し failureCount=1 を返す', () => {
+    const teamId = 'team-001';
+    const reportingDeadlineTime = new Date('2024-01-15T09:00:00Z');
+    const morningMeetingStartTime = new Date('2024-01-15T09:30:00Z');
+    const currentTimeAt = new Date('2024-01-15T08:30:00Z');
+
+    const unsubmittedMembers = [
+      {
+        memberId: 'user-005',
+        memberName: '田中太郎',
+        memberEmail: null,
+        reportDeadline: reportingDeadlineTime,
+        reminderStage: 'first' as const,
+        teamName: 'Engineering Team',
+      },
+    ];
+
+    const reminderRetryRule = {
+      initialNotificationMethod: 'email' as const,
+      maxRetryCount: 2,
+      retryStages: [
+        {
+          stageNumber: 1,
+          notificationMethod: 'slack' as const,
+          waitIntervalMinutes: 10,
+        },
+      ],
     };
 
-    expect(() => calculateIssuePriorityScore(input)).toThrow(/影響度スコア/);
-    
-    try {
-      calculateIssuePriorityScore(input);
-    } catch (error: unknown) {
-      if (error instanceof Error && 'errorcode' in error) {
-        expect((error as any).errorcode).toBe('INVALID_IMPACT_SCORE');
-      }
-    }
+    const previousReminderHistory = [];
+
+    const result = sendUnsubmittedMemberReminders(
+      teamId,
+      unsubmittedMembers,
+      reportingDeadlineTime,
+      morningMeetingStartTime,
+      reminderRetryRule,
+      previousReminderHistory,
+      currentTimeAt
+    );
+
+    expect(result.successCount).toBe(0);
+    expect(result.failureCount).toBe(1);
+    expect(result.notificationHistoryIds).toEqual([]);
+    expect(result.remainingTimeDisplay).toBe('残り0時間30分');
   });
 });

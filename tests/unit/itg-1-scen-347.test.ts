@@ -1,30 +1,25 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('Report Submission Status Tracking', () => {
+describe('朝会報告管理システム - 優先度スコア計算エンジン', () => {
   // SCEN-347
-  test('should throw validation error when issue field is empty string during submission status aggregation', () => {
-    // Input data: report with empty issue field
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-manager-001',
-      includeDelayedSubmissions: true,
-    };
+  test('発生頻度の重みと影響度の重みの合計が1を超える場合、エラーをスロー', () => {
+    const issueList = [
+      { issueId: 'issue-001', frequency: 10, impactScore: 75 },
+      { issueId: 'issue-002', frequency: 5, impactScore: 50 },
+      { issueId: 'issue-003', frequency: 8, impactScore: 60 }
+    ];
 
-    // Mock report data with empty issue field
-    const mockReportData = {
-      userId: 'user-engineer-001',
-      submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-      reportDate: new Date('2024-01-15'),
-      teamId: 'team-001',
-      yesterdayAccomplishments: 'タスクA完了',
-      todayPlans: 'タスクB開始',
-      issues: '', // Empty issue field - violates business rule
-    };
+    const frequencyWeight = 0.6;
+    const impactWeight = 0.5;
+    const highlightThresholdPercentile = 30;
 
-    // The function should throw an error for empty issue field
-    expect(() => {
-      aggregateReportSubmissionStatus(input, mockReportData);
-    }).toThrow(/課題/);
+    expect(() =>
+      calculatePriorityScoreForIssue(
+        issueList,
+        frequencyWeight,
+        impactWeight,
+        highlightThresholdPercentile
+      )
+    ).toThrow(/重みの設定が不正です/);
   });
 });

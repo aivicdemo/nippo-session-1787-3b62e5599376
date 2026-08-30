@@ -1,48 +1,20 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { validateReportInput } from '../../src/logic/report-submission-management';
 
-describe('課題優先度スコア計算機能', () => {
-  test('SCEN-611: 同一の入力データで2回実行した場合、同じ優先度スコアが生成される', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockReturnValue({
-        keywords: ['パフォーマンス問題'],
-        confidence: 0.95,
-      }),
-      assessImpactScore: jest.fn().mockReturnValue(75),
-      classifyIssueSeverity: jest.fn().mockReturnValue('high'),
-    };
+describe('Report Submission Management', () => {
+  // SCEN-611
+  test('should throw error when modificationDeadlineMinutes is negative value', () => {
+    const reportSubmissionTime = new Date('2024-01-15T08:00:00Z');
+    const modificationAttemptTime = new Date('2024-01-15T09:00:00Z');
+    const morningMeetingStartTime = '09:30';
+    const modificationDeadlineMinutes = -1;
 
-    const testInput = {
-      issueId: 'issue-001',
-      issueContent: 'パフォーマンス問題が発生している',
-      occurrenceFrequency: 3,
-      impactScore: 75,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-dev-001',
-    };
-
-    const firstResult = calculateIssuePriorityScore(
-      testInput,
-      mockTextAnalysisServiceAdapter
-    );
-
-    const secondResult = calculateIssuePriorityScore(
-      testInput,
-      mockTextAnalysisServiceAdapter
-    );
-
-    expect(firstResult.priorityScore).toBe(secondResult.priorityScore);
-    expect(firstResult.priorityScore).toEqual(secondResult.priorityScore);
-    expect(firstResult.priorityRank).toBe(secondResult.priorityRank);
-    expect(firstResult.scoreBreakdown.frequencyScore).toBe(
-      secondResult.scoreBreakdown.frequencyScore
-    );
-    expect(firstResult.scoreBreakdown.impactScore).toBe(
-      secondResult.scoreBreakdown.impactScore
-    );
-    expect(firstResult.scoreBreakdown.resolutionDifficultyScore).toBe(
-      secondResult.scoreBreakdown.resolutionDifficultyScore
-    );
+    expect(() =>
+      validateReportInput(
+        reportSubmissionTime,
+        modificationAttemptTime,
+        morningMeetingStartTime,
+        modificationDeadlineMinutes,
+      ),
+    ).toThrow(/修正可能期間は1分以上で設定してください/);
   });
 });

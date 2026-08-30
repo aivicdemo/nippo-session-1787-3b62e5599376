@@ -1,18 +1,17 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { submitReport, type ValidationError } from "../../src/logic/report-submission-management";
 
-describe('日報暗号化・復号化機能', () => {
-  // SCEN-184: [error] 日報暗号化・復号化機能 - ユーザー ID が空文字列のとき権限判定がエラーになる
-  test('ユーザーIDが空文字列のとき、権限判定エラーをスロー', () => {
-    const input = {
-      reporterId: 'reporter-001',
-      reportDate: new Date('2024-01-15T09:00:00Z'),
-      yesterdayAccomplishment: '前日実績を記述',
-      todayPlan: '本日予定を記述',
-      challenges: '抱えている課題を記述',
-      encryptionKeyId: 'key-001',
-      executorUserId: '',
+describe("朝会報告管理システム - 日報送信", () => {
+  // SCEN-184
+  test("エンジニアが日報を送信する際、抱えている課題が空またはスペースのみのときは送信を拒否し、エラーメッセージを表示する", () => {
+    const inputData = {
+      reporterId: "engineer-001",
+      teamId: "team-A",
+      reportDate: new Date("2024-01-15"),
+      yesterdayAccomplishment: "昨日完了したタスク",
+      todayPlan: "今日実施する予定",
+      issuesAndConcerns: "",
     };
 
-    expect(() => encryptDailyReportData(input)).toThrow(/ユーザーID/);
+    expect(() => submitReport(inputData)).toThrow(/抱えている課題/);
   });
 });

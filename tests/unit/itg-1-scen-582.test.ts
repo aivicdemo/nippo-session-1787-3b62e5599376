@@ -1,29 +1,20 @@
-import { calculateIssuePriorityScore, type IssuePriorityScoringInput, type IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { conductEngineerGroupTraining } from '../../src/logic/adoption-training-management';
 
-describe('課題の影響度判定と優先度スコア計算', () => {
-  // SCEN-582: [error] 課題優先度判定機能 - チームIDがnullのとき優先度判定エラーが発生する
-  test('チームIDがnullの場合、エラーを発生させて外部サービスを呼び出さない', () => {
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-
-    const inputWithNullTeamId: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが頻発している',
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: null as any,
-    };
+describe('朝会報告管理システム - エンジニア集合研修実施', () => {
+  // SCEN-582
+  test('エンジニアIDが空文字列のときエラーをスローする', () => {
+    const trainingSessionId = 'session-001';
+    const engineerIds = ['eng-001', '', 'eng-003', 'eng-004', 'eng-005', 'eng-006', 'eng-007', 'eng-008', 'eng-009', 'eng-010'];
+    const trainingDate = new Date('2024-01-15T10:00:00Z');
+    const practiceEnvironmentUrl = 'https://practice.example.com/app';
 
     expect(() => {
-      calculateIssuePriorityScore(inputWithNullTeamId, mockTextAnalysisService);
-    }).toThrow(/チームID/);
-
-    expect(mockTextAnalysisService.assessImpactScore).not.toHaveBeenCalled();
+      conductEngineerGroupTraining({
+        trainingSessionId,
+        engineerIds,
+        trainingDate,
+        practiceEnvironmentUrl,
+      });
+    }).toThrow(/エンジニアID/);
   });
 });

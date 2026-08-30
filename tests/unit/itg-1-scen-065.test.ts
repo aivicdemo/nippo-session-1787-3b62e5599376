@@ -1,30 +1,83 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { formatIssueListWithColorCoding } from "../../src/logic/dashboard-presentation";
 
-describe('Daily Report Submission - Timestamp Recording and Deadline Judgment', () => {
-  // SCEN-065: [normal] 日報送信タイムスタンプ記録と期限判定機能 - 記録されたタイムスタンプが朝会開始時刻より後の場合、期限内判定が false を返す
-  test('should record submission timestamp and return isWithinDeadline as false when submitted after morning meeting start time', () => {
-    const morningMeetingStartTime = new Date('2024-01-15T09:00:00Z');
-    const submissionTimestamp = new Date('2024-01-15T09:00:01Z');
-    
-    const input = {
-      reportId: 'report-001',
-      userId: 'user-123',
-      submissionTimestamp: submissionTimestamp,
-      reportContent: {
-        yesterdayAccomplishment: 'Completed feature A development',
-        todayPlan: 'Start feature B testing',
-        challenges: 'Database performance issue affecting deployment'
-      }
-    };
-    
-    const result = submitDailyReport(
-      input,
-      morningMeetingStartTime
-    );
-    
-    expect(result.submissionTimestamp).toEqual(submissionTimestamp);
-    expect(result.isWithinDeadline).toBe(false);
-    expect(result.deadlineComparisonResult.status).toBe('delayed');
-    expect(result.deadlineComparisonResult.minutesBeforeDeadline).toBe(-1);
+describe("Dashboard Presentation - Color Coding", () => {
+  test("SCEN-065: formatIssueListWithColorCoding formats issue list with color codes and highlight flags", () => {
+    // Arrange: Prepare input data with 3 issues
+    const inputIssues = [
+      {
+        issueId: "ISSUE001",
+        issueContent: "ログイン機能の遅延",
+        priorityScore: 85,
+        impactDegree: 9,
+        frequency: 8,
+      },
+      {
+        issueId: "ISSUE002",
+        issueContent: "日報送信エラーの発生",
+        priorityScore: 72,
+        impactDegree: 7,
+        frequency: 5,
+      },
+      {
+        issueId: "ISSUE003",
+        issueContent: "確認メール遅延",
+        priorityScore: 55,
+        impactDegree: 4,
+        frequency: 3,
+      },
+    ];
+
+    const highlightThresholdScore = 70;
+    const colorScheme = "standard" as const;
+
+    // Act: Call formatIssueListWithColorCoding
+    const result = formatIssueListWithColorCoding({
+      issues: inputIssues,
+      highlightThresholdScore,
+      colorScheme,
+    });
+
+    // Assert: Verify coloredIssues array
+    expect(result.coloredIssues).toHaveLength(3);
+
+    // Issue 1: priorityScore=85 → high → red, isHighlighted=true
+    expect(result.coloredIssues[0]).toEqual({
+      issueId: "ISSUE001",
+      issueContent: "ログイン機能の遅延",
+      priorityScore: 85,
+      colorCode: "#FF0000",
+      priorityRank: "high",
+      isHighlighted: true,
+    });
+
+    // Issue 2: priorityScore=72 → medium → yellow, isHighlighted=true
+    expect(result.coloredIssues[1]).toEqual({
+      issueId: "ISSUE002",
+      issueContent: "日報送信エラーの発生",
+      priorityScore: 72,
+      colorCode: "#FFFF00",
+      priorityRank: "medium",
+      isHighlighted: true,
+    });
+
+    // Issue 3: priorityScore=55 → low → green, isHighlighted=false
+    expect(result.coloredIssues[2]).toEqual({
+      issueId: "ISSUE003",
+      issueContent: "確認メール遅延",
+      priorityScore: 55,
+      colorCode: "#00FF00",
+      priorityRank: "low",
+      isHighlighted: false,
+    });
+
+    // Assert: Verify colorDistribution (1 red, 1 yellow, 1 green)
+    expect(result.colorDistribution).toEqual({
+      red: 1,
+      yellow: 1,
+      green: 1,
+    });
+
+    // Assert: Verify highlightedIssueCount (2 issues with priorityScore >= 70)
+    expect(result.highlightedIssueCount).toBe(2);
   });
 });

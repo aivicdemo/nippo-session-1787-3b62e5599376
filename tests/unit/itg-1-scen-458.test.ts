@@ -1,57 +1,126 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { generateMonthlyAnalysisReport } from '../../src/logic/monthly-analysis-report';
 
-describe('Issue extraction and ranking - threshold filtering', () => {
-  // SCEN-458: [edge] 課題自動抽出・優先度判定機能 - 抽出された課題キーワードの出現頻度が閾値未満の場合、優先度スコアに含められない
-  test('should exclude keywords with frequency below threshold from priority score calculation', async () => {
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          { keyword: '遅延', frequency: 2 },
-          { keyword: 'バグ', frequency: 1 }
-        ],
-        threshold: 5
-      }),
-      assessImpactScore: jest.fn().mockResolvedValue({
-        keyword: 'placeholder',
-        impactScore: 0
-      }),
-      classifyIssueSeverity: jest.fn().mockResolvedValue({
-        keyword: 'placeholder',
-        severity: 'low'
-      })
+describe('朝会報告管理システム - 月次分析レポート生成', () => {
+  test('SCEN-458: topChallengesCountが0またはnullのときデフォルト値5件で上位課題を抽出', () => {
+    const testChallenges = [
+      {
+        challengeId: 'ch-001',
+        title: 'Challenge 1',
+        priorityScore: 100,
+        frequency: 10,
+        impactLevel: 'high'
+      },
+      {
+        challengeId: 'ch-002',
+        title: 'Challenge 2',
+        priorityScore: 90,
+        frequency: 9,
+        impactLevel: 'high'
+      },
+      {
+        challengeId: 'ch-003',
+        title: 'Challenge 3',
+        priorityScore: 80,
+        frequency: 8,
+        impactLevel: 'medium'
+      },
+      {
+        challengeId: 'ch-004',
+        title: 'Challenge 4',
+        priorityScore: 70,
+        frequency: 7,
+        impactLevel: 'medium'
+      },
+      {
+        challengeId: 'ch-005',
+        title: 'Challenge 5',
+        priorityScore: 60,
+        frequency: 6,
+        impactLevel: 'medium'
+      },
+      {
+        challengeId: 'ch-006',
+        title: 'Challenge 6',
+        priorityScore: 50,
+        frequency: 5,
+        impactLevel: 'low'
+      }
+    ];
+
+    const input = {
+      targetMonth: '2024-01',
+      challengeData: testChallenges,
+      topChallengesCount: 0,
+      minimumPriorityThreshold: 0,
+      teamIds: ['team-001']
     };
 
-    const reportText = 'システム遅延が発生。バグ修正中。';
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-01T00:00:00Z');
-    const endDate = new Date('2024-01-31T23:59:59Z');
-    const minFrequencyThreshold = 5;
-    const requestUserId = 'user-001';
+    const resultWithZero = generateMonthlyAnalysisReport(input);
 
-    const result = await extractAndRankIssueKeywords(
-      {
-        teamId,
-        startDate,
-        endDate,
-        minFrequencyThreshold,
-        requestUserId
-      },
-      mockTextAnalysisService
-    );
+    expect(resultWithZero.selectedChallenges).toHaveLength(5);
+    expect(resultWithZero.selectedChallenges[0]).toMatchObject({
+      challengeId: 'ch-001',
+      priorityScore: 100,
+      reportingRank: 1
+    });
+    expect(resultWithZero.selectedChallenges[1]).toMatchObject({
+      challengeId: 'ch-002',
+      priorityScore: 90,
+      reportingRank: 2
+    });
+    expect(resultWithZero.selectedChallenges[2]).toMatchObject({
+      challengeId: 'ch-003',
+      priorityScore: 80,
+      reportingRank: 3
+    });
+    expect(resultWithZero.selectedChallenges[3]).toMatchObject({
+      challengeId: 'ch-004',
+      priorityScore: 70,
+      reportingRank: 4
+    });
+    expect(resultWithZero.selectedChallenges[4]).toMatchObject({
+      challengeId: 'ch-005',
+      priorityScore: 60,
+      reportingRank: 5
+    });
 
-    expect(mockTextAnalysisService.extractKeywords).toHaveBeenCalled();
-    expect(mockTextAnalysisService.assessImpactScore).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keywords: expect.not.arrayContaining([
-          expect.objectContaining({ keyword: '遅延' }),
-          expect.objectContaining({ keyword: 'バグ' })
-        ])
-      })
-    );
+    const inputWithNull = {
+      targetMonth: '2024-01',
+      challengeData: testChallenges,
+      topChallengesCount: null,
+      minimumPriorityThreshold: 0,
+      teamIds: ['team-001']
+    };
 
-    expect(result.keywords).toEqual([]);
-    expect(result.totalKeywordCount).toBe(2);
-    expect(result.extractedAt).toEqual(expect.any(Date));
-    expect(result.analysisperiodDays).toBe(31);
+    const resultWithNull = generateMonthlyAnalysisReport(inputWithNull);
+
+    expect(resultWithNull.selectedChallenges).toHaveLength(5);
+    expect(resultWithNull.selectedChallenges[0]).toMatchObject({
+      challengeId: 'ch-001',
+      priorityScore: 100,
+      reportingRank: 1
+    });
+    expect(resultWithNull.selectedChallenges[1]).toMatchObject({
+      challengeId: 'ch-002',
+      priorityScore: 90,
+      reportingRank: 2
+    });
+    expect(resultWithNull.selectedChallenges[2]).toMatchObject({
+      challengeId: 'ch-003',
+      priorityScore: 80,
+      reportingRank: 3
+    });
+    expect(resultWithNull.selectedChallenges[3]).toMatchObject({
+      challengeId: 'ch-004',
+      priorityScore: 70,
+      reportingRank: 4
+    });
+    expect(resultWithNull.selectedChallenges[4]).toMatchObject({
+      challengeId: 'ch-005',
+      priorityScore: 60,
+      reportingRank: 5
+    });
+
+    expect(resultWithZero.selectedChallenges).toEqual(resultWithNull.selectedChallenges);
   });
 });

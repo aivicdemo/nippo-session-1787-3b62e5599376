@@ -1,20 +1,16 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('Report Submission with Null Developer ID', () => {
-  // SCEN-260: [error] 報告送信時刻の遅延判定機能 - 開発エンジニアの ID が null のとき、エラーが発生して処理が進まない
-  test('should throw ValidationError when developer ID is null', () => {
-    const reportData = {
-      reportId: 'report-001',
-      userId: null as unknown as string,
-      teamId: 'team-001',
-      submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-      reportContent: {
-        yesterdayAccomplishment: '機能A実装',
-        todayPlan: 'テスト実施',
-        challenges: 'パフォーマンス課題'
-      }
+describe('Priority Scoring Engine - calculatePriorityScoreForIssue', () => {
+  // SCEN-260: [error] 発生回数が負の数のときエラーが発生する
+  test('should throw InvalidIssueDataError when frequency is negative', () => {
+    const input = {
+      issueId: 'ISSUE-001',
+      frequency: -5,
+      impactScore: 75,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
     };
 
-    expect(() => submitDailyReport(reportData)).toThrow(/userId|developer|required/i);
+    expect(() => calculatePriorityScoreForIssue(input)).toThrow(/発生頻度/);
   });
 });

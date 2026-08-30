@@ -1,68 +1,34 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveReport } from '../../src/logic/report-persistence';
+import type { SaveReportInput, SaveReportOutput } from '../../src/logic/report-persistence';
 
-describe('課題の影響度を判定し優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-606: [normal] 課題優先度スコア計算機能 - 計算された優先度スコアに基づいて課題が降順で並べられる
-  test('複数の課題に対して優先度スコアを計算し、降順で整列する', () => {
-    const issueA = {
-      issueId: 'issue-A',
-      issueContent: 'データベース接続エラーが頻発している',
-      occurrenceFrequency: 3,
-      impactScore: 85,
-      affectedTeamCount: 8,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001'
+describe('朝会報告管理システム - 日報永続化', () => {
+  // SCEN-606: [normal] 日報データを受け取り、暗号化して永続化層に保存し、送信時刻を記録する
+  test('should encrypt and persist daily report with submission timestamp', async () => {
+    const input: SaveReportInput = {
+      reporterId: 'ENG001',
+      teamId: 'TEAM-A',
+      reportDate: new Date('2026-01-15T00:00:00Z'),
+      yesterdayAccomplishment: '昨日は機能Aの実装を完了',
+      todayPlan: '本日は機能Bのレビューを予定',
+      issuesAndConcerns: 'データベース接続のタイムアウト問題を抱えている',
+      attachmentUrls: [],
     };
 
-    const issueB = {
-      issueId: 'issue-B',
-      issueContent: 'ドキュメント更新が遅延している',
-      occurrenceFrequency: 1,
-      impactScore: 45,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 5,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001'
+    const expectedOutput: SaveReportOutput = {
+      reportId: 'RPT-20260115-001',
+      submissionTimestamp: new Date('2026-01-15T09:30:45.000Z'),
+      encryptionStatus: 'encrypted',
     };
 
-    const issueC = {
-      issueId: 'issue-C',
-      issueContent: 'ビルド失敗が断続的に発生',
-      occurrenceFrequency: 2,
-      impactScore: 60,
-      affectedTeamCount: 5,
-      resolutionDaysAverage: 3,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001'
-    };
+    const result = await saveReport(input);
 
-    const results = [
-      calculateIssuePriorityScore(issueA),
-      calculateIssuePriorityScore(issueB),
-      calculateIssuePriorityScore(issueC)
-    ];
-
-    const sortedResults = results.sort((a, b) => b.priorityScore - a.priorityScore);
-
-    expect(sortedResults[0].issueId).toBe('issue-A');
-    expect(sortedResults[0].priorityScore).toBe(85);
-    expect(sortedResults[0].priorityRank).toBe('高');
-    expect(sortedResults[0].colorCode).toBe('#FF0000');
-
-    expect(sortedResults[1].issueId).toBe('issue-C');
-    expect(sortedResults[1].priorityScore).toBe(60);
-    expect(sortedResults[1].priorityRank).toBe('中');
-    expect(sortedResults[1].colorCode).toBe('#FFFF00');
-
-    expect(sortedResults[2].issueId).toBe('issue-B');
-    expect(sortedResults[2].priorityScore).toBe(45);
-    expect(sortedResults[2].priorityRank).toBe('中');
-    expect(sortedResults[2].colorCode).toBe('#FFFF00');
-
-    expect(sortedResults[0].scoreBreakdown).toHaveProperty('frequencyScore');
-    expect(sortedResults[0].scoreBreakdown).toHaveProperty('impactScore');
-    expect(sortedResults[0].scoreBreakdown).toHaveProperty('resolutionDifficultyScore');
-
-    expect(sortedResults[0].calculatedAt).toBeDefined();
+    expect(result.reportId).toBe(expectedOutput.reportId);
+    expect(result.encryptionStatus).toBe(expectedOutput.encryptionStatus);
+    expect(result.submissionTimestamp).toEqual(
+      expect.any(Date),
+    );
+    expect(result.submissionTimestamp.getTime()).toBeGreaterThanOrEqual(
+      expectedOutput.submissionTimestamp.getTime(),
+    );
   });
 });

@@ -1,32 +1,41 @@
-import { calculateIssuePriorityScore, type IssuePriorityScoringInput, type IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { verifyAdoptionReadiness } from '../../src/logic/adoption-training-management';
 
-describe('課題の影響度判定と優先度スコア算出', () => {
-  // SCEN-594: [edge] 課題優先度判定機能 - 影響度スコアが74（高位の閾値直下）の場合、優先度ランクが中に判定される
-  test('影響度スコア74のとき優先度ランクが中に判定される', () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: 'ISSUE-001',
-      issueContent: 'データベース接続エラー',
-      occurrenceFrequency: 5,
-      impactScore: 74,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'TEAM-A',
+describe('朝会報告管理システム', () => {
+  // SCEN-594
+  test('[error] 初回テスト報告データから提出率・データ品質スコア・形式統一度を計算し、3条件すべて満たすかを判定して本格運用への移行可否を決定する。 - 品質スコアが計算不可能なほどデータが不正なときという明示された境界条件で日報データが不正です。再度入力してください', () => {
+    const invalidReportData = {
+      reportId: 'report-001',
+      engineerId: 'eng-001',
+      yesterdayWork: null,
+      todayWork: 'planned task',
+      issues: 'some issue',
     };
 
-    const output: IssuePriorityScoringOutput = calculateIssuePriorityScore(input);
+    const validReportData = {
+      reportId: 'report-002',
+      engineerId: 'eng-002',
+      yesterdayWork: 'completed task',
+      todayWork: 'planned task',
+      issues: 'some issue',
+    };
 
-    expect(output.issueId).toBe('ISSUE-001');
-    expect(output.priorityRank).toBe('中');
-    expect(output.priorityScore).toBeGreaterThanOrEqual(40);
-    expect(output.priorityScore).toBeLessThan(70);
-    expect(output.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(output.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(output.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(0);
-    expect(output.scoreBreakdown.impactScore).toBeLessThanOrEqual(40);
-    expect(output.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(output.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
-    expect(output.colorCode).toBe('#FFFF00');
-    expect(typeof output.calculatedAt).toBe('string');
+    const initialReportDataset = [invalidReportData, validReportData];
+    const totalEngineerCount = 2;
+    const submissionDeadline = new Date('2024-01-15T09:30:00Z');
+
+    const evaluationCriteria = {
+      minQualityScore: 70,
+      minFormatUnificationDegree: 85,
+      minSubmissionRate: 90,
+    };
+
+    expect(() =>
+      verifyAdoptionReadiness(
+        initialReportDataset as any,
+        totalEngineerCount,
+        submissionDeadline,
+        evaluationCriteria
+      )
+    ).toThrow(/日報データが不正です/);
   });
 });

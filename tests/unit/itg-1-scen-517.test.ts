@@ -1,36 +1,44 @@
-import { describe, test, expect } from '@jest/globals';
-import { prioritizeAndColorizeIssues } from '../../src/logic/issue-extraction-prioritization';
-import type { PrioritizeAndColorizeIssuesInput, ColorizedIssueList } from '../../src/logic/issue-extraction-prioritization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
+import { type AccessPermissionResult, type DataFilterSet } from '../../src/logic/access-control-and-permissions';
 
-describe('課題ダッシュボード表示機能 - 色分け・ハイライト処理', () => {
-  // SCEN-517: [edge] 課題ダッシュボード表示機能 - 優先度スコアが最高値100で赤色ハイライトが適用される
-  test('should apply red highlight color code when priority score is 100', () => {
-    const input: PrioritizeAndColorizeIssuesInput = {
-      issues: [
-        {
-          issueId: 'issue-001',
-          priorityScore: 100,
-          keyword: '本番システム停止',
-          impactLevel: 'high'
-        }
-      ],
-      colorThresholds: {
-        redThresholdMin: 70,
-        yellowThresholdMin: 40
-      },
-      requestedBy: 'user-dept-manager-001'
+describe('Access Control and Permissions - judgeAccessPermission', () => {
+  test('SCEN-517: [normal] judgeAccessPermissionが設計された計算式の代表値を返す', () => {
+    // Arrange
+    const userId = 'user-001';
+    const resourceType = 'report';
+    const operation = 'view';
+    const targetTeamId = 'team-A';
+    const confidentialityLevel = 'internal';
+
+    const input: AccessPermissionRequest = {
+      userId,
+      resourceType,
+      operation,
+      targetTeamId,
+      confidentialityLevel
     };
 
-    const result: ColorizedIssueList = prioritizeAndColorizeIssues(input);
+    // Act
+    const result: AccessPermissionResult = judgeAccessPermission(input);
 
-    expect(result.colorizedIssues).toHaveLength(1);
-    expect(result.colorizedIssues[0].issueId).toBe('issue-001');
-    expect(result.colorizedIssues[0].priorityScore).toBe(100);
-    expect(result.colorizedIssues[0].highlightColor).toBe('red');
-    expect(result.colorizedIssues[0].shouldHighlight).toBe(true);
-    expect(result.colorDistribution.red).toBe(1);
-    expect(result.colorDistribution.yellow).toBe(0);
-    expect(result.colorDistribution.green).toBe(0);
-    expect(result.processedAt).toBeDefined();
+    // Assert
+    // isPermittedフィールドの確認
+    expect(result.isPermitted).toBe(true);
+
+    // userRoleフィールドの確認
+    expect(result.userRole).toBe('manager');
+
+    // denialReasonフィールドの確認
+    expect(result.denialReason).toBeNull();
+
+    // applicableDataFiltersフィールドの確認 - DataFilterSet型のオブジェクトが返されることを確認
+    expect(result.applicableDataFilters).toBeDefined();
+    expect(result.applicableDataFilters).not.toBeNull();
+
+    if (result.applicableDataFilters !== null && result.applicableDataFilters !== undefined) {
+      // 同一チームのデータフィルターが適用されていることを確認
+      expect(result.applicableDataFilters.visibleTeamIds).toContain('team-A');
+      expect(result.applicableDataFilters.viewOnlyMode).toBe(false);
+    }
   });
 });

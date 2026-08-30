@@ -1,55 +1,88 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { planAdoptionSchedule } from '../../src/logic/adoption-training-management';
 
-describe('提出状況リアルタイム表示機能', () => {
-  // SCEN-115
-  test('朝会開始予定時刻の5分前より1秒手前の時点では、提出状況表示がトリガーされない', () => {
-    // 朝会開始予定時刻: 2024-01-15T09:00:00Z
-    // 5分前: 2024-01-15T08:55:00Z
-    // テスト時刻: 5分前より1秒手前 = 2024-01-15T08:54:59Z
-    const morningMeetingStartTime = new Date('2024-01-15T09:00:00Z');
-    const testCurrentTime = new Date('2024-01-15T08:54:59Z');
-    const fiveMinutesBeforeStart = new Date(morningMeetingStartTime.getTime() - 5 * 60 * 1000); // 08:55:00Z
+describe('朝会報告管理システム - 導入計画スケジュール策定', () => {
+  // SCEN-115: [normal] 導入計画の参加者リストと最小準備期間を入力し、スケジュール策定の基準を確定する
+  test('planAdoptionScheduleが代表的な正常入力を設計どおり処理する', () => {
+    const participantList = [
+      { role: '部長', userId: 'user-001', userName: 'Manager A' },
+      { role: 'PM', userId: 'user-002', userName: 'PM B' },
+      { role: 'エンジニア代表', userId: 'user-003', userName: 'Engineer C' }
+    ];
+    const minimumPreparationDaysInBusinessDays = 10;
+    const targetAdoptionStartDate = '2026-09-15';
+    const executorUserId = 'pm-user-001';
 
-    // テスト時刻がトリガー時刻より前であることを確認
-    expect(testCurrentTime.getTime()).toBeLessThan(fiveMinutesBeforeStart.getTime());
+    const result = planAdoptionSchedule({
+      participantList,
+      minimumPreparationDaysInBusinessDays,
+      targetAdoptionStartDate,
+      executorUserId
+    });
 
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-dept-head-001',
-      includeDelayedSubmissions: true,
-    };
+    // scheduleId: null以外の文字列値
+    expect(typeof result.scheduleId).toBe('string');
+    expect(result.scheduleId.length).toBeGreaterThan(0);
 
-    // 朝会開始の5分前より1秒手前では、提出状況集計が実行されるが、
-    // リアルタイムトリガー（朝会5分前到達の判定）はまだ発動していない状態を検証
-    const result: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(input);
+    // confirmedParticipants: 入力されたparticipantListと同じ3名
+    expect(result.confirmedParticipants).toHaveLength(3);
+    expect(result.confirmedParticipants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: '部長',
+          userId: 'user-001',
+          userName: 'Manager A'
+        }),
+        expect.objectContaining({
+          role: 'PM',
+          userId: 'user-002',
+          userName: 'PM B'
+        }),
+        expect.objectContaining({
+          role: 'エンジニア代表',
+          userId: 'user-003',
+          userName: 'Engineer C'
+        })
+      ])
+    );
 
-    // 結果オブジェクトが返される（集計自体は実行される）
-    expect(result).toBeDefined();
-    expect(result.teamId).toBe('team-001');
-    expect(result.reportDate).toBe('2024-01-15');
-    expect(typeof result.totalMembers).toBe('number');
-    expect(typeof result.submittedCount).toBe('number');
-    expect(typeof result.unsubmittedCount).toBe('number');
-    expect(typeof result.delayedSubmissionCount).toBe('number');
-    expect(typeof result.submissionRate).toBe('number');
-    expect(Array.isArray(result.unsubmittedMembers)).toBe(true);
-    expect(result.aggregatedAt).toBeDefined();
+    // adoptionStartDate: 入力値と一致
+    expect(result.adoptionStartDate).toBe('2026-09-15');
 
-    // 重要な検証: テスト時刻が朝会開始の5分前に達していないため、
-    // リアルタイム表示トリガーは発動していない（通常の集計のみ実行）
-    // つまり、aggregateReportSubmissionStatus の戻り値は
-    // 「トリガー済みの自動通知なし」の状態を示す
-    // この検証は、result が集計結果を持つが、
-    // トリガー時刻判定ロジックが呼び出し時刻をチェックして
-    // まだトリガー条件に達していないことを示す
-    const currentTimeAsString = testCurrentTime.toISOString();
-    const fiveMinutesBeforeAsString = fiveMinutesBeforeStart.toISOString();
+    // calculatedPreparationEndDate: targetAdoptionStartDateから営業日ベースで10営業日遡った日付
+    // 2026-09-15から営業日で10日遡ると、2026-09-01（火曜）になる想定
+    expect(result.calculatedPreparationEndDate).toBe('2026-09-01');
 
-    // テスト時刻がトリガー時刻より前であることを数値で再確認
-    expect(new Date(currentTimeAsString).getTime()).toBeLessThan(
-      new Date(fiveMinutesBeforeAsString).getTime()
+    // milestones: 最低4つのマイルストーン
+    expect(result.milestones.length).toBeGreaterThanOrEqual(4);
+
+    // 各マイルストーンがname、scheduledDate、targetParticipantRolesフィールドを持つ
+    result.milestones.forEach((milestone) => {
+      expect(milestone).toHaveProperty('milestoneName');
+      expect(milestone).toHaveProperty('scheduledDate');
+      expect(milestone).toHaveProperty('targetParticipantRoles');
+      expect(typeof milestone.milestoneName).toBe('string');
+      expect(typeof milestone.scheduledDate).toBe('string');
+      expect(Array.isArray(milestone.targetParticipantRoles)).toBe(true);
+    });
+
+    // マイルストーンが計画期間内に配置されていることを確認
+    result.milestones.forEach((milestone) => {
+      const scheduledDate = new Date(milestone.scheduledDate);
+      const prepEndDate = new Date(result.calculatedPreparationEndDate);
+      const adoptStartDate = new Date(result.adoptionStartDate);
+      expect(scheduledDate.getTime()).toBeGreaterThanOrEqual(prepEndDate.getTime());
+      expect(scheduledDate.getTime()).toBeLessThanOrEqual(adoptStartDate.getTime());
+    });
+
+    // ガイド作成、部長研修、全員研修、初回テスト報告が含まれていることを確認
+    const milestoneNames = result.milestones.map((m) => m.milestoneName);
+    expect(milestoneNames).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/ガイド作成|guide|Guide/i),
+        expect.stringMatching(/部長研修|manager.*training|Manager.*Training/i),
+        expect.stringMatching(/全員研修|engineer.*training|Engineer.*Training|group.*training/i),
+        expect.stringMatching(/初回テスト報告|initial.*report|Initial.*Report/i)
+      ])
     );
   });
 });

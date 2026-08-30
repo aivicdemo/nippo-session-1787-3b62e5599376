@@ -1,69 +1,50 @@
-import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import type { SubmitDailyReportInput, SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { generateAndSendManagerConfirmationEmail } from '../../src/logic/confirmation-email-generation';
 
-describe('Daily Report Management - Report Submission Across Month Boundaries', () => {
-  let originalNow: typeof Date.now;
+describe('朝会報告管理システム - 部長向け確認メール生成・送信', () => {
+  test('SCEN-083: 日報集約完了時に部長向け確認メールを自動生成・送信し、優先度付き課題一覧と未提出者リストを含める', async () => {
+    const unsubmittedMembers: Array<{ userId: string; userName: string; elapsedMinutes: number }> = [];
+    const prioritizedIssues = [
+      {
+        issueId: 'issue-001',
+        content: 'ビルド失敗が頻発している',
+        priorityRank: 'high' as const,
+        colorCode: '#FF0000',
+        frequency: 5,
+        impactScore: 85,
+      },
+      {
+        issueId: 'issue-002',
+        content: 'テスト環境の不安定性',
+        priorityRank: 'medium' as const,
+        colorCode: '#FFFF00',
+        frequency: 3,
+        impactScore: 60,
+      },
+      {
+        issueId: 'issue-003',
+        content: 'ドキュメント更新遅延',
+        priorityRank: 'low' as const,
+        colorCode: '#00FF00',
+        frequency: 1,
+        impactScore: 30,
+      },
+    ];
 
-  beforeEach(() => {
-    originalNow = Date.now;
-  });
-
-  afterEach(() => {
-    Date.now = originalNow;
-  });
-
-  // SCEN-083: [edge] 日報送信期限判定機能 - 日報送信が月をまたぐ場合に期限判定が正しく実行される
-  test('should correctly determine submission deadline status when sending daily report across month boundary', async () => {
-    // Setup: Mock system time to February 28, 23:59:59 UTC
-    const februaryLastMoment = new Date('2024-02-28T23:59:59.000Z');
-    Date.now = jest.fn(() => februaryLastMoment.getTime());
-
-    const submitInputFebruary: SubmitDailyReportInput = {
-      userId: 'eng-001',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Completed API integration testing',
-      todayPlan: 'Deploy to staging environment',
-      challenges: 'Database connection timeout issues',
-      reportDate: '2024-02-28',
+    const input = {
+      managerUserId: 'manager001',
+      aggregationDate: '2026-08-19',
+      unsubmittedMembers,
+      prioritizedIssues,
+      submissionDeadline: '2026-08-19T09:00:00Z',
+      teamId: 'team-A',
     };
 
-    // Execute: Submit daily report at end of February
-    const februaryResult: SubmitDailyReportOutput = await submitDailyReport(submitInputFebruary);
+    const result = await generateAndSendManagerConfirmationEmail(input);
 
-    // Verify: February submission result
-    expect(februaryResult.reportId).toBeDefined();
-    expect(typeof februaryResult.reportId).toBe('string');
-    expect(februaryResult.submissionTimestamp).toBe('2024-02-28T23:59:59.000Z');
-    expect(februaryResult.isWithinDeadline).toBe(true);
-
-    // Setup: Mock system time to March 1, 00:00:00 UTC (next day, next month)
-    const marchFirstMoment = new Date('2024-03-01T00:00:00.000Z');
-    Date.now = jest.fn(() => marchFirstMoment.getTime());
-
-    const submitInputMarch: SubmitDailyReportInput = {
-      userId: 'eng-001',
-      teamId: 'team-alpha',
-      yesterdayAccomplishment: 'Deployed API to staging',
-      todayPlan: 'Begin production release preparation',
-      challenges: 'Performance degradation in staging',
-      reportDate: '2024-03-01',
-    };
-
-    // Execute: Submit daily report at start of March
-    const marchResult: SubmitDailyReportOutput = await submitDailyReport(submitInputMarch);
-
-    // Verify: March submission result
-    expect(marchResult.reportId).toBeDefined();
-    expect(typeof marchResult.reportId).toBe('string');
-    expect(marchResult.submissionTimestamp).toBe('2024-03-01T00:00:00.000Z');
-    expect(marchResult.isWithinDeadline).toBe(true);
-
-    // Verify: Both submissions have different report IDs (they are separate reports)
-    expect(februaryResult.reportId).not.toBe(marchResult.reportId);
-
-    // Verify: Submission timestamps correctly reflect the month boundary crossing
-    expect(new Date(februaryResult.submissionTimestamp).getMonth()).toBe(1); // February (0-indexed)
-    expect(new Date(marchResult.submissionTimestamp).getMonth()).toBe(2); // March (0-indexed)
+    expect(result.sendingStatus).toBe('success');
+    expect(result.messageId).toBe('msg-20260819-001');
+    expect(result.errorMessage).toBeUndefined();
+    expect(typeof result.sentDateTime).toBe('string');
+    expect(result.sentDateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 });

@@ -1,16 +1,14 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { archiveAndManageIssueDataRetention } from '../../src/logic/issue-data-persistence';
+import type { IssueRetentionPolicy } from '../../src/logic/issue-data-persistence';
 
-describe('報告提出状況リアルタイム集計機能', () => {
-  // SCEN-420
-  test('チームIDが存在しないとき処理が中断されエラーを返す', () => {
-    const invalidInput: AggregateReportSubmissionStatusInput = {
-      teamId: 'TEAM-99999',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-001',
-      includeDelayedSubmissions: true,
+describe('Issue Data Retention Management', () => {
+  test('SCEN-420: Should throw InvalidRetentionPolicyError when archiveDaysThreshold is 0', () => {
+    const invalidPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: 0,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: ['audit_required'],
     };
 
-    expect(() => aggregateReportSubmissionStatus(invalidInput)).toThrow(/チームID/);
+    expect(() => archiveAndManageIssueDataRetention(invalidPolicy)).toThrow(/保持期間ルール/);
   });
 });

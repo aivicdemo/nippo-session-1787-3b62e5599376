@@ -1,39 +1,20 @@
-import { submitDailyReport } from "../../src/logic/daily-report-management";
-import { type SubmitDailyReportInput, type SubmitDailyReportOutput } from "../../src/logic/daily-report-management";
+import { formatIssueListWithColorCoding } from "../../src/logic/dashboard-presentation";
 
-describe("Daily Report Submission - Submission Timestamp Null Error", () => {
+describe("formatIssueListWithColorCoding", () => {
   // SCEN-067
-  test("should return error when submission timestamp is null", async () => {
-    const input: SubmitDailyReportInput = {
-      userId: "user-001",
-      teamId: "team-001",
-      yesterdayAccomplishment: "Completed API integration testing",
-      todayPlan: "Deploy to staging environment",
-      challenges: "Database connection timeout issues",
-      reportDate: "2024-01-15",
-    };
+  test("should throw EmptyIssueListError when issues array is empty", () => {
+    const emptyIssues: Array<{
+      issueId: string;
+      issueContent: string;
+      priorityScore: number;
+      impactDegree: number;
+      frequency: number;
+    }> = [];
 
-    const mockNotificationAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
-
-    const mockGetCurrentTimestamp = jest.fn().mockReturnValue(null);
-
-    let errorThrown: Error | null = null;
-    try {
-      await submitDailyReport(
-        input,
-        mockNotificationAdapter,
-        mockGetCurrentTimestamp
-      );
-    } catch (error) {
-      errorThrown = error as Error;
-    }
-
-    expect(errorThrown).not.toBeNull();
-    expect(errorThrown?.message).toMatch(/E001_SUBMISSION_TIMESTAMP_NULL/);
-    expect(mockNotificationAdapter.sendReminderNotification).not.toHaveBeenCalled();
+    expect(() => {
+      formatIssueListWithColorCoding({
+        issues: emptyIssues,
+      });
+    }).toThrow(/色分け対象の課題が存在しません。/);
   });
 });

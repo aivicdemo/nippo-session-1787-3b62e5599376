@@ -1,37 +1,23 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
+import { type AccessPermissionRequest, type AccessPermissionResult } from '../../src/logic/access-control-and-permissions';
 
-describe('課題の影響度判定と優先度スコア機能', () => {
-  // SCEN-561
-  test('[normal] 課題優先度判定機能 - 同じ日報に対して優先度判定を2回実行した場合、同じ影響度スコアと優先度ランクが返される', () => {
-    const issuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが頻発している',
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-dev-001',
+describe('朝会報告管理システム - アクセス制御と権限管理', () => {
+  // SCEN-561: [error] ユーザーの役割と要求されたリソース・操作に基づいて、アクセス可否を判定し、許可/拒否の結果を返す。 - 経営判断資料が空または内容が不完全なときという明示された境界条件で資料の内容が不完全です。分析完了後に再度実行してください
+  test('経営判断資料が空の場合、アクセス拒否でエラー理由を返す', () => {
+    const request: AccessPermissionRequest = {
+      userId: 'user-exec-001',
+      resourceType: 'analysis_report',
+      operation: 'view',
+      targetTeamId: null,
+      confidentialityLevel: 'executive_only'
     };
 
-    const firstResult = calculateIssuePriorityScore(issuePriorityScoringInput);
-    const secondResult = calculateIssuePriorityScore(issuePriorityScoringInput);
+    const result: AccessPermissionResult = judgeAccessPermission(request);
 
-    expect(firstResult.issueId).toBe('issue-001');
-    expect(firstResult.priorityScore).toBe(secondResult.priorityScore);
-    expect(firstResult.priorityRank).toBe(secondResult.priorityRank);
-    expect(firstResult.priorityRank).toBe('高');
-    expect(firstResult.scoreBreakdown.impactScore).toBe(
-      secondResult.scoreBreakdown.impactScore
-    );
-    expect(firstResult.scoreBreakdown.impactScore).toBe(30);
-    expect(firstResult.scoreBreakdown.frequencyScore).toBe(
-      secondResult.scoreBreakdown.frequencyScore
-    );
-    expect(firstResult.scoreBreakdown.resolutionDifficultyScore).toBe(
-      secondResult.scoreBreakdown.resolutionDifficultyScore
-    );
-    expect(firstResult.colorCode).toBe(secondResult.colorCode);
-    expect(firstResult.colorCode).toBe('#FF0000');
+    expect(result.isPermitted).toBe(false);
+    expect(result.denialReason).toBe('資料の内容が不完全です。分析完了後に再度実行してください');
+    expect(result.userRole).toBe('executive');
+    expect(result.visibleDataScope).toBeNull();
+    expect(result.editableResourceIds).toBeNull();
   });
 });

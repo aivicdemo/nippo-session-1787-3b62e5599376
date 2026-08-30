@@ -1,174 +1,104 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import type { ConfirmationEmailInput, ConfirmationEmailOutput, AggregatedDailyReport } from '../../src/logic/notification-delivery';
+import { generateWeeklyAnalysisReport } from '../../src/logic/weekly-analysis-report';
+import { type WeeklyAnalysisReportInput, type AggregatedWeeklyReportData, type WeeklyReportRecord, type ExtractedIssue } from '../../src/logic/weekly-analysis-report';
 
-const fetchMock = require('jest-fetch-mock');
+describe('generateWeeklyAnalysisReport', () => {
+  // SCEN-432: [normal] 毎週月曜朝に前週（月曜～日曜）の日報データを集約し、課題を抽出・分析して、優先度スコア付きの週次課題傾向レポートを生成する。 - validateAnalysisDataQualityが設計された計算式の代表値を返す
+  test('should generate weekly analysis report with valid data quality metrics when all 50 records are complete', () => {
+    const baseDate = new Date('2024-01-08T00:00:00Z'); // Monday
+    const endDate = new Date('2024-01-14T23:59:59Z');   // Sunday
 
-describe('generateAndSendConfirmationEmail - 課題キーワード自動抽出・確認メール生成配信', () => {
-  beforeEach(() => {
-    fetchMock.resetMocks();
-  });
+    const reportRecords: WeeklyReportRecord[] = [];
+    for (let i = 0; i < 50; i++) {
+      const dayOffset = i % 7;
+      const recordDate = new Date(baseDate);
+      recordDate.setDate(recordDate.getDate() + dayOffset);
 
-  afterEach(() => {
-    fetchMock.resetMocks();
-  });
+      reportRecords.push({
+        reportId: `report_${i}`,
+        employeeId: `emp_${String(Math.floor(i / 7)).padStart(2, '0')}`,
+        reportDate: recordDate.toISOString(),
+        yesterdayWork: `Yesterday work content for record ${i}`,
+        todayPlan: `Today plan content for record ${i}`,
+        issues: `Issue content for record ${i}`,
+        submittedAt: recordDate.toISOString()
+      });
+    }
 
-  // SCEN-432
-  test('10名全員の日報から課題キーワードが1件抽出された場合、その課題を確認メールに含める', async () => {
-    // Arrange: 10名のメンバーから提出された集約済み日報データを構築
-    const aggregatedReports: AggregatedDailyReport[] = [
+    const extractedIssues: ExtractedIssue[] = [
       {
-        reportId: 'report-001',
-        reporterUserId: 'user-001',
-        reporterName: 'Engineer A',
-        yesterdayAccomplishment: 'Feature X implementation completed',
-        todayPlan: 'Unit testing for Feature X',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:30:00Z'),
+        issueId: 'issue_001',
+        issueContent: 'Build failure issue',
+        reporterTeamId: 'team_001',
+        occurrenceCount: 5
       },
       {
-        reportId: 'report-002',
-        reporterUserId: 'user-002',
-        reporterName: 'Engineer B',
-        yesterdayAccomplishment: 'Code review for PRs',
-        todayPlan: 'Integration testing setup',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:32:00Z'),
-      },
-      {
-        reportId: 'report-003',
-        reporterUserId: 'user-003',
-        reporterName: 'Engineer C',
-        yesterdayAccomplishment: 'Documentation update',
-        todayPlan: 'API endpoint verification',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:31:00Z'),
-      },
-      {
-        reportId: 'report-004',
-        reporterUserId: 'user-004',
-        reporterName: 'Engineer D',
-        yesterdayAccomplishment: 'Bug fix in payment module',
-        todayPlan: 'Payment gateway testing',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:33:00Z'),
-      },
-      {
-        reportId: 'report-005',
-        reporterUserId: 'user-005',
-        reporterName: 'Engineer E',
-        yesterdayAccomplishment: 'Performance optimization',
-        todayPlan: 'Cache layer implementation',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:34:00Z'),
-      },
-      {
-        reportId: 'report-006',
-        reporterUserId: 'user-006',
-        reporterName: 'Engineer F',
-        yesterdayAccomplishment: 'Deployment to staging',
-        todayPlan: 'Production readiness check',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:29:00Z'),
-      },
-      {
-        reportId: 'report-007',
-        reporterUserId: 'user-007',
-        reporterName: 'Engineer G',
-        yesterdayAccomplishment: 'Monitoring setup',
-        todayPlan: 'Alert configuration',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:35:00Z'),
-      },
-      {
-        reportId: 'report-008',
-        reporterUserId: 'user-008',
-        reporterName: 'Engineer H',
-        yesterdayAccomplishment: 'Security audit',
-        todayPlan: 'Vulnerability remediation',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:30:45Z'),
-      },
-      {
-        reportId: 'report-009',
-        reporterUserId: 'user-009',
-        reporterName: 'Engineer I',
-        yesterdayAccomplishment: 'Database schema migration',
-        todayPlan: 'Data validation scripts',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:31:30Z'),
-      },
-      {
-        reportId: 'report-010',
-        reporterUserId: 'user-010',
-        reporterName: 'Engineer J',
-        yesterdayAccomplishment: 'Infrastructure provisioning',
-        todayPlan: 'Network configuration',
-        challenges: 'Database connection timeout issue when handling large datasets',
-        submissionDateTime: new Date('2024-01-15T08:32:15Z'),
-      },
+        issueId: 'issue_002',
+        issueContent: 'Deployment delay issue',
+        reporterTeamId: 'team_001',
+        occurrenceCount: 3
+      }
     ];
 
-    const reportDeadlineDateTime = new Date('2024-01-15T09:00:00Z');
-    const managerUserId = 'manager-001';
-    const teamId = 'team-001';
-    const analysisDate = new Date('2024-01-15');
-
-    const input: ConfirmationEmailInput = {
-      reportDeadlineDateTime,
-      aggregatedReports,
-      managerUserId,
-      teamId,
-      analysisDate,
+    const aggregatedData: AggregatedWeeklyReportData = {
+      reportRecords,
+      extractedIssues,
+      dataQualityMetrics: {
+        completenessRate: 1.0,
+        deduplicationRate: 0.95,
+        validityRate: 0.98
+      }
     };
 
-    // Mock TextAnalysisServiceAdapter.extractKeywords to return 1 keyword
-    const mockExtractKeywordsResponse = {
-      keywords: [
-        {
-          keyword: 'Database connection timeout issue',
-          frequency: 10,
-          confidence: 0.95,
-        },
-      ],
+    const input: WeeklyAnalysisReportInput = {
+      analysisStartDate: baseDate,
+      analysisEndDate: endDate,
+      teamId: 'team_001',
+      aggregatedReportData: aggregatedData,
+      minimumRecordCount: 50,
+      minimumDataCompleteness: 0.8
     };
 
-    // Mock TextAnalysisServiceAdapter.assessImpactScore to return impact score
-    const mockAssessImpactScoreResponse = {
-      impactScore: 78,
-      severity: 'HIGH',
-    };
+    const result = generateWeeklyAnalysisReport(input);
 
-    // Mock email sending endpoint
-    fetchMock.mockResponseOnce(
-      JSON.stringify({
-        emailId: 'email-001',
-        sentDateTime: '2024-01-15T09:05:00Z',
-        recipientEmail: 'manager@example.com',
-      }),
-      { status: 200 }
-    );
+    expect(result).toBeDefined();
+    expect(result.reportId).toBeDefined();
+    expect(result.reportId).toMatch(/^report_/);
+    expect(result.aggregationPeriod.startDate).toEqual(baseDate);
+    expect(result.aggregationPeriod.endDate).toEqual(endDate);
+    expect(result.issueRanking).toBeDefined();
+    expect(Array.isArray(result.issueRanking)).toBe(true);
+    expect(result.issueRanking.length).toBeGreaterThan(0);
+    expect(result.priorityScores).toBeDefined();
+    expect(Array.isArray(result.priorityScores)).toBe(true);
+    expect(result.recommendedActions).toBeDefined();
+    expect(Array.isArray(result.recommendedActions)).toBe(true);
+    expect(result.colorCodedIssueList).toBeDefined();
+    expect(Array.isArray(result.colorCodedIssueList)).toBe(true);
+    expect(result.generatedAt).toBeInstanceOf(Date);
 
-    // Act: generateAndSendConfirmationEmail を呼び出す
-    const result: ConfirmationEmailOutput = await generateAndSendConfirmationEmail(input);
+    const firstIssue = result.issueRanking[0];
+    expect(firstIssue).toHaveProperty('issueKeyword');
+    expect(firstIssue).toHaveProperty('frequency');
+    expect(firstIssue).toHaveProperty('rank');
+    expect(firstIssue.rank).toBe(1);
 
-    // Assert: 期待値の検証
-    // (1) 確認メールが正常に生成・送信されたこと
-    expect(result.emailId).toBe('email-001');
-    expect(result.sentDateTime).toEqual(new Date('2024-01-15T09:05:00Z'));
+    const priorityScore = result.priorityScores[0];
+    expect(priorityScore).toHaveProperty('issueKeyword');
+    expect(priorityScore).toHaveProperty('frequencyScore');
+    expect(priorityScore).toHaveProperty('impactScore');
+    expect(priorityScore).toHaveProperty('priorityScore');
+    expect(typeof priorityScore.priorityScore).toBe('number');
+    expect(priorityScore.priorityScore).toBeGreaterThanOrEqual(0);
+    expect(priorityScore.priorityScore).toBeLessThanOrEqual(100);
 
-    // (2) 抽出された課題の件数が1件であること
-    expect(result.extractedIssuesCount).toBe(1);
+    const colorCodedIssue = result.colorCodedIssueList[0];
+    expect(colorCodedIssue).toHaveProperty('issueKeyword');
+    expect(colorCodedIssue).toHaveProperty('displayColor');
+    expect(['red', 'yellow', 'green']).toContain(colorCodedIssue.displayColor);
 
-    // (3) 優先度付き課題リストが1件含まれること
-    expect(result.prioritizedIssuesList).toHaveLength(1);
-    expect(result.prioritizedIssuesList[0].issueName).toBe(
-      'Database connection timeout issue'
-    );
-    expect(result.prioritizedIssuesList[0].impactScore).toBe(78);
-
-    // (4) 提出状況サマリーが正確であること
-    expect(result.submissionStatus.submittedCount).toBe(10);
-    expect(result.submissionStatus.unsubmittedMemberNames).toHaveLength(0);
+    const recommendedAction = result.recommendedActions[0];
+    expect(recommendedAction).toHaveProperty('actionContent');
+    expect(typeof recommendedAction.actionContent).toBe('string');
+    expect(recommendedAction.actionContent.length).toBeGreaterThan(0);
   });
 });

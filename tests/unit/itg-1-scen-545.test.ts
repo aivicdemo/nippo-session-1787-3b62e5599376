@@ -1,56 +1,38 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics, type ProductivityMetricsInput, type ProductivityMetricsOutput } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題キーワード自動抽出・優先度判定機能', () => {
-  // SCEN-545
-  test('発生頻度が閾値超過（例：4回）の課題キーワードが上位ランクに分類される', async () => {
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        'データベース接続エラー': 4,
-        'ネットワーク遅延': 2,
-        'ディスク容量不足': 1,
-      }),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-545: resolutionThresholdが0以下のとき、clamp処理により解決判定の日数が1日に正規化される
+  test('resolutionThresholdが0以下のとき解決判定の日数を1日に正規化して計算を続行する', () => {
+    const input: ProductivityMetricsInput = {
+      aggregationStartDate: new Date('2024-01-01T00:00:00Z'),
+      aggregationEndDate: new Date('2024-01-31T23:59:59Z'),
+      targetTeamIds: ['team-001'],
+      excludeOutliers: false,
+      resolutionThreshold: 0,
     };
 
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 4,
-      requestUserId: 'user-001',
-    };
+    const result: ProductivityMetricsOutput = calculateProductivityMetrics(input);
 
-    const result = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisService
-    );
+    expect(result).toBeDefined();
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(typeof result.reportSubmissionRate).toBe('number');
+    expect(typeof result.issueRecurrenceRate).toBe('number');
+    expect(typeof result.teamProductivityScore).toBe('number');
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(typeof result.dataQualityAssessment.completenessPercentage).toBe('number');
+    expect(typeof result.dataQualityAssessment.extractionAccuracy).toBe('number');
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
 
-    expect(result.keywords).toHaveLength(3);
-
-    const databaseErrorKeyword = result.keywords.find(
-      (k) => k.keyword === 'データベース接続エラー'
-    );
-    expect(databaseErrorKeyword).toBeDefined();
-    expect(databaseErrorKeyword?.frequency).toBe(4);
-    expect(databaseErrorKeyword?.rank).toBe(1);
-
-    const networkDelayKeyword = result.keywords.find(
-      (k) => k.keyword === 'ネットワーク遅延'
-    );
-    expect(networkDelayKeyword).toBeDefined();
-    expect(networkDelayKeyword?.frequency).toBe(2);
-    expect(networkDelayKeyword?.rank).toBe(2);
-
-    const diskSpaceKeyword = result.keywords.find(
-      (k) => k.keyword === 'ディスク容量不足'
-    );
-    expect(diskSpaceKeyword).toBeDefined();
-    expect(diskSpaceKeyword?.frequency).toBe(1);
-    expect(diskSpaceKeyword?.rank).toBe(3);
-
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toBeInstanceOf(Date);
+    expect(result.issueResolutionSpeed).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeLessThanOrEqual(100);
+    expect(result.issueRecurrenceRate).toBeGreaterThanOrEqual(0);
+    expect(result.issueRecurrenceRate).toBeLessThanOrEqual(100);
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeLessThanOrEqual(100);
   });
 });

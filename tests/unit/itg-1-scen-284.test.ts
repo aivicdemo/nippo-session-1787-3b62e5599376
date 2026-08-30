@@ -1,49 +1,101 @@
-// SCEN-284
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput } from '../../src/logic/submission-status-tracking';
+import { submitReport } from '../../src/logic/report-submission-management';
 
-describe('朝会報告リマインド通知自動送信機能', () => {
-  test('reportDeadline が null のとき処理が中断される', () => {
-    // Arrange: スタブ化した NotificationServiceAdapter
-    const sendReminderNotificationStub = jest.fn();
-    const notificationServiceAdapterStub = {
-      sendReminderNotification: sendReminderNotificationStub,
-    };
+describe('朝会報告管理システム', () => {
+  // SCEN-284: エンジニアが日報を送信し、入力検証、送信時刻記録、期限判定、提出状況更新を実行する
+  test('validateReportSubmissionDeadlineが設計された計算式の代表値を返す', () => {
+    const reportDate = new Date('2024-01-15T00:00:00Z');
+    const currentBaseTime = new Date('2024-01-15T08:00:00Z');
 
-    // ログ出力をキャプチャするためのスパイ
-    const logSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // 代表値1: 期限内の送信ケース（08:55に送信、期限09:00）
+    const submissionTimestamp1 = new Date('2024-01-15T08:55:00Z');
+    const reportDeadlineTime1 = '09:00';
+    const engineerId1 = 'ENG001';
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: new Date('2024-01-15T08:30:00Z'),
-      teamIds: ['team-001'],
-      reportDeadlineTime: null, // 報告期限タイムスタンプが null
-      notificationChannels: ['email', 'in_app', 'slack'],
-    };
+    const result1 = submitReport({
+      submissionTimestamp: submissionTimestamp1,
+      reportDeadlineTime: reportDeadlineTime1,
+      engineerId: engineerId1,
+      reportDate: reportDate,
+      currentTime: currentBaseTime,
+    });
 
-    // Act: メイン処理を実行
-    const result: SendDailyReportReminderOutput = sendDailyReportReminder(
-      input,
-      notificationServiceAdapterStub
-    );
+    expect(result1.isLate).toBe(false);
+    expect(result1.minutesOverDeadline).toBe(0);
+    expect(result1.shouldNotifyManager).toBe(false);
+    expect(result1.notificationMessage).toBe('');
 
-    // Assert: NotificationServiceAdapter は呼び出されない
-    expect(sendReminderNotificationStub).not.toHaveBeenCalled();
+    // 代表値2: 期限超過5分ちょうどのケース（09:05に送信、期限09:00）
+    const submissionTimestamp2 = new Date('2024-01-15T09:05:00Z');
+    const reportDeadlineTime2 = '09:00';
+    const engineerId2 = 'ENG002';
 
-    // システムエラーログに期限タイムスタンプが null のメッセージが記録される
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('報告期限タイムスタンプが null のため処理中断')
-    );
+    const result2 = submitReport({
+      submissionTimestamp: submissionTimestamp2,
+      reportDeadlineTime: reportDeadlineTime2,
+      engineerId: engineerId2,
+      reportDate: reportDate,
+      currentTime: currentBaseTime,
+    });
 
-    // 処理終了ステータスが 'ABORTED'
-    expect(result.status).toBe('ABORTED');
+    expect(result2.isLate).toBe(true);
+    expect(result2.minutesOverDeadline).toBe(5);
+    expect(result2.shouldNotifyManager).toBe(true);
+    expect(result2.notificationMessage).toContain('ENG002');
+    expect(result2.notificationMessage).toContain('5分遅延');
 
-    // 送信件数は 0
-    expect(result.sentCount).toBe(0);
+    // 代表値3: 期限超過15分のケース（09:15に送信、期限09:00）
+    const submissionTimestamp3 = new Date('2024-01-15T09:15:00Z');
+    const reportDeadlineTime3 = '09:00';
+    const engineerId3 = 'ENG003';
 
-    // 失敗件数は 0
-    expect(result.failedCount).toBe(0);
+    const result3 = submitReport({
+      submissionTimestamp: submissionTimestamp3,
+      reportDeadlineTime: reportDeadlineTime3,
+      engineerId: engineerId3,
+      reportDate: reportDate,
+      currentTime: currentBaseTime,
+    });
 
-    // Cleanup
-    logSpy.mockRestore();
+    expect(result3.isLate).toBe(true);
+    expect(result3.minutesOverDeadline).toBe(15);
+    expect(result3.shouldNotifyManager).toBe(true);
+    expect(result3.notificationMessage).toContain('ENG003');
+    expect(result3.notificationMessage).toContain('15分遅延');
+
+    // 境界制約1: reportDeadlineTimeが'25:00'（HH:mm形式違反）
+    expect(() =>
+      submitReport({
+        submissionTimestamp: submissionTimestamp1,
+        reportDeadlineTime: '25:00',
+        engineerId: engineerId1,
+        reportDate: reportDate,
+        currentTime: currentBaseTime,
+      })
+    ).toThrow(/報告期限の時刻形式が不正です。HH:mm 形式で設定してください/);
+
+    // 境界制約2: submissionTimestampが現在時刻より60分先未来
+    const futureTimestamp = new Date('2024-01-15T09:00:00Z');
+    const pastTime = new Date('2024-01-15T08:00:00Z');
+
+    expect(() =>
+      submitReport({
+        submissionTimestamp: futureTimestamp,
+        reportDeadlineTime: reportDeadlineTime1,
+        engineerId: engineerId1,
+        reportDate: reportDate,
+        currentTime: pastTime,
+      })
+    ).toThrow(/送信時刻が不正です。現在時刻以前である必要があります/);
+
+    // 境界制約3: engineerIdが空文字列
+    expect(() =>
+      submitReport({
+        submissionTimestamp: submissionTimestamp1,
+        reportDeadlineTime: reportDeadlineTime1,
+        engineerId: '',
+        reportDate: reportDate,
+        currentTime: currentBaseTime,
+      })
+    ).toThrow(/エンジニア ID が指定されていません/);
   });
 });

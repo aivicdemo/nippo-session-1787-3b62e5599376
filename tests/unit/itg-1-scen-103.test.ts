@@ -1,27 +1,19 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('部長ダッシュボード提出状況リアルタイム表示機能', () => {
-  // SCEN-103
-  test('メンバーの提出ステータスが定義済みの値以外のとき、エラーが発生する', () => {
+describe('朝会報告管理システム', () => {
+  test('SCEN-103: 指定期間内の日報データが5件未満、または提出率が50%未満の場合、分析に必要な最小限のデータが不足しているエラーをスローする', () => {
+    const aggregationStartDate = new Date('2025-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2025-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = false;
+
     const input = {
-      teamId: 'team-001',
-      reportDate: '2026-08-19',
-      requestUserId: 'manager-001',
-      includeDelayedSubmissions: true,
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
     };
 
-    const invalidMembers = [
-      {
-        userId: 'member-A',
-        userName: 'メンバーA',
-        email: 'member-a@example.com',
-        submissionStatus: 'invalid_status',
-        submittedAt: null,
-      },
-    ];
-
-    expect(() => {
-      aggregateReportSubmissionStatus(input, invalidMembers);
-    }).toThrow(/提出ステータス/);
+    expect(() => calculateProductivityMetrics(input)).toThrow(/分析に必要な最小限のデータが不足しています/);
   });
 });

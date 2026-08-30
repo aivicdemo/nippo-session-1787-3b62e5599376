@@ -1,18 +1,18 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { describe, test, expect } from "@jest/globals";
+import { archiveAndManageIssueDataRetention } from "../../src/logic/issue-data-persistence";
+import type { IssueRetentionPolicy } from "../../src/logic/issue-data-persistence";
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
+describe("Issue Data Persistence - Archive and Retention Management", () => {
   // SCEN-171
-  test('日報データが空文字列のとき暗号化処理がエラーになる', () => {
-    const input = {
-      reporterId: 'engineer-001',
-      reportDate: new Date('2024-01-15T09:00:00Z'),
-      yesterdayAccomplishment: '',
-      todayPlan: '',
-      challenges: '',
-      encryptionKeyId: 'key-2024-001',
-      executorUserId: 'manager-001',
+  test("should throw InvalidRetentionPolicyError when archiveDaysThreshold is negative", () => {
+    const invalidPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: -30,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: ["audit_required"],
     };
 
-    expect(() => encryptDailyReportData(input)).toThrow(/日報データ|空|ValidationError/);
+    expect(() => archiveAndManageIssueDataRetention(invalidPolicy)).toThrow(
+      /保持期間ルール/
+    );
   });
 });

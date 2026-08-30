@@ -1,25 +1,21 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
-import type { EncryptDailyReportDataInput, EncryptedDailyReportData } from '../../src/logic/data-security';
+import { submitReport } from '../../src/logic/report-submission-management';
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
-  // SCEN-189: [error] 日報暗号化・復号化機能 - サポートされていない暗号化アルゴリズムが指定されたときエラーになる
-  test('サポートされていない暗号化アルゴリズムが指定されたときエラーがスローされる', () => {
-    const input: EncryptDailyReportDataInput = {
-      reporterId: 'ENG001',
-      reportDate: new Date('2024-01-15'),
-      yesterdayAccomplishment: 'APIの実装を完了した',
-      todayPlan: 'テスト実装とレビュー対応',
-      challenges: 'データベース接続のタイムアウト問題',
-      encryptionKeyId: 'key-unsupported-algo',
-      executorUserId: 'MGR001'
+describe('朝会報告管理システム - 日報送信管理', () => {
+  // SCEN-189: 昨日の実績が500文字を超過した場合のエラーハンドリング
+  test('昨日の実績が501文字（上限超過1文字）のとき、ValidationErrorをスロー', () => {
+    const yesterdayAccomplishment501Chars = 'a'.repeat(501);
+    const todayPlan100Chars = 'b'.repeat(100);
+    const issuesAndConcerns100Chars = 'c'.repeat(100);
+
+    const input = {
+      reporterId: 'engineer-001',
+      teamId: 'team-alpha',
+      reportDate: new Date('2024-01-15T09:00:00Z'),
+      yesterdayAccomplishment: yesterdayAccomplishment501Chars,
+      todayPlan: todayPlan100Chars,
+      issuesAndConcerns: issuesAndConcerns100Chars,
     };
 
-    expect(() => {
-      encryptDailyReportData(input, {
-        keyId: 'key-unsupported-algo',
-        algorithm: 'UNSUPPORTED_ALGO_XYZ',
-        createdAt: new Date('2024-01-15T08:00:00Z')
-      });
-    }).toThrow(/ENCRYPTION_ALGORITHM_NOT_SUPPORTED/);
+    expect(() => submitReport(input)).toThrow(/昨日の実績は500文字以内/);
   });
 });

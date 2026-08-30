@@ -1,22 +1,16 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import { type IssuePriorityScoringInput, type IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { archiveAndManageIssueDataRetention } from '../../src/logic/issue-data-persistence';
+import { type IssueRetentionPolicy } from '../../src/logic/issue-data-persistence';
 
-describe('課題の影響度判定と優先度スコア計算', () => {
-  // SCEN-570: [error] 課題優先度判定機能 - 抽出課題リストがundefinedのとき課題優先度判定エラーが発生する
-  test('undefinedの抽出課題リストが渡された場合、エラーを発生させてシステムは継続動作する', () => {
-    const invalidInput: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: '',
-      occurrenceFrequency: 0,
-      impactScore: 0,
-      affectedTeamCount: 0,
-      resolutionDaysAverage: 0,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001'
+describe('朝会報告管理システム - 課題データ保持期間管理', () => {
+  test('SCEN-570: 集約対象期間の開始日が終了日より後のときはエラーを発生させる', () => {
+    const invalidPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: 30,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: [],
+      aggregationPeriodStart: '2025-12-31',
+      aggregationPeriodEnd: '2025-12-01',
     };
 
-    expect(() => {
-      calculateIssuePriorityScore(invalidInput);
-    }).toThrow(/課題リスト|抽出課題|無効|null|undefined/);
+    expect(() => archiveAndManageIssueDataRetention(invalidPolicy)).toThrow(/集約期間/);
   });
 });

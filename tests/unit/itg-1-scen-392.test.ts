@@ -1,141 +1,98 @@
-import { sendDailyReportReminder } from "../../src/logic/submission-status-tracking";
-import type {
-  SendDailyReportReminderInput,
-  SendDailyReportReminderOutput,
-  ReminderNotificationDetail,
-} from "../../src/logic/submission-status-tracking";
+import { syncExtractedIssuesToExternalTool } from '../../src/logic/existing-tool-integration';
+import { type ToolIntegrationResult } from '../../src/logic/existing-tool-integration';
 
-describe("毎朝の定時にチームメンバーへ報告入力のリマインド通知を自動送信し、報告期限までの時間を表示する機能", () => {
-  // SCEN-392: [edge] 定時リマインド送信機能 - チームメンバーリストに重複ユーザーが含まれるとき、通知は重複なく1回のみ配信される
-  test("チームメンバーリストに重複ユーザーが含まれる場合、重複ユーザーへの通知は1回のみ配信される", async () => {
-    const scheduledTime = new Date("2024-01-15T08:30:00Z");
-    const reportDeadlineTime = new Date("2024-01-15T09:00:00Z");
-    const teamIds = ["team-001"];
-    const notificationChannels: ("email" | "in_app" | "slack")[] = [
-      "email",
-      "in_app",
-    ];
-
-    const mockSendReminderNotificationCalls: Array<{
-      userId: string;
-      channel: string;
-    }> = [];
-
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(async (userId: string, channel: string) => {
-        mockSendReminderNotificationCalls.push({ userId, channel });
-        return {
-          success: true,
-          sentAt: new Date("2024-01-15T08:30:05Z"),
-        };
-      }),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
-
-    const mockTeamMembersWithDuplicates = [
+describe('existing-tool-integration', () => {
+  test('SCEN-392: [normal] 抽出済み課題データを既存ツール（JiraまたはAsana）に連携し、API通信、重複排除、データ整合性検証、リトライ処理を実行して連携完了ステータスを記録する', () => {
+    const extractedIssuesInput = [
       {
-        userId: "user-001",
-        userName: "Alice",
-        email: "alice@example.com",
-        remainingMinutes: 30,
+        issueId: 'issue-001',
+        title: 'ビルドエラー',
+        category: 'technical',
+        priority: 85,
+        frequency: 5,
       },
       {
-        userId: "user-002",
-        userName: "Bob",
-        email: "bob@example.com",
-        remainingMinutes: 30,
+        issueId: 'issue-002',
+        title: 'テスト失敗',
+        category: 'quality',
+        priority: 75,
+        frequency: 3,
       },
       {
-        userId: "user-001",
-        userName: "Alice",
-        email: "alice@example.com",
-        remainingMinutes: 30,
+        issueId: 'issue-003',
+        title: 'パフォーマンス低下',
+        category: 'performance',
+        priority: 65,
+        frequency: 2,
       },
       {
-        userId: "user-003",
-        userName: "Charlie",
-        email: "charlie@example.com",
-        remainingMinutes: 30,
+        issueId: 'issue-004',
+        title: 'デプロイ遅延',
+        category: 'process',
+        priority: 55,
+        frequency: 1,
       },
       {
-        userId: "user-002",
-        userName: "Bob",
-        email: "bob@example.com",
-        remainingMinutes: 30,
+        issueId: 'issue-005',
+        title: 'セキュリティ脆弱性',
+        category: 'security',
+        priority: 95,
+        frequency: 4,
       },
     ];
 
-    const mockDataProvider = {
-      getTeamMembers: jest.fn().mockResolvedValue(mockTeamMembersWithDuplicates),
-      getReportSubmissionStatus: jest.fn().mockResolvedValue([]),
-      recordNotificationLog: jest.fn().mockResolvedValue(undefined),
-    };
+    const toolApiResponseInput = [
+      {
+        issueId: 'issue-001',
+        externalId: 'JIRA-001',
+        status: 'success',
+        errorMessage: null,
+      },
+      {
+        issueId: 'issue-002',
+        externalId: 'JIRA-002',
+        status: 'success',
+        errorMessage: null,
+      },
+      {
+        issueId: 'issue-003',
+        externalId: 'JIRA-003',
+        status: 'success',
+        errorMessage: null,
+      },
+      {
+        issueId: 'issue-004',
+        externalId: 'JIRA-004',
+        status: 'success',
+        errorMessage: null,
+      },
+      {
+        issueId: 'issue-005',
+        externalId: 'JIRA-005',
+        status: 'success',
+        errorMessage: null,
+      },
+    ];
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
-    };
-
-    const result: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter,
-      mockDataProvider
+    const result: ToolIntegrationResult = syncExtractedIssuesToExternalTool(
+      extractedIssuesInput,
+      'jira',
+      toolApiResponseInput,
+      5
     );
 
-    const uniqueUserIds = new Set(
-      mockSendReminderNotificationCalls.map((call) => call.userId)
+    expect(result.integrationSuccess).toBe(true);
+    expect(result.successCount).toBe(5);
+    expect(result.failureCount).toBe(0);
+    expect(result.duplicateCount).toBe(0);
+    expect(result.missingCount).toBe(0);
+    expect(result.validationStatus).toBe('passed');
+    expect(result.details).toHaveLength(5);
+    expect(result.details.every((detail) => detail.result === 'success')).toBe(
+      true
     );
-    expect(uniqueUserIds.size).toBe(3);
-    expect(uniqueUserIds.has("user-001")).toBe(true);
-    expect(uniqueUserIds.has("user-002")).toBe(true);
-    expect(uniqueUserIds.has("user-003")).toBe(true);
-
-    const user001Calls = mockSendReminderNotificationCalls.filter(
-      (call) => call.userId === "user-001"
-    );
-    expect(user001Calls.length).toBe(2);
-    expect(user001Calls.every((call) => notificationChannels.includes(call.channel as any))).toBe(true);
-
-    const user002Calls = mockSendReminderNotificationCalls.filter(
-      (call) => call.userId === "user-002"
-    );
-    expect(user002Calls.length).toBe(2);
-
-    const user003Calls = mockSendReminderNotificationCalls.filter(
-      (call) => call.userId === "user-003"
-    );
-    expect(user003Calls.length).toBe(1);
-
-    expect(result.sentCount).toBe(6);
-    expect(result.failedCount).toBe(0);
-    expect(result.remainingTimeMinutes).toBe(30);
-
-    expect(result.notificationDetails.length).toBeGreaterThan(0);
-    const sentDetails = result.notificationDetails.filter(
-      (detail) => detail.status === "sent"
-    );
-    expect(sentDetails.length).toBe(6);
-
-    expect(mockDataProvider.recordNotificationLog).toHaveBeenCalled();
-    const recordCalls = mockDataProvider.recordNotificationLog.mock.calls;
-    expect(recordCalls.length).toBe(6);
-
-    const loggedUserIds = recordCalls.map((call) => call[0]?.userId);
-    const loggedUser001Count = loggedUserIds.filter(
-      (id) => id === "user-001"
-    ).length;
-    const loggedUser002Count = loggedUserIds.filter(
-      (id) => id === "user-002"
-    ).length;
-    const loggedUser003Count = loggedUserIds.filter(
-      (id) => id === "user-003"
-    ).length;
-
-    expect(loggedUser001Count).toBe(2);
-    expect(loggedUser002Count).toBe(2);
-    expect(loggedUser003Count).toBe(1);
+    expect(
+      result.details.every((detail) => detail.externalId !== null)
+    ).toBe(true);
   });
 });

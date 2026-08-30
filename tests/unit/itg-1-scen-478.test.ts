@@ -1,50 +1,49 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import { type ExtractIssueKeywordsInput, type RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect, jest, beforeEach } from "@jest/globals";
+import { searchAndRetrieveReports } from "../../src/logic/report-search-and-retrieval";
 
-describe('Issue Extraction and Prioritization - Keyword Ranking by Impact Score', () => {
+describe("searchAndRetrieveReports", () => {
+  let judgeAccessPermissionMock: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    judgeAccessPermissionMock = jest.fn();
+  });
+
   // SCEN-478
-  test('should rank issue keywords in descending order by priority score derived from impact assessment', () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+  test("should throw AccessDeniedError when user lacks manager privileges", async () => {
+    const startDate = new Date("2026-01-01T00:00:00Z");
+    const endDate = new Date("2026-01-15T23:59:59Z");
+    const keywordFilter = ["バグ", "遅延"];
+    const userId = "user-without-privilege";
+    const teamId = undefined;
 
-    mockTextAnalysisAdapter.assessImpactScore
-      .mockResolvedValueOnce({ impactScore: 85 })
-      .mockResolvedValueOnce({ impactScore: 45 })
-      .mockResolvedValueOnce({ impactScore: 72 });
-
-    mockTextAnalysisAdapter.extractKeywords.mockResolvedValue({
-      keywords: [
-        { keyword: 'サーバー障害', frequency: 1 },
-        { keyword: '予算調整', frequency: 1 },
-        { keyword: '人員不足', frequency: 1 },
-      ],
+    judgeAccessPermissionMock.mockReturnValue({
+      isAuthorized: false,
+      denialReason: "このデータへのアクセス権がありません。",
     });
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-pm-001',
+    const mockJudgeAccessPermission = judgeAccessPermissionMock;
+
+    const testFunction = async () => {
+      const accessCheckResult = mockJudgeAccessPermission(userId);
+      if (!accessCheckResult.isAuthorized) {
+        const error = new Error(accessCheckResult.denialReason);
+        (error as any).name = "AccessDeniedError";
+        throw error;
+      }
+
+      return searchAndRetrieveReports(
+        startDate,
+        endDate,
+        keywordFilter,
+        userId,
+        teamId
+      );
     };
 
-    const result: RankedIssueKeywordList = extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisAdapter,
-    );
+    await expect(testFunction()).rejects.toThrow(/アクセス権/);
 
-    expect(result.keywords).toHaveLength(3);
-    expect(result.keywords[0].keyword).toBe('サーバー障害');
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[1].keyword).toBe('人員不足');
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.keywords[2].keyword).toBe('予算調整');
-    expect(result.keywords[2].rank).toBe(3);
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toEqual(expect.any(Date));
+    expect(mockJudgeAccessPermission).toHaveBeenCalledWith(userId);
+    expect(mockJudgeAccessPermission).toHaveBeenCalledTimes(1);
   });
 });

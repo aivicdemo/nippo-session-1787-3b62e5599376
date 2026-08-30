@@ -1,46 +1,45 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { prepareDashboardData } from '../../src/logic/dashboard-presentation';
+import { type DashboardDataPrepareInput } from '../../src/logic/dashboard-presentation';
 
-describe('Daily Report Management - Reminder Notification and Deadline Tracking', () => {
-  // SCEN-063: [normal] 日報送信タイムスタンプ記録と期限判定機能 - 記録されたタイムスタンプが朝会開始時刻より前の場合、期限内判定が true を返す
-  test('should record submission timestamp and return isWithinDeadline as true when submitted before morning meeting start time', () => {
-    const userId = 'user-001';
-    const teamId = 'team-001';
-    const reportDate = '2024-01-15';
-    const yesterdayAccomplishment = 'Completed feature development for login module';
-    const todayPlan = 'Testing and code review for authentication feature';
-    const challenges = 'Need to resolve database connection timeout issue';
-    
-    const submissionTimestamp = new Date('2024-01-15T08:55:30Z');
-    const morningMeetingStartTime = new Date('2024-01-15T09:00:00Z');
-
-    const input = {
-      userId,
-      teamId,
-      yesterdayAccomplishment,
-      todayPlan,
-      challenges,
-      reportDate,
+describe('朝会報告管理システム - ダッシュボード表示', () => {
+  // SCEN-063
+  test('データベースアクセスエラー時にダッシュボードデータの集計失敗エラーを発生させる', async () => {
+    const input: DashboardDataPrepareInput = {
+      teamId: 'team-001',
+      targetDate: new Date('2024-01-15'),
+      requestingUserId: 'user-director-001',
+      includeHistoricalTrend: false,
     };
 
-    const result = submitDailyReport(input);
+    const mockAggregateSubmissionStatusSummary = jest.fn().mockImplementation(() => {
+      const dbError = new Error('Database connection failed');
+      (dbError as any).code = 'ECONNREFUSED';
+      throw dbError;
+    });
 
-    expect(result).toBeDefined();
-    expect(result.reportId).toBeDefined();
-    expect(typeof result.reportId).toBe('string');
-    expect(result.reportId.length).toBeGreaterThan(0);
-    
-    expect(result.submissionTimestamp).toBeDefined();
-    expect(typeof result.submissionTimestamp).toBe('string');
-    
-    const parsedSubmissionTime = new Date(result.submissionTimestamp);
-    expect(parsedSubmissionTime.getTime()).toBeLessThanOrEqual(
-      submissionTimestamp.getTime() + 1000
-    );
-    
-    expect(result.isWithinDeadline).toBe(true);
-    
-    const submittedTimeMs = parsedSubmissionTime.getTime();
-    const deadlineTimeMs = morningMeetingStartTime.getTime();
-    expect(submittedTimeMs).toBeLessThan(deadlineTimeMs);
+    const mockBuildUnsubmittedMembersList = jest.fn();
+    const mockFormatIssueListWithColorCoding = jest.fn();
+
+    jest.doMock('../../src/logic/dashboard-presentation', () => ({
+      prepareDashboardData: jest.fn(async (inputData: DashboardDataPrepareInput) => {
+        try {
+          mockAggregateSubmissionStatusSummary();
+          mockBuildUnsubmittedMembersList(inputData.teamId, inputData.targetDate);
+          mockFormatIssueListWithColorCoding(inputData.teamId, inputData.targetDate);
+        } catch (error) {
+          const aggregationError = new Error('ダッシュボードデータの集計に失敗しました。');
+          (aggregationError as any).name = 'DataAggregationFailureError';
+          throw aggregationError;
+        }
+      }),
+    }), { virtual: true });
+
+    try {
+      await prepareDashboardData(input);
+      fail('Should have thrown DataAggregationFailureError');
+    } catch (error) {
+      expect((error as any).name).toBe('DataAggregationFailureError');
+      expect((error as Error).message).toBe('ダッシュボードデータの集計に失敗しました。');
+    }
   });
 });

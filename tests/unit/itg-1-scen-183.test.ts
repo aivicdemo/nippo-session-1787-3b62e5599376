@@ -1,18 +1,17 @@
-import { encryptDailyReportData, type EncryptDailyReportDataInput, type EncryptedDailyReportData } from '../../src/logic/data-security';
+import { submitReport } from '../../src/logic/report-submission-management';
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
-  // SCEN-183: [error] 日報暗号化・復号化機能 - ユーザー ID が null のとき権限判定がエラーになる
-  test('ユーザーIDがnullの場合、権限判定がエラーになり復号化処理が実行されない', () => {
-    const input: EncryptDailyReportDataInput = {
-      reporterId: 'ENG001',
+describe('朝会報告管理システム - 日報送信', () => {
+  // SCEN-183
+  test('エンジニアが日報を送信し、本日の予定が空またはスペースのみのときはエラーを返す', () => {
+    const input = {
+      reporterId: 'eng001',
+      teamId: 'team-A',
       reportDate: new Date('2024-01-15'),
-      yesterdayAccomplishment: 'API設計ドキュメント作成完了',
-      todayPlan: 'API実装開始',
-      challenges: 'データベース接続タイムアウト問題',
-      encryptionKeyId: 'KEY-2024-01-15',
-      executorUserId: null as any,
+      yesterdayAccomplishment: '昨日の実績',
+      todayPlan: '',
+      issuesAndConcerns: '課題内容',
     };
 
-    expect(() => encryptDailyReportData(input)).toThrow(/User ID is required for decryption authorization|UNAUTHORIZED_NULL_USER_ID/);
+    expect(() => submitReport(input)).toThrow(/今日やることを入力してください/);
   });
 });

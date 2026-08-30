@@ -1,23 +1,89 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { prepareDashboardData } from "../../src/logic/dashboard-presentation";
 
-describe('朝会報告管理システム - 日報送信', () => {
-  // SCEN-307: [normal] 日報入力フォーム検証機能 - 昨日やったことが空白でなく文字数制限内のとき検証を通す
-  test('should pass validation when yesterdayAccomplishment is non-empty and within character limit', () => {
-    const validInput = {
-      userId: 'user-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: '既存システムのバグ修正、テスト設計書作成',
-      todayPlan: '今日のタスク進行、チーム会議参加',
-      challenges: '外部APIの遅延問題対応',
-      reportDate: '2024-01-15'
+describe("Dashboard Presentation Logic", () => {
+  // SCEN-307
+  test("should return empty prioritizedIssueList and issueKeywordRanking when no issues are extracted", async () => {
+    const teamId = "team-001";
+    const targetDate = new Date("2024-01-15T00:00:00Z");
+    const requestingUserId = "user-director-001";
+    const includeHistoricalTrend = false;
+
+    const mockSubmissionStatusSummary = {
+      submittedCount: 10,
+      pendingCount: 0,
+      submissionDeadline: "09:00",
+      reportDate: "2024-01-15",
     };
 
-    const result = submitDailyReport(validInput);
+    const mockUnsubmittedMembers: Array<{
+      memberId: string;
+      memberName: string;
+    }> = [];
 
-    expect(result.reportId).toBeDefined();
-    expect(typeof result.reportId).toBe('string');
-    expect(result.submissionTimestamp).toBeDefined();
-    expect(typeof result.submissionTimestamp).toBe('string');
-    expect(result.isWithinDeadline).toBe(true);
+    const mockColorCodedIssues = {
+      coloredIssues: [],
+      colorDistribution: { red: 0, yellow: 0, green: 0 },
+      highlightedIssueCount: 0,
+    };
+
+    const mockKeywordRanking = {
+      rankedKeywords: [],
+      totalKeywordCount: 0,
+      aggregationPeriod: {
+        startDate: "2024-01-15",
+        endDate: "2024-01-15",
+      },
+      generatedAt: new Date("2024-01-15T09:30:00Z"),
+    };
+
+    const stubAggregateSubmissionStatusSummary = jest
+      .fn()
+      .mockReturnValue(mockSubmissionStatusSummary);
+
+    const stubBuildUnsubmittedMembersList = jest
+      .fn()
+      .mockReturnValue(mockUnsubmittedMembers);
+
+    const stubFormatIssueListWithColorCoding = jest
+      .fn()
+      .mockReturnValue(mockColorCodedIssues);
+
+    const stubExtractIssueKeywordRanking = jest
+      .fn()
+      .mockReturnValue(mockKeywordRanking);
+
+    const result = await prepareDashboardData(
+      {
+        teamId,
+        targetDate,
+        requestingUserId,
+        includeHistoricalTrend,
+      },
+      {
+        aggregateSubmissionStatusSummary: stubAggregateSubmissionStatusSummary,
+        buildUnsubmittedMembersList: stubBuildUnsubmittedMembersList,
+        formatIssueListWithColorCoding: stubFormatIssueListWithColorCoding,
+        extractIssueKeywordRanking: stubExtractIssueKeywordRanking,
+      }
+    );
+
+    expect(stubAggregateSubmissionStatusSummary).toHaveBeenCalledWith(
+      teamId,
+      "2024-01-15"
+    );
+    expect(stubBuildUnsubmittedMembersList).toHaveBeenCalledWith(
+      teamId,
+      targetDate
+    );
+    expect(stubFormatIssueListWithColorCoding).toHaveBeenCalledWith(
+      expect.objectContaining({ issues: [] }),
+      "standard"
+    );
+
+    expect(result.prioritizedIssueList).toEqual([]);
+    expect(result.issueKeywordRanking).toEqual([]);
+    expect(result.submissionStatusSummary).toEqual(mockSubmissionStatusSummary);
+    expect(result.unsubmittedMembers).toEqual([]);
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
   });
 });

@@ -1,44 +1,59 @@
-import { describe, test, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { analyzeProductivityTrends } from '../../src/logic/productivity-metrics-calculation';
+import { type ProductivityTrendsAnalysisInput, type SuccessCriteria } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-514: [edge] 複数の課題が同一優先度スコアを持つ場合、発生頻度の高い順に並序される
-  test('同一スコアの課題が発生頻度の高い順に並序される', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: 'Multiple infrastructure issues',
-      occurrenceFrequency: 5,
-      impactScore: 60,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
+describe('朝会報告管理システム - 生産性指標傾向分析', () => {
+  // SCEN-514
+  test('生産性指標のデータが欠落しているときはAnalysisDataQualityValidationFailedErrorを発生させる', () => {
+    const aggregationPeriodStart = new Date('2024-01-01');
+    const aggregationPeriodEnd = new Date('2024-03-31');
+
+    const productivityMetricsDataPoints = [
+      {
+        periodDate: new Date('2024-01-31'),
+        issueResolutionSpeed: 5.2,
+        reportSubmissionRate: 92.5,
+        issueRecurrenceRate: 8.3,
+        teamProductivityScore: 78.5,
+        completedTaskCount: null,
+        deadlineComplianceRate: 88.0,
+      },
+      {
+        periodDate: new Date('2024-02-29'),
+        issueResolutionSpeed: 4.8,
+        reportSubmissionRate: 95.0,
+        issueRecurrenceRate: 7.5,
+        teamProductivityScore: 82.0,
+        completedTaskCount: 145,
+        deadlineComplianceRate: null,
+      },
+      {
+        periodDate: new Date('2024-03-31'),
+        issueResolutionSpeed: null,
+        reportSubmissionRate: null,
+        issueRecurrenceRate: null,
+        teamProductivityScore: null,
+        completedTaskCount: null,
+        deadlineComplianceRate: null,
+      },
+    ];
+
+    const successCriteria: SuccessCriteria = {
+      productivityImprovementRateTarget: 15.0,
+      issueRecurrenceRateReductionTarget: 20.0,
+      deadlineComplianceRateTarget: 90.0,
     };
 
-    const result = calculateIssuePriorityScore(input);
+    const input: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart,
+      aggregationPeriodEnd,
+      productivityMetricsDataPoints,
+      successCriteria,
+      teamId: 'team-001',
+      analysisContext: '対策実行計画の成功判定',
+    };
 
-    expect(result).toEqual({
-      issueId: 'issue-001',
-      priorityScore: expect.any(Number),
-      priorityRank: expect.any(String),
-      scoreBreakdown: {
-        frequencyScore: expect.any(Number),
-        impactScore: expect.any(Number),
-        resolutionDifficultyScore: expect.any(Number),
-      },
-      colorCode: expect.any(String),
-      calculatedAt: expect.any(String),
-    });
-
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
-    expect(['高', '中', '低']).toContain(result.priorityRank);
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.impactScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
-    expect(['#FF0000', '#FFFF00', '#00FF00']).toContain(result.colorCode);
+    expect(() => analyzeProductivityTrends(input)).toThrow(
+      /生産性指標データが不完全です/
+    );
   });
 });

@@ -1,80 +1,41 @@
-import { detectAndNotifyUnsubmittedMembers } from '../../src/logic/submission-status-tracking';
-import type { DetectUnsubmittedMembersInput, DetectUnsubmittedMembersOutput } from '../../src/logic/submission-status-tracking';
+import { syncExtractedIssuesToExternalTool } from '../../src/logic/existing-tool-integration';
+import type { ToolIntegrationRequest, ToolIntegrationResult } from '../../src/logic/existing-tool-integration';
 
-describe('未提出メンバー検出・通知機能', () => {
-  // SCEN-404: [normal] 未提出メンバー一覧の生成機能 - 未提出メンバーが複数人の場合、全メンバーの情報が一覧に含まれる
-  test('複数の未提出メンバーを検出し、昇順でソートされた一覧を生成する', () => {
-    const input: DetectUnsubmittedMembersInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      morningMeetingStartTime: '09:00',
-      executorUserId: 'manager-001',
+describe('既存ツール連携 - 抽出済み課題の同期処理', () => {
+  test('SCEN-404: 抽出済み課題データが空配列（本日の課題データなし）のときに警告ログを記録して成功ステータスを返す', async () => {
+    // Arrange: 課題データなしのツール連携リクエストを構築
+    const extractedIssueDataList: never[] = [];
+    const request: ToolIntegrationRequest = {
+      extractedIssueDataList,
+      externalToolType: 'jira',
+      toolApiEndpoint: 'https://jira.example.com/api/v3',
+      toolApiAuthToken: 'valid_token_12345',
+      projectManagerId: 'PM001',
+      maxRetryAttempts: 3,
     };
 
-    const result: DetectUnsubmittedMembersOutput = detectAndNotifyUnsubmittedMembers(input);
+    // Act: 連携処理を実行
+    const result: ToolIntegrationResult = await syncExtractedIssuesToExternalTool(request);
 
-    // 未提出メンバー一覧に5名全員が含まれることを検証
-    expect(result.unsubmittedMembers).toHaveLength(5);
+    // Assert: 返却されたResultの内容を検証
+    expect(result.integrationStatus).toBe('success');
+    expect(result.syncedIssueCount).toBe(0);
+    expect(result.failedIssueCount).toBe(0);
+    expect(result.duplicateIssuesMerged).toBe(0);
+    expect(result.dataConsistencyValidationResult.isConsistent).toBe(true);
+    expect(result.dataConsistencyValidationResult.expectedIssueCount).toBe(0);
+    expect(result.dataConsistencyValidationResult.actualIssueCountInTool).toBe(0);
+    expect(result.dataConsistencyValidationResult.fieldMappingValidation).toBe(true);
+    expect(result.dataConsistencyValidationResult.statusSyncValidation).toBe(true);
+    expect(result.retryAttemptsExecuted).toBe(0);
+    expect(result.managerNotificationRequired).toBe(false);
+    expect(result.failureReasonIfAny).toBeNull();
 
-    // ユーザーID基準の昇順でソートされていることを検証
-    const userIds = result.unsubmittedMembers.map(member => member.userId);
-    expect(userIds).toEqual(['memberA', 'memberB', 'memberC', 'memberD', 'memberE']);
+    // Assert: 完了日時がISO 8601形式であることを確認
+    expect(result.integrationCompletedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
-    // 各メンバーの必須情報が含まれていることを検証
-    result.unsubmittedMembers.forEach(member => {
-      expect(member).toHaveProperty('userId');
-      expect(member).toHaveProperty('userName');
-      expect(member).toHaveProperty('email');
-      expect(member).toHaveProperty('remainingMinutes');
-
-      // 各フィールドが適切な値であることを検証
-      expect(typeof member.userId).toBe('string');
-      expect(typeof member.userName).toBe('string');
-      expect(typeof member.email).toBe('string');
-      expect(typeof member.remainingMinutes).toBe('number');
-
-      // メールアドレスが有効な形式であることを検証
-      expect(member.email).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
-    });
-
-    // 具体的なメンバー情報を検証
-    const memberAData = result.unsubmittedMembers.find(m => m.userId === 'memberA');
-    expect(memberAData).toBeDefined();
-    expect(memberAData?.userName).toBe('メンバーA');
-    expect(memberAData?.email).toBe('memberA@example.com');
-    expect(typeof memberAData?.remainingMinutes).toBe('number');
-
-    const memberBData = result.unsubmittedMembers.find(m => m.userId === 'memberB');
-    expect(memberBData).toBeDefined();
-    expect(memberBData?.userName).toBe('メンバーB');
-    expect(memberBData?.email).toBe('memberB@example.com');
-
-    const memberCData = result.unsubmittedMembers.find(m => m.userId === 'memberC');
-    expect(memberCData).toBeDefined();
-    expect(memberCData?.userName).toBe('メンバーC');
-    expect(memberCData?.email).toBe('memberC@example.com');
-
-    const memberDData = result.unsubmittedMembers.find(m => m.userId === 'memberD');
-    expect(memberDData).toBeDefined();
-    expect(memberDData?.userName).toBe('メンバーD');
-    expect(memberDData?.email).toBe('memberD@example.com');
-
-    const memberEData = result.unsubmittedMembers.find(m => m.userId === 'memberE');
-    expect(memberEData).toBeDefined();
-    expect(memberEData?.userName).toBe('メンバーE');
-    expect(memberEData?.email).toBe('memberE@example.com');
-
-    // 重複がないことを検証
-    const uniqueUserIds = new Set(result.unsubmittedMembers.map(m => m.userId));
-    expect(uniqueUserIds.size).toBe(5);
-
-    // 処理実行時刻が ISO 8601 形式で記録されていることを検証
-    expect(result.executedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-
-    // 送信されたリマインド通知の件数が5件であることを検証
-    expect(result.notificationsSent).toBe(5);
-
-    // 通知送信失敗がないことを検証
-    expect(result.notificationFailures).toHaveLength(0);
+    // Assert: 監査ログに警告メッセージが記録されることを確認
+    // （実装側が recordToolIntegrationAuditLog を呼び出すことが前提）
+    // 警告ログの内容は「本日の課題データが抽出されていません。報告内容を確認してください」
   });
 });

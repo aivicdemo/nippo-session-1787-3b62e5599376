@@ -1,83 +1,33 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { sendUnsubmittedMemberReminders } from '../../src/logic/reminder-notification-service';
+import type { UnsubmittedMemberReminderInput, ReminderRetryRule } from '../../src/logic/reminder-notification-service';
 
-describe('Issue Priority Score Calculation with Cache Fallback', () => {
-  let mockCache: Map<string, { keywords: Array<{ word: string; frequency: number }>; timestamp: number }>;
-  let mockTextAnalysisAdapter: {
-    extractKeywords: jest.Mock;
-    assessImpactScore: jest.Mock;
-    classifyIssueSeverity: jest.Mock;
-  };
-  let consoleLogSpy: ReturnType<typeof jest.spyOn>;
-
-  beforeEach(() => {
-    mockCache = new Map();
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-
-    const cacheTimestamp = new Date('2024-01-14T10:00:00Z').getTime();
-    mockCache.set('report_keywords_user123', {
-      keywords: [
-        { word: '遅延', frequency: 3 },
-        { word: 'DB接続', frequency: 2 },
+describe('sendUnsubmittedMemberReminders', () => {
+  // SCEN-626: [error] 報告期限前に未提出メンバーを検出して段階的な催促通知を送信し、再催促ルールに基づいて通知方法を変更する - 朝会開始予定時刻が報告期限時刻より前に設定されているときという明示された境界条件で朝会開始時刻が報告期限より前です。設定を確認してください
+  test('should throw DeadlineCalculationError when morning meeting start time is before reporting deadline', () => {
+    const reminderRetryRule: ReminderRetryRule = {
+      initialNotificationMethod: 'email',
+      maxRetryCount: 2,
+      retryStages: [
+        { stageNumber: 1, notificationMethod: 'slack', waitTimeMinutes: 10 },
+        { stageNumber: 2, notificationMethod: 'phone', waitTimeMinutes: 5 },
       ],
-      timestamp: cacheTimestamp,
-    });
-
-    mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn()
-        .mockRejectedValueOnce(new Error('API timeout'))
-        .mockRejectedValueOnce(new Error('API timeout'))
-        .mockRejectedValueOnce(new Error('API timeout')),
-      assessImpactScore: jest.fn().mockResolvedValue(75),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('high'),
-    };
-  });
-
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
-  });
-
-  // SCEN-626
-  test('should return cached keywords when TextAnalysisServiceAdapter extractKeywords fails after retries', async () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue_001',
-      issueContent: '昨日はDB接続の遅延対応をした。今日も遅延が発生する可能性がある',
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15',
-      teamId: 'team_dev_001',
     };
 
-    const result = await calculateIssuePriorityScore(
-      input,
-      mockTextAnalysisAdapter,
-      mockCache
-    );
+    const input: UnsubmittedMemberReminderInput = {
+      teamId: 'team-001',
+      unsubmittedMembers: [
+        {
+          userId: 'user-001',
+          email: 'user1@example.com',
+          name: '田中太郎',
+        },
+      ],
+      reportingDeadlineTime: new Date('2024-01-15T09:00:00Z'),
+      morningMeetingStartTime: new Date('2024-01-15T08:30:00Z'),
+      reminderRetryRule,
+      previousReminderHistory: [],
+    };
 
-    expect(result).toBeDefined();
-    expect(result.issueId).toBe('issue_001');
-    expect(result.priorityScore).toBeDefined();
-    expect(typeof result.priorityScore).toBe('number');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
-    expect(result.priorityRank).toMatch(/^(高|中|低)$/);
-    expect(result.scoreBreakdown).toBeDefined();
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.impactScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
-    expect(result.colorCode).toMatch(/^#[0-9A-F]{6}$/i);
-    expect(result.calculatedAt).toBeDefined();
-
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/extractKeywords failed.*3回再試行後にキャッシュから復帰/)
-    );
-
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalledTimes(3);
+    expect(() => sendUnsubmittedMemberReminders(input)).toThrow(/朝会開始時刻/);
   });
 });

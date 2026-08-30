@@ -1,33 +1,20 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput } from '../../src/logic/submission-status-tracking';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
+import type { AccessPermissionRequest } from '../../src/logic/access-control-and-permissions';
 
-describe('sendDailyReportReminder', () => {
-  // SCEN-380
-  test('should abort reminder sending when scheduled time falls on non-business day (Saturday)', async () => {
-    const saturdayDate = new Date('2026-08-22T09:00:00Z');
-
-    const stubNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
+describe('朝会報告管理システム - アクセス制御と権限管理', () => {
+  test('SCEN-380: ダッシュボード種別が空のときにエラーが投げられる', () => {
+    const accessRequest: AccessPermissionRequest = {
+      userId: 'user123',
+      resourceType: 'dashboard',
+      operation: 'view',
+      targetTeamId: null,
+      confidentialityLevel: null,
     };
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: saturdayDate,
-      teamIds: ['team-001', 'team-002'],
-      reportDeadlineTime: new Date('2026-08-22T09:30:00Z'),
-      notificationChannels: ['email', 'in_app'],
-    };
+    const requestedDashboardType = '';
 
-    const result = await sendDailyReportReminder(input, stubNotificationServiceAdapter);
-
-    expect(result).toEqual<SendDailyReportReminderOutput>({
-      sentCount: 0,
-      failedCount: 0,
-      remainingTimeMinutes: 30,
-      notificationDetails: [],
-    });
-
-    expect(stubNotificationServiceAdapter.sendReminderNotification).not.toHaveBeenCalled();
+    expect(() => {
+      judgeAccessPermission(accessRequest, requestedDashboardType);
+    }).toThrow(/ダッシュボード種別/);
   });
 });

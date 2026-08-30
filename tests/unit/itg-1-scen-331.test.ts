@@ -1,25 +1,21 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import { type SubmitDailyReportInput, type SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { describe, test, expect } from "@jest/globals";
+import { extractAndRankIssuesFromReports } from "../../src/logic/issue-extraction-and-ranking";
+import type { ExtractAndRankIssuesInput } from "../../src/logic/issue-extraction-and-ranking";
 
-describe('朝会報告管理システム - 日報入力・送信', () => {
-  // SCEN-331
-  test('日報入力バリデーション機能 - 今日やることが1文字のとき入力ルールを満たす', () => {
-    const input: SubmitDailyReportInput = {
-      userId: 'eng001',
-      teamId: 'team-a',
-      yesterdayAccomplishment: 'テスト',
-      todayPlan: 'A',
-      challenges: 'なし',
-      reportDate: '2024-01-15',
+describe("Issue Extraction and Ranking", () => {
+  test("SCEN-331: should throw NoReportsProvidedError when no reports exist in the analysis period", () => {
+    const analysisEndDate = new Date("2024-01-15T00:00:00Z");
+    const analysisStartDate = new Date("2024-01-08T00:00:00Z");
+
+    const input: ExtractAndRankIssuesInput = {
+      reports: [],
+      analysisStartDate,
+      analysisEndDate,
+      minimumConfidenceThreshold: 50,
     };
 
-    const result: SubmitDailyReportOutput = submitDailyReport(input);
-
-    expect(result).toHaveProperty('reportId');
-    expect(result.reportId).toBeTruthy();
-    expect(result).toHaveProperty('submissionTimestamp');
-    expect(typeof result.submissionTimestamp).toBe('string');
-    expect(result).toHaveProperty('isWithinDeadline');
-    expect(typeof result.isWithinDeadline).toBe('boolean');
+    expect(() => extractAndRankIssuesFromReports(input)).toThrow(
+      /集約対象の日報が存在しません/
+    );
   });
 });

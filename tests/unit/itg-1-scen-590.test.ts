@@ -1,28 +1,33 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect } from '@jest/globals';
+import { evaluateInitialReportSubmission } from '../../src/logic/adoption-training-management';
 
-describe('Issue Extraction and Prioritization Logic', () => {
-  // SCEN-590
-  test('should assign medium priority rank when impact score is exactly at threshold of 50', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: 'Database connection timeout during peak hours',
-      occurrenceFrequency: 5,
-      impactScore: 50,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-dev-001',
-    };
+describe('朝会報告管理システム - 初回テスト報告評価', () => {
+  test('SCEN-590: 最小文字数の基準値が0以下のとき、FormatValidationErrorをスロー', () => {
+    const reportData = [
+      {
+        reportId: 'report-001',
+        engineerId: 'eng-001',
+        yesterdayAccomplishment: 'This is yesterday work content',
+        todayPlan: 'This is today plan content',
+        issuesAndConcerns: 'This is an issue description',
+        submissionTimestamp: new Date('2024-01-15T09:00:00Z'),
+        trainingPhaseId: 'phase-001'
+      }
+    ];
 
-    const result = calculateIssuePriorityScore(input);
+    const minContentLength = -1;
+    const issueKeywords: string[] = [];
 
-    expect(result.priorityRank).toBe('中');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(40);
-    expect(result.priorityScore).toBeLessThan(70);
-    expect(result.colorCode).toBe('#FFFF00');
-    expect(result.scoreBreakdown).toBeDefined();
-    expect(typeof result.scoreBreakdown.frequencyScore).toBe('number');
-    expect(typeof result.scoreBreakdown.impactScore).toBe('number');
-    expect(typeof result.scoreBreakdown.resolutionDifficultyScore).toBe('number');
+    expect(() => {
+      evaluateInitialReportSubmission(
+        reportData[0].reportId,
+        reportData[0].engineerId,
+        reportData[0].yesterdayAccomplishment,
+        reportData[0].todayPlan,
+        reportData[0].issuesAndConcerns,
+        reportData[0].submissionTimestamp,
+        reportData[0].trainingPhaseId
+      );
+    }).toThrow(/最小文字数/);
   });
 });

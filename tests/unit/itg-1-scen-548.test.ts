@@ -1,75 +1,83 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics, type ProductivityMetricsInput, type ProductivityMetricsOutput } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-548: [edge] 課題キーワード自動抽出・優先度判定機能 - 影響度スコアがちょうど下限（0）の課題が最低優先度として順序付けられる
-  test('影響度スコア0の課題が最後尾に配置され最低優先度として分類される', () => {
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const requestUserId = 'user-manager-001';
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-548: 異常値が全体の30%を超える場合の警告処理
+  test('SCEN-548: 異常値が全体の30%を超えるときに警告メッセージを出力し、異常値を除外した指標で再計算すること', async () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
 
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          {
-            keywordId: 'kw-001',
-            keyword: '高優先課題',
-            frequency: 5,
-            impactScore: 75,
-          },
-          {
-            keywordId: 'kw-002',
-            keyword: '中程度課題',
-            frequency: 3,
-            impactScore: 50,
-          },
-          {
-            keywordId: 'kw-003',
-            keyword: '最低優先課題',
-            frequency: 2,
-            impactScore: 0,
-          },
-        ],
-        totalKeywordCount: 3,
-        extractedAt: new Date('2024-01-15T10:30:00Z'),
-        analysisPeriodDays: 7,
-      }),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+    const normalIssueData = Array.from({ length: 21 }, (_, i) => ({
+      issueId: `issue-normal-${i + 1}`,
+      reportedDate: new Date('2024-01-15T09:00:00Z'),
+      resolvedDate: new Date('2024-01-20T17:00:00Z'),
+      status: 'resolved' as const,
+      resolutionDays: 5,
+    }));
+
+    const anomalousIssueData = Array.from({ length: 10 }, (_, i) => ({
+      issueId: `issue-anomaly-${i + 1}`,
+      reportedDate: new Date('2024-01-10T09:00:00Z'),
+      resolvedDate: new Date('2024-02-05T17:00:00Z'),
+      status: 'resolved' as const,
+      resolutionDays: 26,
+    }));
+
+    const combinedIssueData = [...normalIssueData, ...anomalousIssueData];
+
+    const submissionData = {
+      totalMembers: 10,
+      actualSubmissionCount: 31,
+      expectedSubmissionCount: 31,
+      submissionRate: 100,
     };
 
-    const input = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold: 1,
-      requestUserId,
-      textAnalysisServiceAdapter: mockTextAnalysisServiceAdapter,
+    const recurrenceData = {
+      overallRecurrenceRate: 9.68,
+      recurrentIssueIds: ['issue-normal-5', 'issue-normal-12', 'issue-anomaly-3'],
     };
 
-    const result = extractAndRankIssueKeywords(input);
+    const normalizedMetrics = {
+      issueResolutionSpeed: 5,
+      reportSubmissionRate: 100,
+      issueRecurrenceRate: 3.23,
+    };
+
+    const mockInput: ProductivityMetricsInput = {
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers: true,
+    };
+
+    const result: ProductivityMetricsOutput = await calculateProductivityMetrics(mockInput);
 
     expect(result).toBeDefined();
-    expect(result.keywords).toHaveLength(3);
+    expect(result.detectedAnomalies).toBeDefined();
+    expect(result.detectedAnomalies?.length).toBe(10);
 
-    const lowestPriorityKeyword = result.keywords[result.keywords.length - 1];
-    expect(lowestPriorityKeyword.keywordId).toBe('kw-003');
-    expect(lowestPriorityKeyword.keyword).toBe('最低優先課題');
-    expect(lowestPriorityKeyword.impactScore).toBe(0);
-    expect(lowestPriorityKeyword.rank).toBe(3);
+    if (result.detectedAnomalies && result.detectedAnomalies.length > 0) {
+      result.detectedAnomalies.forEach((anomaly) => {
+        expect(anomaly).toHaveProperty('anomalyType');
+        expect(anomaly).toHaveProperty('rootCauseClassification');
+        expect(anomaly).toHaveProperty('affectedMetricValue');
+      });
+    }
 
-    const secondKeyword = result.keywords[1];
-    expect(secondKeyword.keywordId).toBe('kw-002');
-    expect(secondKeyword.impactScore).toBe(50);
-    expect(secondKeyword.rank).toBe(2);
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(result.dataQualityAssessment.completenessPercentage).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeLessThanOrEqual(100);
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
 
-    const firstKeyword = result.keywords[0];
-    expect(firstKeyword.keywordId).toBe('kw-001');
-    expect(firstKeyword.impactScore).toBe(75);
-    expect(firstKeyword.rank).toBe(1);
+    const anomalyRatio = (result.detectedAnomalies?.length ?? 0) / 31;
+    expect(anomalyRatio).toBeGreaterThan(0.3);
 
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toEqual(new Date('2024-01-15T10:30:00Z'));
+    expect(result.issueResolutionSpeed).toBe(5);
+    expect(result.reportSubmissionRate).toBe(100);
+    expect(result.issueRecurrenceRate).toBeCloseTo(3.23, 1);
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
   });
 });

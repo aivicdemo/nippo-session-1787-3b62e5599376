@@ -1,22 +1,30 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect } from '@jest/globals';
+import { calculateTeamPerformanceMetrics, type TeamPerformanceMetricsInput, type MonthlyReportDataset } from '../../src/logic/monthly-analysis-report';
 
-describe('部長向けダッシュボード提出状況リアルタイム表示', () => {
+describe('calculateTeamPerformanceMetrics', () => {
   // SCEN-095
-  test('朝会開始予定時刻が不正な日時フォーマットのとき、エラーが発生する', () => {
-    const invalidInput: AggregateReportSubmissionStatusInput = {
-      teamId: 'team-001',
-      reportDate: '2026-01-15',
-      requestUserId: 'user-001',
-      includeDelayedSubmissions: true,
+  test('should throw DateRangeValidationError when aggregationStartDate is after aggregationEndDate', () => {
+    const teamIds = ['team-001', 'team-002'];
+    const aggregationStartDate = new Date('2024-02-29T00:00:00Z');
+    const aggregationEndDate = new Date('2024-02-15T23:59:59Z');
+    
+    const reportDataset: MonthlyReportDataset = {
+      extractionPeriod: {
+        startDateTime: '2024-02-01T00:00:00Z',
+        endDateTime: '2024-02-29T23:59:59Z',
+      },
+      totalReportCount: 10,
+      reports: [],
+      dataQualityScore: 95,
     };
 
-    const invalidScheduledTime = '2026-13-45T99:99:99Z';
+    const input: TeamPerformanceMetricsInput = {
+      teamIds,
+      aggregationStartDate,
+      aggregationEndDate,
+      reportDataset,
+    };
 
-    expect(() => {
-      aggregateReportSubmissionStatus(invalidInput, {
-        scheduledTime: new Date(invalidScheduledTime),
-      } as any);
-    }).toThrow(/朝会開始予定時刻/);
+    expect(() => calculateTeamPerformanceMetrics(input)).toThrow(/集計期間の開始日/);
   });
 });

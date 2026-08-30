@@ -1,111 +1,90 @@
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
-import { generateAndSendSummaryEmail } from "../../src/logic/notification-delivery";
-import type {
-  GenerateAndSendSummaryEmailInput,
-  GenerateAndSendSummaryEmailOutput,
-} from "../../src/logic/notification-delivery";
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import { type Report, type RankedIssueList } from '../../src/logic/issue-extraction-and-ranking';
 
-describe("日報の課題項目から課題キーワードを自動抽出し、発生頻度でランク付けして表示する機能", () => {
-  // SCEN-228: TextAnalysisServiceAdapter が課題キーワード抽出に失敗したとき代替処理に切り替わる
-  test("TextAnalysisServiceAdapter の extractKeywords 失敗時に代替処理へ切り替わり、メール送信を継続する", async () => {
-    // Arrange: TextAnalysisServiceAdapter をスタブ化し、extractKeywords がエラーを返すように設定
-    const textAnalysisServiceAdapterStub = {
-      extractKeywords: jest
-        .fn()
-        .mockRejectedValueOnce(new Error("API connection failed"))
-        .mockRejectedValueOnce(new Error("API connection failed"))
-        .mockRejectedValueOnce(new Error("API connection failed"))
-        .mockResolvedValueOnce({
-          keywords: [],
-          frequencies: [],
-        }),
-      assessImpactScore: jest.fn().mockResolvedValue({
-        score: 0,
-        severity: "low",
-      }),
-      classifyIssueSeverity: jest.fn().mockResolvedValue("low"),
-    };
-
-    // ダッシュボード更新をスタブ化
-    const dashboardUpdateStub = jest.fn().mockResolvedValue({
-      success: true,
-    });
-
-    // メール送信をスタブ化
-    const emailServiceStub = jest.fn().mockResolvedValue({
-      emailId: "email-001",
-      sentAt: "2024-01-15T09:00:00Z",
-      recipientEmail: "manager@company.com",
-      includedIssueCount: 0,
-      submissionSummary: {
-        submittedCount: 5,
-        unsubmittedCount: 5,
-        submissionRate: 50,
+describe('朝会報告管理システム - 課題抽出・優先度付け', () => {
+  // SCEN-228
+  test('キーワード辞書が空のときはデフォルト辞書を使用して処理を続行し、マッチングなしで空の課題リストを返す', () => {
+    // Arrange
+    const analysisStartDate = new Date('2024-12-16T00:00:00Z');
+    const analysisEndDate = new Date('2025-01-15T00:00:00Z');
+    
+    const reports: Report[] = [
+      {
+        reportId: 'report-001',
+        reportDate: new Date('2025-01-15T08:00:00Z'),
+        issueText: 'バグが多い',
+        teamId: 'team-a'
       },
-    });
+      {
+        reportId: 'report-002',
+        reportDate: new Date('2025-01-14T08:00:00Z'),
+        issueText: 'リソース不足で遅延',
+        teamId: 'team-b'
+      },
+      {
+        reportId: 'report-003',
+        reportDate: new Date('2025-01-13T08:00:00Z'),
+        issueText: 'ビルド失敗',
+        teamId: 'team-a'
+      },
+      {
+        reportId: 'report-004',
+        reportDate: new Date('2025-01-12T08:00:00Z'),
+        issueText: 'テスト環境不安定',
+        teamId: 'team-c'
+      },
+      {
+        reportId: 'report-005',
+        reportDate: new Date('2025-01-11T08:00:00Z'),
+        issueText: 'API接続エラー',
+        teamId: 'team-b'
+      },
+      {
+        reportId: 'report-006',
+        reportDate: new Date('2025-01-10T08:00:00Z'),
+        issueText: 'バグが多い',
+        teamId: 'team-c'
+      },
+      {
+        reportId: 'report-007',
+        reportDate: new Date('2025-01-09T08:00:00Z'),
+        issueText: 'リソース不足で遅延',
+        teamId: 'team-a'
+      },
+      {
+        reportId: 'report-008',
+        reportDate: new Date('2025-01-08T08:00:00Z'),
+        issueText: 'デプロイ失敗',
+        teamId: 'team-b'
+      },
+      {
+        reportId: 'report-009',
+        reportDate: new Date('2025-01-07T08:00:00Z'),
+        issueText: 'ネットワーク遅延',
+        teamId: 'team-a'
+      },
+      {
+        reportId: 'report-010',
+        reportDate: new Date('2025-01-06T08:00:00Z'),
+        issueText: 'ドキュメント不備',
+        teamId: 'team-c'
+      }
+    ];
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: "team-001",
-      reportDate: "2024-01-15",
-      managerUserId: "manager-001",
-      submittedReports: [
-        {
-          reporterId: "engineer-001",
-          reporterName: "Engineer A",
-          submittedAt: "2024-01-15T08:30:00Z",
-          challenges: [
-            "サーバーレスポンス遅延",
-            "昨日は機能Aの開発、今日はテストB対応、課題：サーバーレスポンス遅延",
-          ],
-        },
-        {
-          reporterId: "engineer-002",
-          reporterName: "Engineer B",
-          submittedAt: "2024-01-15T08:45:00Z",
-          challenges: ["データベース接続エラー"],
-        },
-      ],
-      unsubmittedMemberIds: ["engineer-003", "engineer-004", "engineer-005"],
-      reportDeadlineTime: "09:00",
-    };
+    const emptyKeywordDictionary: string[] = [];
 
-    // Act: 関数を実行、外部サービスの失敗を検知
-    const output = await generateAndSendSummaryEmail(input, {
-      textAnalysisServiceAdapter: textAnalysisServiceAdapterStub,
-      dashboardService: { updateWithFallbackMessage: dashboardUpdateStub },
-      emailService: { sendEmail: emailServiceStub },
-    });
-
-    // Assert: 代替処理への切り替わりを確認
-    expect(textAnalysisServiceAdapterStub.extractKeywords).toHaveBeenCalledTimes(
-      4
+    // Act
+    const result: RankedIssueList = extractAndRankIssuesFromReports(
+      reports,
+      analysisStartDate,
+      analysisEndDate,
+      emptyKeywordDictionary
     );
 
-    // ダッシュボード失敗メッセージ表示を確認
-    expect(dashboardUpdateStub).toHaveBeenCalledWith({
-      message: "課題分析が一時的に利用できません。手動入力をご利用ください",
-      teamId: "team-001",
-      timestamp: expect.any(String),
-    });
-
-    // メール送信が中断せず完了したことを確認
-    expect(emailServiceStub).toHaveBeenCalled();
-    expect(output).toEqual<GenerateAndSendSummaryEmailOutput>({
-      emailId: "email-001",
-      sentAt: "2024-01-15T09:00:00Z",
-      recipientEmail: "manager@company.com",
-      includedIssueCount: 0,
-      submissionSummary: {
-        submittedCount: 5,
-        unsubmittedCount: 5,
-        submissionRate: 50,
-      },
-    });
-
-    // メール本文が代替処理（空の課題キーワード）で生成されたことを確認
-    const emailCall = emailServiceStub.mock.calls[0][0];
-    expect(emailCall.teamId).toBe("team-001");
-    expect(emailCall.reportDate).toBe("2024-01-15");
-    expect(emailCall.managerUserId).toBe("manager-001");
+    // Assert
+    expect(result.issues).toEqual([]);
+    expect(result.totalIssueCount).toBe(0);
+    expect(result.analysisTimestamp).toBeDefined();
+    expect(result.lowConfidenceIssueCount).toBe(0);
   });
 });

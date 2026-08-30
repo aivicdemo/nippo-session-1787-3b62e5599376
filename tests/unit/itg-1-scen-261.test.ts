@@ -1,41 +1,22 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import type { ReportSubmissionInput, ReportSubmissionRecord } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('Daily Report Management - Real-time Submission Status Display', () => {
-  // SCEN-261: [error] 報告送信時刻の遅延判定機能 - 開発エンジニアの ID が空文字列のとき、エラーが発生して処理が進まない
-  test('should reject submission when engineer user ID is empty string', async () => {
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({ success: true }),
-      scheduleNotification: jest.fn().mockResolvedValue({ success: true }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ status: 'sent' }),
-    };
+describe('Priority Scoring Engine', () => {
+  // SCEN-261: [edge] 影響度スコアが範囲外（100超過）のときにエラーを発生させる
+  test('should throw OutOfRangeScoreError when impactScore exceeds 100', () => {
+    const issueId = 'ISSUE-001';
+    const frequency = 50;
+    const impactScore = 105;
+    const frequencyWeight = 0.4;
+    const impactWeight = 0.6;
 
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest
-        .fn()
-        .mockResolvedValue({ keywords: ['テスト'], frequency: 1 }),
-      assessImpactScore: jest.fn().mockResolvedValue({ impactScore: 50 }),
-      classifyIssueSeverity: jest
-        .fn()
-        .mockResolvedValue({ severity: 'medium' }),
-    };
-
-    const invalidSubmissionInput: ReportSubmissionInput = {
-      reportId: 'report-001',
-      userId: '',
-      submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-      reportContent: {
-        yesterdayAccomplishment: 'Completed feature implementation',
-        todayPlan: 'Code review and testing',
-        challenges: 'Performance optimization needed',
-      },
-    };
-
-    await expect(
-      submitDailyReport(invalidSubmissionInput, {
-        notificationServiceAdapter: mockNotificationServiceAdapter,
-        textAnalysisServiceAdapter: mockTextAnalysisServiceAdapter,
+    expect(() =>
+      calculatePriorityScoreForIssue({
+        issueId,
+        frequency,
+        impactScore,
+        frequencyWeight,
+        impactWeight,
       })
-    ).rejects.toThrow(/ユーザーID/);
+    ).toThrow(/影響度スコア/);
   });
 });

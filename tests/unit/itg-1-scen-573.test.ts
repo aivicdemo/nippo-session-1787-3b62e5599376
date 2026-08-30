@@ -1,35 +1,36 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect } from '@jest/globals';
+import { saveExtractedIssueData } from '../../src/logic/issue-data-persistence';
 
-describe('課題の影響度判定と優先度スコア計算', () => {
-  // SCEN-573: [error] 課題優先度判定機能 - 課題内容がundefinedのとき影響度スコア計算エラーが発生する
-  test('課題内容がundefinedの場合、影響度スコア計算エラーが発生する', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockImplementation((content: string | undefined) => {
-        if (content === undefined) {
-          throw new TypeError('課題内容が無効です');
-        }
-        return 75;
-      }),
-      classifyIssueSeverity: jest.fn(),
+describe('Issue Data Persistence', () => {
+  test('SCEN-573: saveExtractedIssueData saves extracted issue data with encryption and returns completion status', () => {
+    const input = {
+      reportId: 'RPT-20250101-001',
+      issueContent: 'Build system timeout during deployment',
+      issueType: 'technical_issue',
+      priorityScore: 85,
+      impactLevel: 'high',
+      extractedKeywords: ['build', 'timeout', 'deployment'],
+      analysisResult: {
+        rootCause: 'Insufficient server resources during peak hours',
+        proposedCountermeasure: 'Implement resource scaling and monitoring',
+        estimatedResolutionDays: 3,
+      },
+      executorId: 'PM-USER-001',
     };
 
-    const invalidInput: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: undefined as any,
-      occurrenceFrequency: 5,
-      impactScore: 80,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001',
-    };
+    const result = saveExtractedIssueData(input);
 
-    expect(() => 
-      calculateIssuePriorityScore(invalidInput, mockTextAnalysisServiceAdapter)
-    ).toThrow(/課題内容/);
+    expect(result).toBeDefined();
+    expect(result.issueDataId).toBeDefined();
+    expect(typeof result.issueDataId).toBe('string');
+    expect(result.issueDataId.length).toBeGreaterThan(0);
 
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalledWith(undefined);
+    expect(result.savedTimestamp).toBeDefined();
+    expect(typeof result.savedTimestamp).toBe('string');
+    const savedTime = new Date(result.savedTimestamp);
+    expect(savedTime.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(savedTime.getTime()).toBeGreaterThan(Date.now() - 5000);
+
+    expect(result.encryptionStatus).toBe('encrypted');
   });
 });

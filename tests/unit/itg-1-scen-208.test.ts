@@ -1,109 +1,103 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput, GenerateAndSendSummaryEmailOutput } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import { type Report, type RankedIssueList } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('generateAndSendSummaryEmail - 課題抽出0件の場合', () => {
+describe('Issue Extraction and Ranking - Edge Case: Unregistered Keywords Exclusion', () => {
   // SCEN-208
-  it('課題が1件も抽出されない場合、課題一覧が0件として集約メールに含まれる', async () => {
-    const reportDate = '2024-01-15';
-    const teamId = 'team-001';
-    const managerUserId = 'manager-001';
-    const reportDeadlineTime = '09:00';
-
-    const submittedReports = [
+  test('should exclude keywords not in the dictionary and count only registered keywords', () => {
+    const issueKeywordDictionary = ['バグ', '遅延', 'リソース不足'];
+    
+    const reports: Report[] = [
       {
-        reporterId: 'user-001',
-        reporterName: 'Engineer A',
-        submittedAt: '2024-01-15T08:55:00Z',
-        challenges: [],
+        reportId: 'report-001',
+        reportDate: new Date('2024-01-10'),
+        issueText: 'バグが多発している',
+        teamId: 'team-001'
       },
       {
-        reporterId: 'user-002',
-        reporterName: 'Engineer B',
-        submittedAt: '2024-01-15T08:52:00Z',
-        challenges: [],
+        reportId: 'report-002',
+        reportDate: new Date('2024-01-11'),
+        issueText: 'リソース不足と遅延が同時発生',
+        teamId: 'team-001'
       },
       {
-        reporterId: 'user-003',
-        reporterName: 'Engineer C',
-        submittedAt: '2024-01-15T08:50:00Z',
-        challenges: [],
+        reportId: 'report-003',
+        reportDate: new Date('2024-01-12'),
+        issueText: 'システム連携の問題',
+        teamId: 'team-001'
       },
       {
-        reporterId: 'user-004',
-        reporterName: 'Engineer D',
-        submittedAt: '2024-01-15T08:48:00Z',
-        challenges: [],
+        reportId: 'report-004',
+        reportDate: new Date('2024-01-13'),
+        issueText: 'バグが再度検出された',
+        teamId: 'team-002'
       },
       {
-        reporterId: 'user-005',
-        reporterName: 'Engineer E',
-        submittedAt: '2024-01-15T08:46:00Z',
-        challenges: [],
+        reportId: 'report-005',
+        reportDate: new Date('2024-01-14'),
+        issueText: '遅延が続いている',
+        teamId: 'team-002'
       },
       {
-        reporterId: 'user-006',
-        reporterName: 'Engineer F',
-        submittedAt: '2024-01-15T08:44:00Z',
-        challenges: [],
+        reportId: 'report-006',
+        reportDate: new Date('2024-01-15'),
+        issueText: 'リソース不足による遅延',
+        teamId: 'team-003'
       },
       {
-        reporterId: 'user-007',
-        reporterName: 'Engineer G',
-        submittedAt: '2024-01-15T08:42:00Z',
-        challenges: [],
+        reportId: 'report-007',
+        reportDate: new Date('2024-01-16'),
+        issueText: 'バグ対応でリソース不足',
+        teamId: 'team-003'
       },
       {
-        reporterId: 'user-008',
-        reporterName: 'Engineer H',
-        submittedAt: '2024-01-15T08:40:00Z',
-        challenges: [],
+        reportId: 'report-008',
+        reportDate: new Date('2024-01-17'),
+        issueText: 'サーバー障害と遅延の問題',
+        teamId: 'team-004'
       },
       {
-        reporterId: 'user-009',
-        reporterName: 'Engineer I',
-        submittedAt: '2024-01-15T08:38:00Z',
-        challenges: [],
+        reportId: 'report-009',
+        reportDate: new Date('2024-01-18'),
+        issueText: 'バグと遅延が並行して発生',
+        teamId: 'team-005'
       },
       {
-        reporterId: 'user-010',
-        reporterName: 'Engineer J',
-        submittedAt: '2024-01-15T08:36:00Z',
-        challenges: [],
-      },
+        reportId: 'report-010',
+        reportDate: new Date('2024-01-19'),
+        issueText: 'ネットワーク接続エラー',
+        teamId: 'team-006'
+      }
     ];
 
-    const unsubmittedMemberIds: string[] = [];
+    const analysisStartDate = new Date('2023-12-20');
+    const analysisEndDate = new Date('2024-01-19');
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId,
-      reportDate,
-      managerUserId,
-      submittedReports,
-      unsubmittedMemberIds,
-      reportDeadlineTime,
-    };
+    const result: RankedIssueList = extractAndRankIssuesFromReports({
+      reports,
+      analysisStartDate,
+      analysisEndDate,
+      issueKeywordDictionary,
+      minimumConfidenceThreshold: 50
+    });
 
-    const output: GenerateAndSendSummaryEmailOutput = await generateAndSendSummaryEmail(input);
+    const extractedKeywords = result.issues.map((issue) => issue.keyword);
+    
+    expect(extractedKeywords).toContain('バグ');
+    expect(extractedKeywords).toContain('遅延');
+    expect(extractedKeywords).toContain('リソース不足');
+    
+    expect(extractedKeywords).not.toContain('システム連携');
+    expect(extractedKeywords).not.toContain('問題');
+    expect(extractedKeywords).not.toContain('サーバー障害');
+    expect(extractedKeywords).not.toContain('ネットワーク接続エラー');
 
-    expect(output.emailId).toBeDefined();
-    expect(typeof output.emailId).toBe('string');
-    expect(output.emailId.length).toBeGreaterThan(0);
-
-    expect(output.sentAt).toBeDefined();
-    expect(typeof output.sentAt).toBe('string');
-    const sentDate = new Date(output.sentAt);
-    expect(sentDate.getTime()).toBeGreaterThan(0);
-
-    expect(output.recipientEmail).toBeDefined();
-    expect(typeof output.recipientEmail).toBe('string');
-    expect(output.recipientEmail).toContain('@');
-
-    expect(output.includedIssueCount).toBe(0);
-
-    expect(output.submissionSummary).toBeDefined();
-    expect(output.submissionSummary.submittedCount).toBe(10);
-    expect(output.submissionSummary.unsubmittedCount).toBe(0);
-    expect(output.submissionSummary.submissionRate).toBe(100);
+    const registeredKeywordCount = result.issues.filter((issue) =>
+      issueKeywordDictionary.includes(issue.keyword)
+    ).length;
+    
+    expect(result.totalIssueCount).toBe(registeredKeywordCount);
+    
+    expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.issues.length).toBeLessThanOrEqual(3);
   });
 });

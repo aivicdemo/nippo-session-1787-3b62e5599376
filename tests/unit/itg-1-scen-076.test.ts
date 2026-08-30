@@ -1,26 +1,29 @@
-import { submitDailyReport } from "../../src/logic/daily-report-management";
+import { sendDailyReminderNotifications } from "../../src/logic/reminder-notification-service";
+import type {
+  DailyReminderInput,
+  ReminderNotificationResult,
+} from "../../src/logic/reminder-notification-service";
 
-describe("Daily Report Submission - Deadline Exceeded Error", () => {
-  test("SCEN-076: submitDailyReport returns DEADLINE_EXCEEDED error when submission time exceeds deadline", () => {
-    // Arrange: Setup test data with deadline at 09:00
-    const deadline = "09:00";
-    const currentTime = new Date("2024-01-15T09:05:00Z"); // 5 minutes after deadline
-    
-    const submitInput = {
-      userId: "user-001",
+describe("朝会報告管理システム - リマインド通知サービス", () => {
+  // SCEN-076
+  test("報告期限の計算ロジックが不正な値を返す場合、InvalidDeadlineCalculationError エラーが発生する", () => {
+    const currentTime = new Date("2024-01-01T10:00:00Z");
+    const pastDeadline = new Date("2024-01-01T08:00:00Z");
+
+    const dailyReminderInput: DailyReminderInput = {
       teamId: "team-001",
-      yesterdayAccomplishment: "タスクA完了",
-      todayPlan: "タスクB実施",
-      challenges: "リソース不足",
-      reportDate: "2024-01-15"
+      reportDeadlineDateTime: pastDeadline,
+      executionTimestamp: currentTime,
+      notificationChannels: [
+        {
+          channelType: "email",
+          isEnabled: true,
+        },
+      ],
     };
 
-    // Mock the current time by creating a submission record with the test timestamp
-    const submissionTimestamp = currentTime;
-
-    // Act & Assert: Verify deadline exceeded error is thrown
-    expect(() =>
-      submitDailyReport(submitInput, submissionTimestamp, deadline)
-    ).toThrow(/期限/);
+    expect(() => sendDailyReminderNotifications(dailyReminderInput)).toThrow(
+      /報告期限の計算に失敗しました/
+    );
   });
 });

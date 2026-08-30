@@ -1,32 +1,18 @@
-import { evaluateDataAccessPermission } from '../../src/logic/auth-authorization';
-import type { DataAccessEvaluationInput, DataAccessPermissionResult } from '../../src/logic/auth-authorization';
+import { encryptReportData } from "../../src/logic/data-encryption-and-security";
 
-describe('優先度の高い課題を部長向けダッシュボードで強調表示', () => {
-  // SCEN-139
-  test('部長役割ユーザーがダッシュボードにアクセスしたとき、全チーム課題の優先度スコアと報告提出状況が表示される', () => {
-    const managerUserId = 'manager_001';
-    const managerRole = 'manager' as const;
-    const managerTeamId = 'team_shared_001';
-
-    const targetDataType = 'dashboard' as const;
-    const requestedOperation = 'view' as const;
-
-    const input: DataAccessEvaluationInput = {
-      userId: managerUserId,
-      userRole: managerRole,
-      userTeamId: managerTeamId,
-      targetDataType: targetDataType,
-      targetTeamId: 'team_shared_001',
-      requestedOperation: requestedOperation,
+describe("朝会報告管理システム - 日報暗号化", () => {
+  test("SCEN-139: 必須フィールド欠落時にエラーを発生させる", () => {
+    const reportDataWithMissingReporterId = {
+      reporterId: null as any,
+      teamId: "team-001",
+      reportDate: "2026-08-19",
+      personalInfo: "山田太郎",
+      issueContent: "認証機能の脆弱性",
+      progressInfo: "DB設計完了",
     };
 
-    const result: DataAccessPermissionResult = evaluateDataAccessPermission(input);
-
-    expect(result.isPermitted).toBe(true);
-    expect(result.permittedOperations).toContain('view');
-    expect(result.dataScope).toBe('all_teams');
-    expect(result.decryptionKey).not.toBeNull();
-    expect(typeof result.decryptionKey).toBe('string');
-    expect(result.decryptionKey?.length).toBeGreaterThan(0);
+    expect(() => {
+      encryptReportData(reportDataWithMissingReporterId);
+    }).toThrow(/日報データが不完全です。必須項目を確認してください。/);
   });
 });

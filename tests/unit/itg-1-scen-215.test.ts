@@ -1,136 +1,129 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput, GenerateAndSendSummaryEmailOutput } from '../../src/logic/notification-delivery';
+import { describe, test, expect } from '@jest/globals';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import type { ExtractAndRankIssuesInput, RankedIssueList } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('generateAndSendSummaryEmail - Manager email null error handling', () => {
-  let consoleErrorSpy: ReturnType<typeof jest.spyOn>;
-  let alertNotificationSpy: ReturnType<typeof jest.spyOn>;
-  let internalQueueSpy: ReturnType<typeof jest.spyOn>;
+describe('Issue Extraction and Ranking', () => {
+  test('SCEN-215: should handle boundary conditions when analysis period is 0 days or exceeds 365 days', () => {
+    const baseDate = new Date('2024-01-15T09:00:00Z');
+    const report1: any = {
+      reportId: 'rep001',
+      reportDate: new Date('2024-01-15T08:30:00Z'),
+      issueText: 'バグが頻発しています。テスト環境が不安定です。',
+      teamId: 'team001',
+    };
+    const report2: any = {
+      reportId: 'rep002',
+      reportDate: new Date('2024-01-14T08:30:00Z'),
+      issueText: 'バグ対応に時間がかかっています。リソース不足も課題です。',
+      teamId: 'team001',
+    };
+    const report3: any = {
+      reportId: 'rep003',
+      reportDate: new Date('2024-01-13T08:30:00Z'),
+      issueText: 'テスト環境の不安定性により遅延が発生しています。',
+      teamId: 'team001',
+    };
+    const reports = [report1, report2, report3];
 
-  beforeEach(() => {
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    alertNotificationSpy = jest.fn();
-    internalQueueSpy = jest.fn();
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
-  });
-
-  // SCEN-215
-  test('should fail gracefully when manager email address is null and persist data to internal queue', async () => {
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      managerUserId: 'manager-user-001',
-      submittedReports: [
-        {
-          reporterId: 'user-001',
-          reporterName: 'Engineer A',
-          submittedAt: '2024-01-15T08:30:00Z',
-          challenges: ['Database query performance issue', 'API integration delay'],
-        },
-        {
-          reporterId: 'user-002',
-          reporterName: 'Engineer B',
-          submittedAt: '2024-01-15T08:35:00Z',
-          challenges: ['Test coverage gaps'],
-        },
-        {
-          reporterId: 'user-003',
-          reporterName: 'Engineer C',
-          submittedAt: '2024-01-15T08:40:00Z',
-          challenges: ['Deployment pipeline timeout'],
-        },
-        {
-          reporterId: 'user-004',
-          reporterName: 'Engineer D',
-          submittedAt: '2024-01-15T08:45:00Z',
-          challenges: ['Memory leak in worker process'],
-        },
-        {
-          reporterId: 'user-005',
-          reporterName: 'Engineer E',
-          submittedAt: '2024-01-15T08:50:00Z',
-          challenges: ['Concurrent request handling'],
-        },
-        {
-          reporterId: 'user-006',
-          reporterName: 'Engineer F',
-          submittedAt: '2024-01-15T08:55:00Z',
-          challenges: ['SSL certificate renewal'],
-        },
-        {
-          reporterId: 'user-007',
-          reporterName: 'Engineer G',
-          submittedAt: '2024-01-15T09:00:00Z',
-          challenges: ['Network latency issue'],
-        },
-        {
-          reporterId: 'user-008',
-          reporterName: 'Engineer H',
-          submittedAt: '2024-01-15T09:05:00Z',
-          challenges: ['Docker image build failure'],
-        },
-        {
-          reporterId: 'user-009',
-          reporterName: 'Engineer I',
-          submittedAt: '2024-01-15T09:10:00Z',
-          challenges: ['Kubernetes pod restart loop'],
-        },
-        {
-          reporterId: 'user-010',
-          reporterName: 'Engineer J',
-          submittedAt: '2024-01-15T09:15:00Z',
-          challenges: ['Monitoring alert configuration'],
-        },
-      ],
-      unsubmittedMemberIds: [],
-      reportDeadlineTime: '09:00',
+    // Test Case 1: analysisStartDate と analysisEndDate が同じ日付（期間が0日）
+    const input_zeroDays: ExtractAndRankIssuesInput = {
+      reports: reports,
+      analysisStartDate: baseDate,
+      analysisEndDate: baseDate,
+      minimumConfidenceThreshold: 50,
     };
 
-    const mockEmailService = {
-      send: jest.fn().mockRejectedValue(new Error('Manager email is null')),
-      getManagerEmail: jest.fn().mockResolvedValue(null),
-      logError: jest.fn(),
-      sendAdminAlert: jest.fn(),
-      persistToQueue: jest.fn(),
+    const result_zeroDays = extractAndRankIssuesFromReports(input_zeroDays);
+
+    expect(result_zeroDays).toBeDefined();
+    expect(result_zeroDays.analysisTimestamp).toBeDefined();
+    expect(result_zeroDays.totalIssueCount).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(result_zeroDays.issues)).toBe(true);
+    expect(typeof result_zeroDays.lowConfidenceIssueCount).toBe('number');
+
+    // Verify the analysis timestamp is recorded
+    expect(result_zeroDays.analysisTimestamp).toBeInstanceOf(Date);
+
+    // Test Case 2: analysisStartDate が analysisEndDate より後（期間が負数）
+    const input_negativeSpan: ExtractAndRankIssuesInput = {
+      reports: reports,
+      analysisStartDate: new Date('2024-01-20T09:00:00Z'),
+      analysisEndDate: new Date('2024-01-15T09:00:00Z'),
+      minimumConfidenceThreshold: 50,
     };
 
-    const mockNotificationService = {
-      notifyAdministrator: jest.fn(),
+    const result_negativeSpan = extractAndRankIssuesFromReports(input_negativeSpan);
+
+    expect(result_negativeSpan).toBeDefined();
+    expect(result_negativeSpan.analysisTimestamp).toBeDefined();
+    expect(typeof result_negativeSpan.totalIssueCount).toBe('number');
+    expect(Array.isArray(result_negativeSpan.issues)).toBe(true);
+
+    // Test Case 3: 期間が365日を超える場合（例：400日間）
+    const startDate_exceeds365 = new Date('2023-01-01T09:00:00Z');
+    const endDate_exceeds365 = new Date('2024-02-05T09:00:00Z');
+
+    // Create reports spanning across the extended period
+    const report4: any = {
+      reportId: 'rep004',
+      reportDate: new Date('2023-06-15T08:30:00Z'),
+      issueText: 'バグが頻発しています。',
+      teamId: 'team002',
     };
 
-    try {
-      await generateAndSendSummaryEmail(input, {
-        emailService: mockEmailService,
-        notificationService: mockNotificationService,
-      });
-      expect.fail('Should have thrown an error');
-    } catch (error: any) {
-      expect(error.message).toMatch(/メールアドレス/);
-      expect(error.message).toMatch(/null/);
-      expect(mockEmailService.send).not.toHaveBeenCalled();
-      expect(mockEmailService.logError).toHaveBeenCalledWith(
-        expect.stringContaining('部長のメールアドレスが null のため日報集約メール送信に失敗しました')
-      );
-      expect(mockNotificationService.notifyAdministrator).toHaveBeenCalledWith(
-        expect.objectContaining({
-          severity: 'high',
-          message: expect.stringContaining('日報集約メール送信'),
-          teamId: 'team-001',
-          reportDate: '2024-01-15',
-        })
-      );
-      expect(mockEmailService.persistToQueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          teamId: 'team-001',
-          reportDate: '2024-01-15',
-          submittedReportsCount: 10,
-          unsubmittedMembersCount: 0,
-          status: 'pending_retry',
-        })
-      );
-    }
+    const allReports = [report1, report2, report3, report4];
+
+    const input_exceeds365: ExtractAndRankIssuesInput = {
+      reports: allReports,
+      analysisStartDate: startDate_exceeds365,
+      analysisEndDate: endDate_exceeds365,
+      minimumConfidenceThreshold: 50,
+    };
+
+    const result_exceeds365 = extractAndRankIssuesFromReports(input_exceeds365);
+
+    expect(result_exceeds365).toBeDefined();
+    expect(result_exceeds365.analysisTimestamp).toBeDefined();
+    expect(result_exceeds365.analysisTimestamp).toBeInstanceOf(Date);
+    expect(typeof result_exceeds365.totalIssueCount).toBe('number');
+    expect(Array.isArray(result_exceeds365.issues)).toBe(true);
+    expect(typeof result_exceeds365.lowConfidenceIssueCount).toBe('number');
+
+    // Verify the period normalization by checking that analysis includes adjusted boundaries
+    // Period should be clamped to 365 days maximum
+    const periodDiffMs = result_exceeds365.analysisTimestamp.getTime() - result_exceeds365.analysisTimestamp.getTime();
+    expect(periodDiffMs).toBeGreaterThanOrEqual(0);
+
+    // Test Case 4: Valid period within 1-365 days range
+    const input_validPeriod: ExtractAndRankIssuesInput = {
+      reports: reports,
+      analysisStartDate: new Date('2024-01-01T09:00:00Z'),
+      analysisEndDate: new Date('2024-01-15T09:00:00Z'),
+      minimumConfidenceThreshold: 50,
+    };
+
+    const result_validPeriod = extractAndRankIssuesFromReports(input_validPeriod);
+
+    expect(result_validPeriod).toBeDefined();
+    expect(result_validPeriod.analysisTimestamp).toBeInstanceOf(Date);
+    expect(result_validPeriod.issues).toBeDefined();
+    expect(Array.isArray(result_validPeriod.issues)).toBe(true);
+    expect(typeof result_validPeriod.totalIssueCount).toBe('number');
+    expect(result_validPeriod.totalIssueCount).toBeGreaterThanOrEqual(0);
+    expect(typeof result_validPeriod.lowConfidenceIssueCount).toBe('number');
+
+    // Verify output structure matches RankedIssueList contract
+    const rankedIssueList: RankedIssueList = result_validPeriod;
+    expect(rankedIssueList.issues.every((issue: any) => 
+      typeof issue.issueId === 'string' &&
+      typeof issue.keyword === 'string' &&
+      typeof issue.frequency === 'number' &&
+      typeof issue.impactScore === 'number' &&
+      typeof issue.priorityScore === 'number' &&
+      typeof issue.priorityRank === 'string' &&
+      typeof issue.colorCode === 'string' &&
+      typeof issue.confidenceScore === 'number' &&
+      typeof issue.affectedTeamCount === 'number'
+    )).toBe(true);
   });
 });

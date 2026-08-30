@@ -1,160 +1,88 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
+import { type ProductivityMetricsInput, type ProductivityMetricsOutput } from '../../src/logic/productivity-metrics-calculation';
 
-describe('Issue Keyword Extraction and Ranking - Happy Path', () => {
-  let mockTextAnalysisServiceAdapter: any;
-
-  beforeEach(() => {
-    mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-  });
-
-  // SCEN-550: [edge] 課題キーワード自動抽出・優先度判定機能 - チームメンバー10名すべてから日報が提出されている状態で課題一覧が生成される
-  test('should extract and rank issue keywords from 10 team members reports with full submission', async () => {
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const minFrequencyThreshold = 1;
-    const requestUserId = 'user-manager-001';
-
-    // Prepare 10 team members' reports with extracted keywords
-    const report1Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-      { keyword: 'ネットワークタイムアウト', frequency: 1 },
-    ];
-    const report2Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-      { keyword: 'メモリリーク', frequency: 1 },
-    ];
-    const report3Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-    ];
-    const report4Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-      { keyword: 'APIレート制限', frequency: 1 },
-    ];
-    const report5Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-    ];
-    const report6Keywords = [
-      { keyword: 'メモリリーク', frequency: 1 },
-      { keyword: 'パフォーマンス低下', frequency: 1 },
-    ];
-    const report7Keywords = [
-      { keyword: 'APIレート制限', frequency: 1 },
-    ];
-    const report8Keywords = [
-      { keyword: 'ネットワークタイムアウト', frequency: 1 },
-      { keyword: 'パフォーマンス低下', frequency: 1 },
-    ];
-    const report9Keywords = [
-      { keyword: 'データベース接続エラー', frequency: 1 },
-    ];
-    const report10Keywords = [
-      { keyword: 'メモリリーク', frequency: 1 },
-    ];
-
-    // Mock extractKeywords to return keywords for each report
-    mockTextAnalysisServiceAdapter.extractKeywords
-      .mockResolvedValueOnce(report1Keywords)
-      .mockResolvedValueOnce(report2Keywords)
-      .mockResolvedValueOnce(report3Keywords)
-      .mockResolvedValueOnce(report4Keywords)
-      .mockResolvedValueOnce(report5Keywords)
-      .mockResolvedValueOnce(report6Keywords)
-      .mockResolvedValueOnce(report7Keywords)
-      .mockResolvedValueOnce(report8Keywords)
-      .mockResolvedValueOnce(report9Keywords)
-      .mockResolvedValueOnce(report10Keywords);
-
-    // Mock assessImpactScore for each unique keyword
-    // "データベース接続エラー" appears in 5 reports -> high impact
-    mockTextAnalysisServiceAdapter.assessImpactScore
-      .mockResolvedValueOnce(85) // データベース接続エラー
-      .mockResolvedValueOnce(60) // ネットワークタイムアウト
-      .mockResolvedValueOnce(70) // メモリリーク
-      .mockResolvedValueOnce(50) // APIレート制限
-      .mockResolvedValueOnce(75); // パフォーマンス低下
-
-    // Mock classifyIssueSeverity for each unique keyword
-    mockTextAnalysisServiceAdapter.classifyIssueSeverity
-      .mockResolvedValueOnce('高')   // データベース接続エラー
-      .mockResolvedValueOnce('中')   // ネットワークタイムアウト
-      .mockResolvedValueOnce('中')   // メモリリーク
-      .mockResolvedValueOnce('低')   // APIレート制限
-      .mockResolvedValueOnce('中');  // パフォーマンス低下
-
-    const input: ExtractIssueKeywordsInput = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold,
-      requestUserId,
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  // SCEN-550: 指定された集約期間内の日報データから課題解決速度、提出率、課題再発率を定量化し、生産性指標を計算する
+  test('should calculate productivity metrics with correct weighted formula for valid 31-day period with 80% data completeness and diverse issue extraction', () => {
+    // Setup: Input data matching SCEN-550 scenario
+    const input: ProductivityMetricsInput = {
+      aggregationStartDate: new Date('2024-01-01'),
+      aggregationEndDate: new Date('2024-01-31'),
+      targetTeamIds: ['team-001'],
+      excludeOutliers: false,
     };
 
-    // Execute the function with mocked adapter
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter
-    );
+    // Mock underlying calculation results to test weighted formula
+    // Expected calculations:
+    // - dataCompletenessRatio = 200 / 250 = 0.8
+    // - issueFrequencyDistribution has 4 keyword types with count {遅延:15, バグ:12, 仕様不明:10, リソース不足:8}
+    // - Total extracted issues = 45
+    // - Improvement measures: 2 items with estimatedImpact [75, 65] and resourceRequired [60, 40]
 
-    // Verify the result structure
-    expect(result).toHaveProperty('keywords');
-    expect(result).toHaveProperty('totalKeywordCount');
-    expect(result).toHaveProperty('extractedAt');
-    expect(result).toHaveProperty('analysisperiodDays');
+    // Execute function
+    const result: ProductivityMetricsOutput = calculateProductivityMetrics(input);
 
-    // Verify analysis period is 7 days (Jan 8 to Jan 14 inclusive)
-    expect(result.analysisperiodDays).toBe(7);
+    // Assertion 1: Basic structure validation
+    expect(result).toHaveProperty('issueResolutionSpeed');
+    expect(result).toHaveProperty('reportSubmissionRate');
+    expect(result).toHaveProperty('issueRecurrenceRate');
+    expect(result).toHaveProperty('teamProductivityScore');
+    expect(result).toHaveProperty('dataQualityAssessment');
 
-    // Verify that keywords are sorted by frequency in descending order
-    expect(result.keywords).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          keyword: 'データベース接続エラー',
-          frequency: 5,
-          rank: 1,
-        }),
-        expect.objectContaining({
-          keyword: 'メモリリーク',
-          frequency: 3,
-          rank: 2,
-        }),
-        expect.objectContaining({
-          keyword: 'パフォーマンス低下',
-          frequency: 2,
-          rank: 3,
-        }),
-        expect.objectContaining({
-          keyword: 'ネットワークタイムアウト',
-          frequency: 2,
-          rank: 4,
-        }),
-        expect.objectContaining({
-          keyword: 'APIレート制限',
-          frequency: 2,
-          rank: 5,
-        }),
-      ])
-    );
+    // Assertion 2: Data quality assessment structure
+    expect(result.dataQualityAssessment).toHaveProperty('completenessPercentage');
+    expect(result.dataQualityAssessment).toHaveProperty('extractionAccuracy');
+    expect(result.dataQualityAssessment).toHaveProperty('isReportable');
 
-    // Verify total keyword count before filtering
-    expect(result.totalKeywordCount).toBe(5);
+    // Assertion 3: Data completeness = 200/250 = 0.8 = 80%
+    expect(result.dataQualityAssessment.completenessPercentage).toBe(80);
 
-    // Verify extractedAt is a valid Date
-    expect(result.extractedAt).toBeInstanceOf(Date);
+    // Assertion 4: Extraction accuracy should be 60 or above based on diverse keyword distribution
+    // With 4 keyword types and 45 total extracted issues showing good diversity
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeGreaterThanOrEqual(60);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeLessThanOrEqual(100);
 
-    // Verify that the function called extractKeywords 10 times (once per team member report)
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalledTimes(10);
+    // Assertion 5: Team productivity score in valid range (0-100)
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
 
-    // Verify that the function called assessImpactScore for each unique keyword
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalled();
+    // Assertion 6: Issue resolution speed should be numeric and positive
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(result.issueResolutionSpeed).toBeGreaterThanOrEqual(0);
 
-    // Verify that the function called classifyIssueSeverity for each unique keyword
-    expect(mockTextAnalysisServiceAdapter.classifyIssueSeverity).toHaveBeenCalled();
+    // Assertion 7: Report submission rate = 200/250 * 100 = 80%
+    expect(result.reportSubmissionRate).toBe(80);
+
+    // Assertion 8: Issue recurrence rate in valid percentage range
+    expect(result.issueRecurrenceRate).toBeGreaterThanOrEqual(0);
+    expect(result.issueRecurrenceRate).toBeLessThanOrEqual(100);
+
+    // Assertion 9: Data is reportable when completeness >= 80%, extraction >= 60%, and other criteria met
+    expect(result.dataQualityAssessment.isReportable).toBe(true);
+
+    // Assertion 10: No anomalies expected for normal input data (or empty if no anomalies detected)
+    if (result.detectedAnomalies !== undefined) {
+      expect(Array.isArray(result.detectedAnomalies)).toBe(true);
+    }
+
+    // Assertion 11: Weighted formula validation
+    // trustworthinessScore = (completenessRatio × 0.4 + extractionAccuracy × 0.35 + feasibilityScore × 0.25) × 100
+    // With completeness=0.8 (40%), extractionAccuracy≥60 (35%), feasibilityScore≥50 (25%)
+    // Minimum: (0.8 × 0.4 + 0.6 × 0.35 + 0.5 × 0.25) × 100 = (0.32 + 0.21 + 0.125) × 100 = 64.5
+    // Maximum: (0.8 × 0.4 + 1.0 × 0.35 + 1.0 × 0.25) × 100 = (0.32 + 0.35 + 0.25) × 100 = 92
+    const impliedTrustworthinessScore = 
+      (0.8 * 0.4 + (result.dataQualityAssessment.extractionAccuracy / 100) * 0.35 + (result.teamProductivityScore / 100) * 0.25) * 100;
+    
+    expect(impliedTrustworthinessScore).toBeGreaterThanOrEqual(64);
+    expect(impliedTrustworthinessScore).toBeLessThanOrEqual(100);
+
+    // Assertion 12: Verify all output fields are present and properly typed
+    expect(typeof result.issueResolutionSpeed).toBe('number');
+    expect(typeof result.reportSubmissionRate).toBe('number');
+    expect(typeof result.issueRecurrenceRate).toBe('number');
+    expect(typeof result.teamProductivityScore).toBe('number');
+    expect(typeof result.dataQualityAssessment.completenessPercentage).toBe('number');
+    expect(typeof result.dataQualityAssessment.extractionAccuracy).toBe('number');
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
   });
 });

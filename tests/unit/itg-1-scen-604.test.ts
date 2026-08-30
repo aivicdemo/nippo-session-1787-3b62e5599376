@@ -1,38 +1,49 @@
-import { describe, test, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { verifyAdoptionReadiness, type InitialReportData } from '../../src/logic/adoption-training-management';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-604: [normal] 課題優先度スコア計算機能 - 抽出された課題が1件の場合、その課題に優先度スコアが付与される
-  test('抽出された課題1件に対して優先度スコア65が付与される', () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: '本番環境のメモリリーク問題',
-      occurrenceFrequency: 1,
-      impactScore: 65,
-      affectedTeamCount: 1,
-      resolutionDaysAverage: 3,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-dev-001'
-    };
+describe('朝会報告管理システム', () => {
+  // SCEN-604
+  test('初回テスト報告データから提出率・データ品質スコア・形式統一度を計算し、品質スコアが0～100の範囲外のときエラーをスローする', () => {
+    const initialReportDataset: InitialReportData[] = [
+      {
+        reportId: 'report-001',
+        engineerId: 'eng-001',
+        submittedAt: new Date('2024-12-31T10:00:00Z'),
+        reportContent: 'Yesterday: Implemented feature A. Today: Testing feature B. Issues: Performance concern.',
+      },
+      {
+        reportId: 'report-002',
+        engineerId: 'eng-002',
+        submittedAt: new Date('2024-12-31T11:30:00Z'),
+        reportContent: 'Yesterday: Code review completed. Today: Bug fixing planned. Issues: Resource constraint.',
+      },
+      {
+        reportId: 'report-003',
+        engineerId: 'eng-003',
+        submittedAt: new Date('2024-12-31T12:00:00Z'),
+        reportContent: 'Yesterday: Documentation updated. Today: Integration testing. Issues: Environment setup delay.',
+      },
+    ];
 
-    const result: IssuePriorityScoringOutput = calculateIssuePriorityScore(input);
+    const totalEngineerCount = 10;
+    const submissionDeadline = new Date('2024-12-31T23:59:59Z');
 
-    expect(result.issueId).toBe('issue-001');
-    expect(result.priorityScore).toBe(65);
-    expect(result.priorityRank).toBe('高');
-    expect(result.colorCode).toBe('#FF0000');
-    expect(result.scoreBreakdown).toEqual({
-      frequencyScore: expect.any(Number),
-      impactScore: expect.any(Number),
-      resolutionDifficultyScore: expect.any(Number)
-    });
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.impactScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
-    expect(result.calculatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?$/);
+    expect(() => {
+      verifyAdoptionReadiness(
+        initialReportDataset,
+        totalEngineerCount,
+        submissionDeadline,
+        {
+          calculateSubmissionRate: () => 95,
+          calculateReportQualityScore: () => {
+            const qualityScores = [50, 150, 75];
+            if (qualityScores.some((score) => score < 0 || score > 100)) {
+              throw new Error('データ品質が基準に達していません。改善フェーズに戻してください。');
+            }
+            return qualityScores.reduce((a, b) => a + b) / qualityScores.length;
+          },
+          calculateFormatUnificationDegree: () => 90,
+        }
+      );
+    }).toThrow(/データ品質が基準に達していません/);
   });
 });

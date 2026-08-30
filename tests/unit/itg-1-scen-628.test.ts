@@ -1,43 +1,32 @@
-import { calculateIssuePriorityScore } from "../../src/logic/issue-extraction-prioritization";
-import { type IssuePriorityScoringInput } from "../../src/logic/issue-extraction-prioritization";
+import { sendUnsubmittedMemberReminders } from '../../src/logic/reminder-notification-service';
 
-describe("課題優先度スコア計算機能", () => {
-  // SCEN-628
-  test("課題キーワードが null または undefined のとき例外を発生させる", () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('朝会報告管理システム', () => {
+  test('SCEN-628: [normal] 報告期限前に未提出メンバーを検出して段階的な催促通知を送信し、再催促ルールに基づいて通知方法を変更する', () => {
+    const meetingStartTime = new Date('2026-08-20T09:00:00Z');
+    const reportingDeadlineMinutesBefore = 30;
+    const teamMemberIds = ['user001', 'user002', 'user003'];
+    const submittedReportsByDate = {
+      user001: true,
+      user002: false,
+      user003: false,
     };
+    const currentTime = new Date('2026-08-20T08:00:00Z');
 
-    const baseInput: IssuePriorityScoringInput = {
-      issueId: "issue-001",
-      issueContent: "テスト課題",
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 3,
-      reportingDate: "2024-01-15",
-      teamId: "team-001",
-    };
+    const result = sendUnsubmittedMemberReminders(
+      meetingStartTime,
+      reportingDeadlineMinutesBefore,
+      teamMemberIds,
+      submittedReportsByDate,
+      currentTime,
+    );
 
-    // null の場合
-    expect(() => {
-      calculateIssuePriorityScore(
-        { ...baseInput, issueContent: null as any },
-        mockTextAnalysisAdapter
-      );
-    }).toThrow(/課題キーワード/);
-
-    // undefined の場合
-    expect(() => {
-      calculateIssuePriorityScore(
-        { ...baseInput, issueContent: undefined as any },
-        mockTextAnalysisAdapter
-      );
-    }).toThrow(/課題キーワード/);
-
-    // 外部サービスへの呼び出しが発生していないことを確認
-    expect(mockTextAnalysisAdapter.assessImpactScore).not.toHaveBeenCalled();
+    expect(result.reminderTargetMemberIds).toEqual(['user002', 'user003']);
+    expect(result.submissionStatus).toEqual({
+      user001: 'submitted',
+      user002: 'pending',
+      user003: 'pending',
+    });
+    expect(result.acceptanceClosedFlag).toBe(false);
+    expect(result.timeRemainingMinutes).toBe(30);
   });
 });

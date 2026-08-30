@@ -1,21 +1,72 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import type { ExtractAndRankIssuesInput, RankedIssueList } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('朝会報告管理システム - 日報送信', () => {
-  // SCEN-325: [error] 朝会報告入力フォーム検証 - 「抱えている課題」項目が文字数制限を超過したとき、エラー表示される
-  test('should reject submission when challenges field exceeds character limit', () => {
-    const yesterdayAccomplishment = '昨日はA機能の開発を完了しました';
-    const todayPlan = '本日はB機能のテストを予定しています';
-    const challengesExceedingLimit = 'x'.repeat(501); // 制限値 500 文字を超える 501 文字
+describe('extractAndRankIssuesFromReports', () => {
+  test('SCEN-325: null および空文字列の issueText を持つ日報をスキップし、有効な課題のみ抽出・ランク付けして返す', () => {
+    const analysisStartDate = new Date('2024-12-16T00:00:00Z');
+    const analysisEndDate = new Date('2025-01-15T00:00:00Z');
 
-    const input = {
-      userId: 'user-123',
-      teamId: 'team-456',
-      yesterdayAccomplishment: yesterdayAccomplishment,
-      todayPlan: todayPlan,
-      challenges: challengesExceedingLimit,
-      reportDate: '2024-01-15',
+    const reportData: ExtractAndRankIssuesInput = {
+      reports: [
+        {
+          reportId: 'R001',
+          reportDate: new Date('2025-01-15T09:00:00Z'),
+          issueText: null as any,
+          teamId: 'T001'
+        },
+        {
+          reportId: 'R002',
+          reportDate: new Date('2025-01-15T09:15:00Z'),
+          issueText: '',
+          teamId: 'T001'
+        },
+        {
+          reportId: 'R003',
+          reportDate: new Date('2025-01-15T09:30:00Z'),
+          issueText: 'データベース接続エラーが発生',
+          teamId: 'T001'
+        },
+        {
+          reportId: 'R004',
+          reportDate: new Date('2025-01-15T09:45:00Z'),
+          issueText: null as any,
+          teamId: 'T001'
+        },
+        {
+          reportId: 'R005',
+          reportDate: new Date('2025-01-15T10:00:00Z'),
+          issueText: 'APIレスポンス遅延',
+          teamId: 'T001'
+        }
+      ],
+      analysisStartDate,
+      analysisEndDate,
+      minimumConfidenceThreshold: 50
     };
 
-    expect(() => submitDailyReport(input)).toThrow(/文字数/);
+    const result: RankedIssueList = extractAndRankIssuesFromReports(reportData);
+
+    expect(result.issues).toBeDefined();
+    expect(Array.isArray(result.issues)).toBe(true);
+    expect(result.issues.length).toBe(2);
+
+    const keywordNames = result.issues.map(issue => issue.keyword);
+    expect(keywordNames).toContain('DBエラー');
+    expect(keywordNames).toContain('API遅延');
+
+    expect(result.totalIssueCount).toBe(2);
+
+    expect(result.analysisTimestamp).toBeDefined();
+    expect(result.analysisTimestamp instanceof Date).toBe(true);
+    const now = new Date();
+    const timeDiff = Math.abs(now.getTime() - result.analysisTimestamp.getTime());
+    expect(timeDiff).toBeLessThan(5000);
+
+    expect(result.lowConfidenceIssueCount).toBe(0);
+
+    result.issues.forEach(issue => {
+      expect(issue.confidenceScore).toBeGreaterThanOrEqual(50);
+    });
   });
 });

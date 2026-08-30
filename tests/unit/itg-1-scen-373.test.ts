@@ -1,40 +1,50 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput, type NotificationServiceAdapter } from '../../src/logic/submission-status-tracking';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('SendDailyReportReminder - Empty Team Members List', () => {
-  // SCEN-373
-  test('should not call notification service and log error when team members list is empty', async () => {
-    const mockNotificationServiceAdapter: NotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({ sentAt: new Date() }),
-      scheduleNotification: jest.fn().mockResolvedValue(undefined),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ status: 'pending' }),
+describe('朝会報告管理システム - 優先度スコア計算エンジン', () => {
+  test('SCEN-373: 課題説明が空の場合、警告ログが記録されて優先度スコアが計算される', () => {
+    // Arrange
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    
+    const input = {
+      issueId: 'ISSUE-001',
+      frequency: 50,
+      impactScore: 60,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
     };
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: new Date('2024-01-15T08:30:00Z'),
-      teamIds: ['team-001'],
-      reportDeadlineTime: new Date('2024-01-15T09:00:00Z'),
-      notificationChannels: ['email', 'in_app', 'slack'],
-    };
+    // Act
+    const result = calculatePriorityScoreForIssue(input);
 
-    const systemLogger = {
-      error: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-    };
+    // Assert
+    // 戻り値が正常に返される
+    expect(result).toHaveProperty('issueId');
+    expect(result).toHaveProperty('priorityScore');
+    expect(result).toHaveProperty('priorityRank');
+    expect(result).toHaveProperty('colorCode');
 
-    let caughtError: Error | undefined;
-    let output: SendDailyReportReminderOutput | undefined;
+    // issueId が一致する
+    expect(result.issueId).toBe('ISSUE-001');
 
-    try {
-      output = await sendDailyReportReminder(input, mockNotificationServiceAdapter, [], systemLogger);
-    } catch (err) {
-      caughtError = err instanceof Error ? err : new Error(String(err));
-    }
+    // priorityScore が 1～100 の範囲内
+    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
+    expect(result.priorityScore).toBeLessThanOrEqual(100);
 
-    expect(mockNotificationServiceAdapter.sendReminderNotification).not.toHaveBeenCalled();
-    expect(systemLogger.error).toHaveBeenCalledWith(expect.stringMatching(/リマインド送信対象者が存在しません/));
-    expect(caughtError).toBeDefined();
-    expect(caughtError?.message).toMatch(/リマインド送信対象者/);
+    // priorityScore の計算が正確（frequency 50 * 0.4 + impactScore 60 * 0.6 = 20 + 36 = 56）
+    expect(result.priorityScore).toBe(56);
+
+    // priorityRank が MEDIUM（56は40～69の範囲）
+    expect(result.priorityRank).toBe('MEDIUM');
+
+    // colorCode が YELLOW（MEDIUM に対応）
+    expect(result.colorCode).toBe('YELLOW');
+
+    // 警告ログが記録されている
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('課題の詳細が不明なため、重大度判定ができません')
+    );
+
+    // クリーンアップ
+    consoleWarnSpy.mockRestore();
   });
 });

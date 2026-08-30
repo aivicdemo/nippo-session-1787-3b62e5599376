@@ -1,25 +1,18 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { submitReport } from '../../src/logic/report-submission-management';
+import { type SubmitReportInput } from '../../src/logic/report-submission-management';
 
-describe('朝会報告管理システム - 日報暗号化・復号化機能', () => {
+describe('朝会報告管理システム - 日報送信処理', () => {
   // SCEN-187
-  test('タイムスタンプが null のとき暗号化処理がエラーになる', () => {
-    const input = {
-      reporterId: 'user001',
-      reportDate: new Date('2024-01-15T09:00:00Z'),
-      yesterdayAccomplishment: '昨日の作業内容',
-      todayPlan: '今日の作業内容',
-      challenges: '抱えている課題',
-      encryptionKeyId: 'key-001',
-      executorUserId: 'manager001',
+  test('抱えている課題が空文字列のとき、ValidationErrorを発生させる', () => {
+    const input: SubmitReportInput = {
+      reporterId: 'engineer-001',
+      teamId: 'team-a',
+      reportDate: new Date('2024-01-15'),
+      yesterdayAccomplishment: 'yesterday task completed successfully',
+      todayPlan: 'today task planned for execution',
+      issuesAndConcerns: '',
     };
 
-    const malformedInput = {
-      ...input,
-      reportDate: null,
-    };
-
-    expect(() => encryptDailyReportData(malformedInput as any)).toThrow(
-      /タイムスタンプ/,
-    );
+    expect(() => submitReport(input)).toThrow(/抱えている課題/);
   });
 });

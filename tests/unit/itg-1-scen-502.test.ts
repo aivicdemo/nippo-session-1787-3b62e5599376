@@ -1,29 +1,32 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { validateReportQuality } from "../../src/logic/report-quality-validation";
 
-describe('Issue Keyword Extraction and Ranking', () => {
-  // SCEN-502: [error] 課題自動抽出・優先度判定機能 - 日報報告日時が無効な日付形式のときエラーになる
-  test('should throw error when reportingDate has invalid date format', async () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-
-    const invalidInput: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01'),
-      endDate: new Date('2024-01-31'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-123',
-      reportingDate: '2024-13-45', // Invalid month and day
-    };
+describe("Report Quality Validation", () => {
+  // SCEN-502
+  test("should throw error when expectedImpact is empty string", () => {
+    const planTitle = "ビルドプロセスの自動化";
+    const targetIssueIds = ["issue-001"];
+    const expectedImpact = "";
+    const implementationSteps = [
+      {
+        order: 1,
+        content: "自動化スクリプト作成",
+        assignee: "dev-user-01",
+        deadline: "2024-12-31",
+      },
+    ];
+    const resourcesRequired = "エンジニア2名、CI/CDツール";
+    const riskAssessment =
+      "スクリプト不具合時の手動対応方針を策定";
 
     expect(() =>
-      extractAndRankIssueKeywords(invalidInput, mockTextAnalysisAdapter)
-    ).toThrow(/日付形式/);
-
-    expect(mockTextAnalysisAdapter.extractKeywords).not.toHaveBeenCalled();
+      validateReportQuality({
+        planTitle,
+        targetIssueIds,
+        expectedImpact,
+        implementationSteps,
+        resourcesRequired,
+        riskAssessment,
+      })
+    ).toThrow(/期待効果/);
   });
 });

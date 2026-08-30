@@ -1,19 +1,14 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
+import { determineEditableFieldsByRole } from '../../src/logic/access-control-and-permissions';
 
-describe('ユーザー権限と機能アクセス制御', () => {
-  // SCEN-136
-  test('システム稼働状態フラグが false のとき、アクセス制御がエラーを返す', () => {
+describe('access-control-and-permissions', () => {
+  test('SCEN-136: should throw RoleHierarchyValidationError when user role hierarchy is contradictory', () => {
     const input = {
-      userId: 'admin-user-001',
-      requestedFeature: '日報入力',
-      userRole: 'admin',
-      userTeamId: 'team-engineering',
-      systemOperationalFlag: false,
+      userId: 'user-001',
+      contextRole: 'engineer',
+      targetReportId: undefined,
+      operationContext: 'report_input',
     };
 
-    expect(() =>
-      validateUserAuthorizationAndPermission(input)
-    ).toThrow(/システム/);
+    expect(() => determineEditableFieldsByRole(input)).toThrow(/役割設定に矛盾/);
   });
 });

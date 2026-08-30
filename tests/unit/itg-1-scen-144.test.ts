@@ -1,28 +1,27 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { validateReportSubmission } from '../../src/logic/input-validation-and-formatting';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-144: [edge] 課題影響度判定機能 - チーム波及度スコアが0のとき、低優先度として分類される
-  test('チーム波及度スコアが0のとき、優先度スコアが低い値として計算されること', () => {
+describe('朝会報告管理システム - 日報送信検証', () => {
+  test('SCEN-144: 日報の必須項目充足、文字数制限、形式要件を一括検証し、合格判定を返す', () => {
+    // Arrange
     const input = {
-      issueId: 'issue-001',
-      issueContent: '軽微な表記ゆれ確認',
-      occurrenceFrequency: 1,
-      impactScore: 0,
-      affectedTeamCount: 1,
-      resolutionDaysAverage: 1,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
+      reporterId: 'ENG001',
+      teamId: 'TEAM-A',
+      reportDate: '2026-08-20',
+      yesterdayAccomplishment: '昨日は認証機能の実装を完了した。APIエンドポイントの設計から実装まで、セキュリティ要件を満たすTOKEN生成ロジックを整備した。DBへの永続化も含めて完了。',
+      todayPlan: '本日はテスト実施予定',
+      issueDescription: '認証トークンの有効期限設定が未決定。セキュリティとUX両面での検討が必要。',
+      issuePriority: '中',
+      issueKeywords: ['KEYWORD-001', 'KEYWORD-002'],
+      attachmentUrls: [],
     };
 
-    const result = calculateIssuePriorityScore(input);
+    // Act
+    const result = validateReportSubmission(input);
 
-    expect(result.issueId).toBe('issue-001');
-    expect(result.priorityScore).toBeLessThan(40);
-    expect(result.priorityRank).toBe('低');
-    expect(result.colorCode).toBe('#00FF00');
-    expect(result.scoreBreakdown.frequencyScore).toBe(0);
-    expect(result.scoreBreakdown.impactScore).toBe(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
-    expect(result.calculatedAt).toBeDefined();
+    // Assert
+    expect(result.status).toBe('PASSED');
+    expect(result.completenessScore).toBe(100);
+    expect(result.accuracyScore).toBe(100);
+    expect(result.utilityScore).toBe(100);
   });
 });

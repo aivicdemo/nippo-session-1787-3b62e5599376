@@ -1,41 +1,20 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import type { SendDailyReportReminderInput, SendDailyReportReminderOutput } from '../../src/logic/submission-status-tracking';
+import { getReportSubmissionTimestamp } from '../../src/logic/report-persistence';
+import type { GetReportSubmissionTimestampInput } from '../../src/logic/report-persistence';
 
-describe('定時リマインド通知機能 - 報告期限時間表示', () => {
-  // SCEN-160
-  test('報告期限がちょうど24時間後であるとき、remainingTimeMinutesが1440分と計算される', () => {
-    const scheduledTime = new Date('2026-08-19T10:00:00.000Z');
-    const reportDeadlineTime = new Date('2026-08-20T10:00:00.000Z');
-    const teamIds = ['team-001'];
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email'];
+describe('朝会報告管理システム - 日報送信時刻取得', () => {
+  test('SCEN-160: 指定された日報が存在しない場合、適切なエラーが発生すること', () => {
+    // Arrange
+    const reportIdNotFound = 'report-999';
+    const requestingUserIdValid = 'user-001';
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest
-        .fn()
-        .mockResolvedValue({ status: 'sent', sentAt: new Date() }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduled: true }),
-      getDeliveryStatus: jest
-        .fn()
-        .mockResolvedValue({ delivered: 1, failed: 0 }),
+    const input: GetReportSubmissionTimestampInput = {
+      reportId: reportIdNotFound,
+      requestingUserId: requestingUserIdValid,
     };
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
-    };
-
-    const result = sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter
+    // Act & Assert
+    expect(() => getReportSubmissionTimestamp(input)).toThrow(
+      /指定された日報が見つかりません。報告ID: report-999/
     );
-
-    expect(result).resolves.toMatchObject({
-      remainingTimeMinutes: 1440,
-      sentCount: expect.any(Number),
-      failedCount: expect.any(Number),
-      notificationDetails: expect.any(Array),
-    });
   });
 });

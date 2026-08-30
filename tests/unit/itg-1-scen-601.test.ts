@@ -1,52 +1,77 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { verifyAdoptionReadiness } from '../../src/logic/adoption-training-management';
 
-describe('課題優先度判定機能 - 影響度スコアの小数点計算', () => {
-  // SCEN-601
-  test('影響度スコア67.5が端数ありの状態で正確に処理され、優先度判定と内部保持が正確である', () => {
-    const issueInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが頻発',
-      occurrenceFrequency: 12,
-      impactScore: 67.5,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15',
-      teamId: 'team-dev-001',
-    };
+describe('Adoption Training Management - Onboarding Readiness Verification', () => {
+  // SCEN-601: [normal] 初回テスト報告データから提出率・データ品質スコア・形式統一度を計算し、3条件すべて満たすかを判定して本格運用への移行可否を決定する
+  test('should verify adoption readiness and determine production start eligibility when all criteria are met', () => {
+    const initialReportDataset = [
+      {
+        reportId: 'report_001',
+        engineerId: 'eng_001',
+        submittedAt: new Date('2026-01-14T09:30:00Z'),
+        reportContent: 'Yesterday: Fixed login bug. Today: Review PRs. Issues: Database connection timeout',
+      },
+      {
+        reportId: 'report_002',
+        engineerId: 'eng_002',
+        submittedAt: new Date('2026-01-14T10:15:00Z'),
+        reportContent: 'Yesterday: Implemented feature X. Today: Write unit tests. Issues: API rate limiting',
+      },
+      {
+        reportId: 'report_003',
+        engineerId: 'eng_003',
+        submittedAt: new Date('2026-01-14T08:45:00Z'),
+        reportContent: 'Yesterday: Code review. Today: Refactor module. Issues: Performance degradation',
+      },
+      {
+        reportId: 'report_004',
+        engineerId: 'eng_004',
+        submittedAt: new Date('2026-01-14T11:00:00Z'),
+        reportContent: 'Yesterday: Setup CI/CD. Today: Monitor builds. Issues: Deployment failed',
+      },
+      {
+        reportId: 'report_005',
+        engineerId: 'eng_005',
+        submittedAt: new Date('2026-01-14T09:50:00Z'),
+        reportContent: 'Yesterday: Documentation. Today: Team meeting. Issues: None reported',
+      },
+    ];
 
-    const result = calculateIssuePriorityScore(issueInput);
+    const totalEngineerCount = 10;
+    const submissionDeadline = new Date('2026-01-15T23:59:59Z');
 
-    expect(result.issueId).toBe('issue-001');
-    expect(typeof result.priorityScore).toBe('number');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
+    // Mock the calculation functions
+    const mockCalculateSubmissionRate = jest.fn(() => 95);
+    const mockCalculateReportQualityScore = jest.fn(() => 85);
+    const mockCalculateFormatUnificationDegree = jest.fn(() => 90);
 
-    const frequencyScoreComponent = (12 / 30) * 40;
-    const impactScoreComponent = (67.5 / 100) * 40;
-    const resolutionDifficultyComponent = (2.5 / 10) * 20;
-    const expectedPriorityScore = frequencyScoreComponent + impactScoreComponent + resolutionDifficultyComponent;
+    // Temporarily replace the module functions with mocks
+    jest.mock('../../src/logic/adoption-training-management', () => ({
+      calculateSubmissionRate: mockCalculateSubmissionRate,
+      calculateReportQualityScore: mockCalculateReportQualityScore,
+      calculateFormatUnificationDegree: mockCalculateFormatUnificationDegree,
+      verifyAdoptionReadiness: jest.requireActual('../../src/logic/adoption-training-management').verifyAdoptionReadiness,
+    }));
 
-    expect(result.priorityScore).toBeCloseTo(expectedPriorityScore, 5);
+    const result = verifyAdoptionReadiness(
+      initialReportDataset,
+      totalEngineerCount,
+      submissionDeadline,
+    );
 
-    if (expectedPriorityScore >= 70) {
-      expect(result.priorityRank).toBe('高');
-      expect(result.colorCode).toBe('#FF0000');
-    } else if (expectedPriorityScore >= 40) {
-      expect(result.priorityRank).toBe('中');
-      expect(result.colorCode).toBe('#FFFF00');
-    } else {
-      expect(result.priorityRank).toBe('低');
-      expect(result.colorCode).toBe('#00FF00');
+    // Verify readiness status is 'ready'
+    expect(result.readinessStatus).toBe('ready');
+
+    // Verify verificationDate is a valid ISO 8601 format string
+    expect(result.verificationDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+
+    // Verify productionStartDate exists and is in ISO 8601 format
+    expect(result.productionStartDate).toBeDefined();
+    expect(result.productionStartDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+
+    // Verify blockers field is either absent or an empty array
+    if (result.blockers !== undefined) {
+      expect(Array.isArray(result.blockers)).toBe(true);
+      expect(result.blockers.length).toBe(0);
     }
-
-    expect(result.scoreBreakdown).toEqual({
-      frequencyScore: expect.any(Number),
-      impactScore: expect.any(Number),
-      resolutionDifficultyScore: expect.any(Number),
-    });
-
-    expect(result.scoreBreakdown.impactScore).toBeCloseTo(impactScoreComponent, 5);
-
-    expect(result.calculatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/);
   });
 });

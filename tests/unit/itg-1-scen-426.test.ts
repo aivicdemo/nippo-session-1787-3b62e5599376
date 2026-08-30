@@ -1,158 +1,168 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import type { AggregateReportSubmissionStatusInput, ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { generateWeeklyAnalysisReport } from '../../src/logic/weekly-analysis-report';
+import { type WeeklyAnalysisReportInput, type AggregatedWeeklyReportData, type ExtractedIssue, type WeeklyAnalysisReport } from '../../src/logic/weekly-analysis-report';
 
-describe('Report Submission Status Aggregation - Large Scale Team', () => {
-  // SCEN-426
-  test('should accurately aggregate submission status for maximum-scale team (100 members) with correct member state distribution', async () => {
-    // Setup: Create 100 team members with IDs member_001 to member_100
-    const teamId = 'team-large-scale-001';
-    const reportDate = '2024-01-15';
-    const requestUserId = 'manager-001';
-
-    // Prepare submitted members (member_001 to member_050)
-    const submittedMembers = Array.from({ length: 50 }, (_, i) => {
-      const memberId = `member_${String(i + 1).padStart(3, '0')}`;
-      return {
-        userId: memberId,
-        userName: `Engineer ${i + 1}`,
-        email: `engineer${i + 1}@example.com`,
-        submissionStatus: 'submitted' as const,
-        submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-        reportContent: {
-          yesterday: `Completed task ${i + 1}`,
-          today: `Planned work ${i + 1}`,
-          challenges: `Issue ${i + 1}`,
+describe('Weekly Analysis Report Generation', () => {
+  test('SCEN-426: Empty string and null issue items should be ignored during weekly analysis report generation', () => {
+    // Setup: Define analysis period (Monday 2024-01-08 to Sunday 2024-01-14)
+    const analysisStartDate = new Date('2024-01-08T00:00:00Z');
+    const analysisEndDate = new Date('2024-01-14T23:59:59Z');
+    
+    // Setup: Define team ID
+    const teamId = 'team-001';
+    
+    // Setup: Define extracted issues with empty string, null, and valid content
+    const extractedIssues: ExtractedIssue[] = [
+      {
+        issueId: 'issue-001',
+        issueContent: '',
+        reporterTeamId: teamId,
+        occurrenceCount: 1
+      },
+      {
+        issueId: 'issue-002',
+        issueContent: null,
+        reporterTeamId: teamId,
+        occurrenceCount: 1
+      },
+      {
+        issueId: 'issue-003',
+        issueContent: '正常な課題内容',
+        reporterTeamId: teamId,
+        occurrenceCount: 2
+      }
+    ];
+    
+    // Setup: Build aggregated report data
+    const aggregatedReportData: AggregatedWeeklyReportData = {
+      reportRecords: [
+        {
+          reportId: 'report-001',
+          reporterId: 'member-001',
+          reportDate: '2024-01-08',
+          reportContent: 'Yesterday: task1\nToday: task2\nIssue: ',
+          submittedAt: '2024-01-08T08:00:00Z'
         },
-      };
-    });
-
-    // Prepare unsubmitted members (member_051 to member_100)
-    const unsubmittedMembers = Array.from({ length: 50 }, (_, i) => {
-      const memberId = `member_${String(i + 51).padStart(3, '0')}`;
-      return {
-        userId: memberId,
-        userName: `Engineer ${i + 51}`,
-        email: `engineer${i + 51}@example.com`,
-        submissionStatus: 'unsubmitted' as const,
-        submissionTimestamp: null,
-        reportContent: null,
-      };
-    });
-
-    const allMembers = [...submittedMembers, ...unsubmittedMembers];
-
-    // Mock repository/data access
-    const mockGetTeamMembers = jest.fn().mockResolvedValue(allMembers);
-    const mockGetReportSubmissionRecords = jest.fn().mockResolvedValue(
-      submittedMembers.map((member) => ({
-        userId: member.userId,
-        teamId: teamId,
-        reportDate: reportDate,
-        submissionTimestamp: member.submissionTimestamp,
-        isOnTime: true,
-        delayMinutes: 0,
-      }))
-    );
-
-    // Stub NotificationServiceAdapter for reminder notifications
-    const notificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent',
-        sentAt: new Date('2024-01-15T08:00:00Z'),
-      }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({
-        sentCount: 100,
-        failedCount: 0,
-        deliveredCount: 100,
-      }),
+        {
+          reportId: 'report-002',
+          reporterId: 'member-002',
+          reportDate: 'report-002',
+          reportContent: 'Yesterday: task3\nToday: task4\nIssue: null',
+          submittedAt: '2024-01-09T08:00:00Z'
+        },
+        {
+          reportId: 'report-003',
+          reporterId: 'member-003',
+          reportDate: '2024-01-10',
+          reportContent: 'Yesterday: task5\nToday: task6\nIssue: 正常な課題内容',
+          submittedAt: '2024-01-10T08:00:00Z'
+        },
+        {
+          reportId: 'report-004',
+          reporterId: 'member-004',
+          reportDate: '2024-01-11',
+          reportContent: 'Yesterday: task7\nToday: task8\nIssue: 正常な課題内容',
+          submittedAt: '2024-01-11T08:00:00Z'
+        },
+        {
+          reportId: 'report-005',
+          reporterId: 'member-005',
+          reportDate: '2024-01-12',
+          reportContent: 'Yesterday: task9\nToday: task10\nIssue: 正常な課題内容',
+          submittedAt: '2024-01-12T08:00:00Z'
+        }
+      ],
+      extractedIssues: extractedIssues,
+      dataQualityMetrics: {
+        completenessRate: 0.95,
+        deduplicationRate: 0.92,
+        validityRate: 0.98
+      }
     };
-
-    // Create input for aggregation
-    const input: AggregateReportSubmissionStatusInput = {
+    
+    // Setup: Define minimum report threshold
+    const minimumReportThreshold = 5;
+    
+    // Setup: Build input object
+    const input: WeeklyAnalysisReportInput = {
+      analysisStartDate: analysisStartDate,
+      analysisEndDate: analysisEndDate,
       teamId: teamId,
-      reportDate: reportDate,
-      requestUserId: requestUserId,
-      includeDelayedSubmissions: true,
+      aggregatedReportData: aggregatedReportData,
+      minimumReportThreshold: minimumReportThreshold
     };
-
-    // Mock the actual aggregation logic to return expected result
-    const mockAggregationResult: ReportSubmissionStatusSummary = {
-      teamId: teamId,
-      reportDate: reportDate,
-      totalMembers: 100,
-      submittedCount: 50,
-      unsubmittedCount: 50,
-      delayedSubmissionCount: 0,
-      submissionRate: 50.0,
-      unsubmittedMembers: unsubmittedMembers.map((member) => ({
-        userId: member.userId,
-        userName: member.userName,
-        email: member.email,
-        remainingMinutes: -120,
-      })),
-      aggregatedAt: '2024-01-15T09:00:00Z',
-    };
-
-    // Call the function with mocked dependencies
-    // Note: In actual implementation, aggregateReportSubmissionStatus would accept
-    // repository/adapter parameters or use dependency injection
-    const result = await aggregateReportSubmissionStatus(input);
-
-    // Verify (1): Correct count totals
-    expect(result.totalMembers).toBe(100);
-    expect(result.submittedCount).toBe(50);
-    expect(result.unsubmittedCount).toBe(50);
-    expect(result.submittedCount + result.unsubmittedCount).toBe(result.totalMembers);
-
-    // Verify (2): Submitted members (member_001 to member_050) are correctly recorded
-    const submittedMemberIds = Array.from({ length: 50 }, (_, i) =>
-      `member_${String(i + 1).padStart(3, '0')}`
+    
+    // Execute: Call generateWeeklyAnalysisReport
+    const result: WeeklyAnalysisReport = generateWeeklyAnalysisReport(
+      input.analysisStartDate,
+      input.analysisEndDate,
+      input.teamId,
+      input.aggregatedReportData,
+      input.minimumReportThreshold
     );
-    submittedMemberIds.forEach((memberId) => {
-      expect(result.unsubmittedMembers.map((m) => m.userId)).not.toContain(memberId);
-    });
-
-    // Verify (3): Unsubmitted members (member_051 to member_100) are correctly recorded
-    const unsubmittedMemberIds = Array.from({ length: 50 }, (_, i) =>
-      `member_${String(i + 51).padStart(3, '0')}`
-    );
-    const returnedUnsubmittedIds = result.unsubmittedMembers.map((m) => m.userId);
-    unsubmittedMemberIds.forEach((memberId) => {
-      expect(returnedUnsubmittedIds).toContain(memberId);
-    });
-
-    // Verify (4): All 100 members are included without omission
-    expect(result.unsubmittedMembers.length).toBe(50);
-    const allReturnedMemberIds = new Set([
-      ...submittedMemberIds,
-      ...returnedUnsubmittedIds,
-    ]);
-    expect(allReturnedMemberIds.size).toBe(100);
-
-    // Verify (5): Submission rate calculation (50 submitted / 100 total * 100 = 50.0%)
-    expect(result.submissionRate).toBe(50.0);
-
-    // Verify (6): Basic properties
-    expect(result.teamId).toBe(teamId);
-    expect(result.reportDate).toBe(reportDate);
-    expect(result.delayedSubmissionCount).toBe(0);
-
-    // Verify (7): Aggregated timestamp is recorded in ISO 8601 format
-    expect(typeof result.aggregatedAt).toBe('string');
-    expect(result.aggregatedAt).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
-    );
-
-    // Verify (8): Each unsubmitted member has required fields
-    result.unsubmittedMembers.forEach((member) => {
-      expect(member.userId).toBeDefined();
-      expect(member.userName).toBeDefined();
-      expect(member.email).toBeDefined();
-      expect(typeof member.remainingMinutes).toBe('number');
-    });
-
-    // Verify notification adapter was stubbed correctly
-    expect(notificationServiceAdapter.sendReminderNotification).toBeDefined();
-    expect(notificationServiceAdapter.getDeliveryStatus).toBeDefined();
+    
+    // Verify: Check that result is valid WeeklyAnalysisReport object
+    expect(result).toBeDefined();
+    expect(result.reportId).toBeDefined();
+    expect(typeof result.reportId).toBe('string');
+    expect(result.reportId.length).toBeGreaterThan(0);
+    
+    // Verify: Check aggregationPeriod
+    expect(result.aggregationPeriod).toBeDefined();
+    expect(result.aggregationPeriod.startDate).toEqual(analysisStartDate);
+    expect(result.aggregationPeriod.endDate).toEqual(analysisEndDate);
+    
+    // Verify: Check generatedAt timestamp
+    expect(result.generatedAt).toBeDefined();
+    expect(result.generatedAt instanceof Date).toBe(true);
+    
+    // Verify: Check issueRanking - only valid issue should be included
+    expect(result.issueRanking).toBeDefined();
+    expect(Array.isArray(result.issueRanking)).toBe(true);
+    expect(result.issueRanking.length).toBe(1);
+    
+    // Verify: Empty string and null issues are excluded from ranking
+    expect(result.issueRanking[0]).toBeDefined();
+    expect(result.issueRanking[0].issueKeyword).toBe('正常な課題内容');
+    expect(result.issueRanking[0].occurrenceFrequency).toBe(2);
+    
+    // Verify: priorityScores contains only valid issue entry
+    expect(result.priorityScores).toBeDefined();
+    expect(Array.isArray(result.priorityScores)).toBe(true);
+    expect(result.priorityScores.length).toBe(1);
+    
+    // Verify: Priority score calculation - issue occurs 2 times out of 5 reports
+    // frequencyScore = (2/5) * 100 = 40
+    // impactScore = (3/5) * 100 = 60 (3 members reported this issue)
+    // priorityScore = (40 * 0.6) + (60 * 0.4) = 24 + 24 = 48
+    expect(result.priorityScores[0].keyword).toBe('正常な課題内容');
+    expect(result.priorityScores[0].priorityScore).toBe(48);
+    expect(result.priorityScores[0].priorityLevel).toBe('medium');
+    
+    // Verify: colorCodedIssueList contains only valid issue entry
+    expect(result.colorCodedIssueList).toBeDefined();
+    expect(Array.isArray(result.colorCodedIssueList)).toBe(true);
+    expect(result.colorCodedIssueList.length).toBe(1);
+    
+    // Verify: Valid issue has correct color coding (yellow for medium priority)
+    expect(result.colorCodedIssueList[0]).toBeDefined();
+    expect(result.colorCodedIssueList[0].keyword).toBe('正常な課題内容');
+    expect(result.colorCodedIssueList[0].displayColor).toBe('yellow');
+    
+    // Verify: recommendedActions is properly generated
+    expect(result.recommendedActions).toBeDefined();
+    expect(Array.isArray(result.recommendedActions)).toBe(true);
+    
+    // Verify: Empty and null issues have no impact on report
+    const allKeywordsInRanking = result.issueRanking.map(item => item.issueKeyword);
+    expect(allKeywordsInRanking).not.toContain('');
+    expect(allKeywordsInRanking).not.toContain(null);
+    
+    const allKeywordsInPriority = result.priorityScores.map(item => item.keyword);
+    expect(allKeywordsInPriority).not.toContain('');
+    expect(allKeywordsInPriority).not.toContain(null);
+    
+    const allKeywordsInColorCoded = result.colorCodedIssueList.map(item => item.keyword);
+    expect(allKeywordsInColorCoded).not.toContain('');
+    expect(allKeywordsInColorCoded).not.toContain(null);
   });
 });

@@ -1,43 +1,35 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type NotificationServiceAdapter } from '../../src/logic/submission-status-tracking';
+import { deleteArchivedReports } from '../../src/logic/report-persistence';
+import type { DeleteArchivedReportsInput, DeleteArchivedReportsOutput, ExecutionContext } from '../../src/logic/report-persistence';
 
-describe('sendDailyReportReminder', () => {
-  // SCEN-157: [edge] リマインド通知スケジュール機能 - 定時スケジュール登録時刻がちょうど朝9時であるとき、その時刻に通知が予約される
-  test('should schedule reminder notification at exactly 09:00 when scheduled time is set to morning 9:00 AM', () => {
-    const mockNotificationAdapter: NotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn().mockResolvedValue({ success: true }),
-      getDeliveryStatus: jest.fn(),
+describe('deleteArchivedReports', () => {
+  test('SCEN-157: [normal] アーカイブ領域に1年以上保持されている日報データを削除し、システムのストレージを効率化する', () => {
+    // テスト用の ExecutionContext オブジェクトを準備
+    const executionContext: ExecutionContext = {
+      systemUserId: 'admin-001',
+      operationTimestamp: '2025-01-15T09:30:00Z'
     };
 
-    const scheduledTime = new Date('2024-01-15T09:00:00Z');
-    const teamIds = ['team-001'];
-    const reportDeadlineTime = new Date('2024-01-15T10:00:00Z');
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email'];
-
-    const input = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
+    // DeleteArchivedReportsInput オブジェクトを作成（保持期間365日）
+    const input: DeleteArchivedReportsInput = {
+      retentionThresholdDays: 365,
+      executionContext: executionContext
     };
 
-    sendDailyReportReminder(input, mockNotificationAdapter);
+    // deleteArchivedReports を呼び出す
+    const output: DeleteArchivedReportsOutput = deleteArchivedReports(input);
 
-    expect(mockNotificationAdapter.scheduleNotification).toHaveBeenCalledTimes(1);
+    // 削除された日報レコード数の検証（365日以上前の3件）
+    expect(output.deletedReportCount).toBe(3);
 
-    const scheduleCall = (
-      mockNotificationAdapter.scheduleNotification as jest.Mock
-    ).mock.calls[0];
-    expect(scheduleCall).toBeDefined();
+    // 削除操作の完了日時がISO 8601形式であることを検証
+    expect(output.deletionCompletedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
-    const schedulePayload = scheduleCall[0];
-    expect(schedulePayload.scheduledTime).toEqual(new Date('2024-01-15T09:00:00Z'));
-    expect(schedulePayload.teamIds).toEqual(['team-001']);
-    expect(schedulePayload.reportDeadlineTime).toEqual(
-      new Date('2024-01-15T10:00:00Z')
-    );
-    expect(schedulePayload.notificationChannels).toEqual(['email']);
+    // 削除操作の完了日時が妥当な値であることを検証
+    const completionTime = new Date(output.deletionCompletedAt);
+    expect(completionTime.getTime()).toBeLessThanOrEqual(new Date('2025-01-15T09:35:00Z').getTime());
+    expect(completionTime.getTime()).toBeGreaterThanOrEqual(new Date('2025-01-15T09:25:00Z').getTime());
+
+    // 監査ログIDの検証
+    expect(output.auditLogId).toBe('audit-log-2025-01-15-001');
   });
 });

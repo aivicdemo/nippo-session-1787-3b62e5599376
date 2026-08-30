@@ -1,30 +1,15 @@
-import { submitDailyReport } from "../../src/logic/daily-report-management";
+import { calculatePriorityScoreForIssue } from "../../src/logic/priority-scoring-engine";
 
-describe("朝会報告管理システム - 日報送信機能", () => {
-  test("SCEN-338: 日報入力バリデーション機能 - 3項目すべてが空文字列のとき3項目すべてがエラー表示される", () => {
-    // Arrange: 3つの入力フィールドすべてを空文字列で初期化
+describe("朝会報告管理システム - 優先度スコア計算エンジン", () => {
+  test("SCEN-338: 課題キーワードが空文字列のときInvalidIssueDataErrorをスロー", () => {
     const input = {
-      userId: "user-001",
-      teamId: "team-001",
-      yesterdayAccomplishment: "",
-      todayPlan: "",
-      challenges: "",
-      reportDate: "2024-01-15",
+      issueId: "ISSUE-001",
+      frequency: 50,
+      impactScore: 75,
     };
 
-    // Act & Assert: submitDailyReport を呼び出し、検証結果を確認
-    const result = submitDailyReport(input);
-
-    // 期待結果: 3項目すべてに対してバリデーションエラーが発生
-    expect(result.isValid).toBe(false);
-    expect(result.errors).toBeDefined();
-    expect(result.errors).toContain(
-      expect.stringMatching(/昨日やったこと.*必須/)
+    expect(() => calculatePriorityScoreForIssue(input)).toThrow(
+      /課題データが不完全です。発生頻度と影響度スコアが必須です。/
     );
-    expect(result.errors).toContain(
-      expect.stringMatching(/今日やること.*必須/)
-    );
-    expect(result.errors).toContain(expect.stringMatching(/抱えている課題.*必須/));
-    expect(result.errors.length).toBe(3);
   });
 });

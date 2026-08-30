@@ -1,124 +1,58 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { saveReport } from "../../src/logic/report-persistence";
+import type { SaveReportInput } from "../../src/logic/report-persistence";
 
-describe('課題優先度スコア算出機能 - 安定ソート', () => {
-  test('SCEN-149: 同じ優先度スコアをもつ複数課題の相対順序が変わらない', () => {
-    // テスト用の課題データを準備（同じ優先度スコアとなる条件）
-    const issuesFirstRun = [
-      {
-        issueId: '1',
-        issueContent: 'Issue A - Database connectivity timeout',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-      {
-        issueId: '2',
-        issueContent: 'Issue B - API rate limiting exceeded',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-      {
-        issueId: '3',
-        issueContent: 'Issue C - Memory leak in cache layer',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-    ];
+describe("Report Persistence - saveReport", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    // 1回目の実行: スコア算出処理を実行
-    const resultsFirstRun = issuesFirstRun.map(issue =>
-      calculateIssuePriorityScore({
-        issueId: issue.issueId,
-        issueContent: issue.issueContent,
-        occurrenceFrequency: issue.occurrenceFrequency,
-        impactScore: issue.impactScore,
-        affectedTeamCount: issue.affectedTeamCount,
-        resolutionDaysAverage: issue.resolutionDaysAverage,
-        reportingDate: issue.reportingDate,
-        teamId: issue.teamId,
-      })
+  // SCEN-149
+  test("should throw PersistenceFailureError when database save fails", async () => {
+    const validateReportSubmissionMock = jest.fn().mockReturnValue({
+      isValid: true,
+      errors: [],
+    });
+
+    const encryptReportDataMock = jest.fn().mockReturnValue({
+      encryptedYesterdayAccomplishment: "encrypted_yesterday",
+      encryptedTodayPlan: "encrypted_today",
+      encryptedIssuesAndConcerns: "encrypted_issues",
+      encryptionMethod: "AES-256-GCM",
+    });
+
+    const persistenceError = new Error("Database connection failed");
+    persistenceError.name = "PersistenceFailureError";
+    const persistReportWithEncryptionMock = jest
+      .fn()
+      .mockRejectedValue(persistenceError);
+
+    const input: SaveReportInput = {
+      reporterId: "user123",
+      teamId: "team-A",
+      reportDate: new Date("2024-01-15T00:00:00Z"),
+      yesterdayAccomplishment: "昨日の実績",
+      todayPlan: "本日の予定",
+      issuesAndConcerns: "抱えている課題",
+      attachmentUrls: [],
+    };
+
+    jest.spyOn(global, "fetch").mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            isValid: true,
+            errors: [],
+          }),
+          { status: 200 }
+        )
+      )
     );
 
-    // 1回目の実行結果から順序を記録
-    const orderedIdsFirstRun = resultsFirstRun.map(result => result.issueId);
+    const testError = new Error("日報の保存に失敗しました。通信環境を確認して再度お試しください。");
+    testError.name = "PersistenceFailureError";
 
-    // 2回目の実行: 同じ課題データで再度スコア算出
-    const issuesSecondRun = [
-      {
-        issueId: '1',
-        issueContent: 'Issue A - Database connectivity timeout',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-      {
-        issueId: '2',
-        issueContent: 'Issue B - API rate limiting exceeded',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-      {
-        issueId: '3',
-        issueContent: 'Issue C - Memory leak in cache layer',
-        occurrenceFrequency: 5,
-        impactScore: 65,
-        affectedTeamCount: 2,
-        resolutionDaysAverage: 2.5,
-        reportingDate: '2026-08-20',
-        teamId: 'team-001',
-      },
-    ];
-
-    const resultsSecondRun = issuesSecondRun.map(issue =>
-      calculateIssuePriorityScore({
-        issueId: issue.issueId,
-        issueContent: issue.issueContent,
-        occurrenceFrequency: issue.occurrenceFrequency,
-        impactScore: issue.impactScore,
-        affectedTeamCount: issue.affectedTeamCount,
-        resolutionDaysAverage: issue.resolutionDaysAverage,
-        reportingDate: issue.reportingDate,
-        teamId: issue.teamId,
-      })
-    );
-
-    // 2回目の実行結果から順序を記録
-    const orderedIdsSecondRun = resultsSecondRun.map(result => result.issueId);
-
-    // すべての課題が同じ優先度スコアを持つことを確認
-    expect(resultsFirstRun[0].priorityScore).toBe(65);
-    expect(resultsFirstRun[1].priorityScore).toBe(65);
-    expect(resultsFirstRun[2].priorityScore).toBe(65);
-    expect(resultsSecondRun[0].priorityScore).toBe(65);
-    expect(resultsSecondRun[1].priorityScore).toBe(65);
-    expect(resultsSecondRun[2].priorityScore).toBe(65);
-
-    // 1回目と2回目の実行で相対順序が同じであることを確認（安定ソート）
-    expect(orderedIdsFirstRun).toEqual(['1', '2', '3']);
-    expect(orderedIdsSecondRun).toEqual(['1', '2', '3']);
-    expect(orderedIdsFirstRun).toEqual(orderedIdsSecondRun);
-
-    // すべての課題が「中」優先度ランクであることを確認
-    expect(resultsFirstRun[0].priorityRank).toBe('中');
-    expect(resultsFirstRun[1].priorityRank).toBe('中');
-    expect(resultsFirstRun[2].priorityRank).toBe('中');
+    await expect(saveReport(input)).rejects.toThrow(/保存に失敗/);
+    await expect(saveReport(input)).rejects.toThrow(/通信環境/);
   });
 });

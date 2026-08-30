@@ -1,36 +1,38 @@
-import { generateAndSendSummaryEmail } from "../../src/logic/notification-delivery";
-import type {
-  GenerateAndSendSummaryEmailInput,
-  SubmittedReportSummary,
-} from "../../src/logic/notification-delivery";
+import { calculatePriorityScoreForIssue } from "../../src/logic/priority-scoring-engine";
 
-describe("日報集約メール送信機能", () => {
+describe("Priority Scoring Engine", () => {
   // SCEN-232
-  test("送信者に重複がある場合、エラーメッセージを表示してDBに記録しない", async () => {
-    const duplicateReporterId = "user_001";
+  test("should normalize impact score to team size upper limit when affected member count exceeds total team members", () => {
+    const issueId = "issue-001";
+    const frequency = 50;
+    const affectedMemberCount = 12;
+    const teamSize = 10;
+    const frequencyWeight = 0.4;
+    const impactWeight = 0.6;
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: "team_A",
-      reportDate: "2024-01-15",
-      managerUserId: "manager_001",
-      submittedReports: [
-        {
-          reporterId: duplicateReporterId,
-          reporterName: "Member One",
-          submittedAt: "2024-01-15T08:30:00Z",
-          challenges: ["課題A"],
-        } as SubmittedReportSummary,
-        {
-          reporterId: duplicateReporterId,
-          reporterName: "Member One",
-          submittedAt: "2024-01-15T08:35:00Z",
-          challenges: ["課題B"],
-        } as SubmittedReportSummary,
-      ],
-      unsubmittedMemberIds: ["user_002", "user_003"],
-      reportDeadlineTime: "09:00",
-    };
+    const result = calculatePriorityScoreForIssue({
+      issueId,
+      frequency,
+      affectedMemberCount,
+      teamSize,
+      frequencyWeight,
+      impactWeight,
+    });
 
-    expect(() => generateAndSendSummaryEmail(input)).toThrow(/重複/);
+    // Impact score should be clamped to 100 (team size upper limit)
+    expect(result.impactScore).toBe(100);
+
+    // Priority score = (frequency * frequencyWeight) + (impactScore * impactWeight)
+    // = (50 * 0.4) + (100 * 0.6) = 20 + 60 = 80
+    expect(result.priorityScore).toBe(80);
+
+    // Priority rank for score 80 should be 'HIGH' (>= 70)
+    expect(result.priorityRank).toBe("HIGH");
+
+    // Color code for 'HIGH' rank should be 'RED'
+    expect(result.colorCode).toBe("RED");
+
+    // Issue ID should match input
+    expect(result.issueId).toBe(issueId);
   });
 });

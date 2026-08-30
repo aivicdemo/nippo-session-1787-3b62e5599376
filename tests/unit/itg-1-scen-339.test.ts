@@ -1,40 +1,20 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
+import type { IssuePriorityScoringInput, IssuePriorityScore } from '../../src/logic/priority-scoring-engine';
 
-describe('朝会報告管理システム - 日報入力・送信', () => {
-  // SCEN-339: [edge] 日報入力バリデーション機能 - 2項目が空文字列で1項目のみ有効なとき空の2項目がエラー表示される
-  test('should return validation errors for empty yesterdayWork and issues fields while todayWork is valid', () => {
-    const input = {
-      userId: 'user-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: '',
-      todayPlan: '今日は顧客打ち合わせを実施',
-      challenges: '',
-      reportDate: '2024-01-15',
+describe('Priority Scoring Engine', () => {
+  // SCEN-339
+  test('should normalize negative frequency to 0 and calculate priority score correctly', () => {
+    const input: IssuePriorityScoringInput = {
+      issueId: 'ISSUE-001',
+      frequency: -5,
+      impactScore: 50,
     };
 
-    const result = submitDailyReport(input);
+    const result: IssuePriorityScore = calculatePriorityScoreForIssue(input);
 
-    expect(result.isValid).toBe(false);
-    expect(result.errors).toBeDefined();
-    expect(result.errors).toHaveLength(2);
-
-    const yesterdayWorkError = result.errors?.find(
-      (err) => err.fieldName === 'yesterdayAccomplishment'
-    );
-    expect(yesterdayWorkError).toBeDefined();
-    expect(yesterdayWorkError?.errorCode).toBe('MissingRequiredField');
-    expect(yesterdayWorkError?.message).toMatch(/テキストを入力/);
-
-    const challengesError = result.errors?.find(
-      (err) => err.fieldName === 'challenges'
-    );
-    expect(challengesError).toBeDefined();
-    expect(challengesError?.errorCode).toBe('MissingRequiredField');
-    expect(challengesError?.message).toMatch(/テキストを入力/);
-
-    const todayPlanError = result.errors?.find(
-      (err) => err.fieldName === 'todayPlan'
-    );
-    expect(todayPlanError).toBeUndefined();
+    expect(result.issueId).toBe('ISSUE-001');
+    expect(result.priorityScore).toBe(35);
+    expect(result.priorityRank).toBe('MEDIUM');
+    expect(result.colorCode).toBe('YELLOW');
   });
 });

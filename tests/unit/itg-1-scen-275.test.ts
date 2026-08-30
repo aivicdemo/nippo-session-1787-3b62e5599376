@@ -1,53 +1,19 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput, type ReminderNotificationDetail } from '../../src/logic/submission-status-tracking';
+import { encryptReportData } from '../../src/logic/data-encryption-and-security';
 
-describe('SendDailyReportReminder', () => {
-  test('SCEN-275: [normal] 朝会報告リマインド通知送信機能 - 登録済みチームメンバー1名に対してリマインド通知が送信される', async () => {
-    const now = new Date('2024-01-15T08:30:00Z');
-    const deadlineTime = new Date('2024-01-15T09:00:00Z');
-    const scheduledTime = new Date('2024-01-15T08:30:00Z');
-    const remainingTimeMinutes = 30;
-
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent' as const,
-        deliveryId: 'notif-001',
-        sentAt: now,
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue(undefined),
-      getDeliveryStatus: jest.fn().mockResolvedValue(undefined),
+describe('朝会報告管理システム - データ暗号化・セキュリティ', () => {
+  // SCEN-275: [error] 日報の個人情報・課題内容・進捗情報を暗号化して安全に保存用に準備する - 日報データが空または null のときという明示された境界条件で日報内容が空です。3項目すべてを入力してください
+  test('encryptReportData: 日報データが null のとき InvalidReportDataError をスロー', () => {
+    const nullReportData = {
+      reporterId: null,
+      teamId: null,
+      reportDate: null,
+      personalInfo: null,
+      issueContent: null,
+      progressInfo: null,
     };
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: scheduledTime,
-      teamIds: ['team-001'],
-      reportDeadlineTime: deadlineTime,
-      notificationChannels: ['email', 'in_app', 'slack'],
-    };
-
-    const result: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter,
+    expect(() => encryptReportData(nullReportData as any)).toThrow(
+      /日報内容が空です。3項目すべてを入力してください/
     );
-
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalledTimes(1);
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: 'user-123',
-        notificationType: 'reminder',
-        channels: ['email', 'in_app', 'slack'],
-      }),
-    );
-
-    expect(result.sentCount).toBe(1);
-    expect(result.failedCount).toBe(0);
-    expect(result.remainingTimeMinutes).toBe(remainingTimeMinutes);
-    expect(result.notificationDetails).toHaveLength(1);
-
-    const notificationDetail: ReminderNotificationDetail = result.notificationDetails[0];
-    expect(notificationDetail.userId).toBe('user-123');
-    expect(notificationDetail.status).toBe('sent');
-    expect(notificationDetail.sentAt).toEqual(now);
-    expect(notificationDetail.errorMessage).toBeUndefined();
   });
 });

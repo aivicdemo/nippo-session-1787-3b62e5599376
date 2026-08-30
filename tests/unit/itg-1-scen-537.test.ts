@@ -1,59 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('Issue Extraction and Ranking - Extract and Rank Issue Keywords', () => {
-  let mockTextAnalysisServiceAdapter: {
-    extractKeywords: jest.Mock;
-    assessImpactScore: jest.Mock;
-    classifyIssueSeverity: jest.Mock;
-  };
-
-  beforeEach(() => {
-    mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
+describe('朝会報告管理システム', () => {
   // SCEN-537
-  it('should return empty array when no keywords are extracted from report text', async () => {
-    // Arrange
-    const reportText = '昨日やったこと：完了。今日やること：実施予定。課題：なし';
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const minFrequencyThreshold = 1;
-    const requestUserId = 'user-001';
-
-    mockTextAnalysisServiceAdapter.extractKeywords.mockResolvedValue([]);
+  test('集約期間内に提出された日報が1件も存在しないときはInsufficientDataErrorエラーを発生させる', () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = false;
 
     const input = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold,
-      requestUserId,
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
     };
 
-    // Act
-    const result = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter
-    );
-
-    // Assert
-    expect(result).toEqual({
-      keywords: [],
-      totalKeywordCount: 0,
-      extractedAt: expect.any(Date),
-      analysisperiodDays: 7,
-    });
-    expect(result.keywords).toHaveLength(0);
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalled();
+    expect(() => calculateProductivityMetrics(input)).toThrow(/日報データ/);
   });
 });

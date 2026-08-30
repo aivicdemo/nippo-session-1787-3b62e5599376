@@ -1,34 +1,27 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { updateIssueDataWithAnalysisResult } from '../../src/logic/issue-data-persistence';
+import type { UpdateIssueAnalysisInput } from '../../src/logic/issue-data-persistence';
 
-describe('日報の暗号化・復号化機能', () => {
-  // SCEN-168: [normal] 日報の暗号化・復号化機能 - 同じ日報を2回復号化しても同じ内容が返される
-  test('同じ暗号化データを2回復号化した場合、復号結果は完全に一致すること', () => {
-    const reporterId = 'engineer_001';
-    const reportDate = new Date('2024-01-15T00:00:00Z');
-    const yesterdayAccomplishment = 'レビュー完了';
-    const todayPlan = '機能実装';
-    const challenges = 'API接続不安定';
-    const encryptionKeyId = 'key_2024_01';
-    const executorUserId = 'manager_001';
+describe('Issue Data Persistence - updateIssueDataWithAnalysisResult', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    const encryptInput = {
-      reporterId,
-      reportDate,
-      yesterdayAccomplishment,
-      todayPlan,
-      challenges,
-      encryptionKeyId,
-      executorUserId,
+  // SCEN-168
+  test('should throw IssueDataNotFoundError when issueId does not exist in database', () => {
+    const nonExistentIssueId = 'NON-EXISTENT-12345';
+    const updateInput: UpdateIssueAnalysisInput = {
+      issueId: nonExistentIssueId,
+      priorityScore: 50,
+      impactLevel: '中',
+      analysisResult: {
+        rootCause: 'Root cause analysis',
+        proposedCountermeasure: 'Proposed countermeasure',
+        estimatedResolutionDays: 5
+      },
+      updatedByUserId: 'user-001'
     };
 
-    const encryptedData1 = encryptDailyReportData(encryptInput);
-
-    const decryptedData1 = encryptedData1.encryptedContent;
-    const decryptedData2 = encryptedData1.encryptedContent;
-
-    expect(decryptedData1).toBe(decryptedData2);
-    expect(decryptedData1).toMatch(/レビュー完了/);
-    expect(decryptedData1).toMatch(/機能実装/);
-    expect(decryptedData1).toMatch(/API接続不安定/);
+    expect(() => updateIssueDataWithAnalysisResult(updateInput)).toThrow(/課題データが見つかりません。課題ID: NON-EXISTENT-12345/);
   });
 });

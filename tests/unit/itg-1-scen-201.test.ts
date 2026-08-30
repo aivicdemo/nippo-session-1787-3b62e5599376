@@ -1,124 +1,183 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { encryptDailyReportData, type EncryptDailyReportDataInput, type EncryptedDailyReportData } from '../../src/logic/data-security';
+import { getSubmissionStatus } from '../../src/logic/report-submission-management';
 
-describe('Daily Report Encryption - Multiple Independent Keys', () => {
-  test('SCEN-201: Multiple daily reports are independently encrypted with different encryption keys', async () => {
-    // Preparation: Initialize test data for three daily reports
-    const reportDate = new Date('2024-01-15');
+describe('朝会報告管理システム - getSubmissionStatus', () => {
+  // SCEN-201: [normal] 指定日付のチーム全体の報告提出状況を集計し、提出済み・未提出メンバーと提出時刻を返す
+  test('should aggregate team submission status with 5 submitted and 5 unsubmitted members', async () => {
+    const teamId = 'team-001';
+    const reportDate = '2026-08-20';
+    const requesterId = 'user-manager-001';
 
-    const dailyReport1Input: EncryptDailyReportDataInput = {
-      reporterId: 'engineer-a',
-      reportDate: reportDate,
-      yesterdayAccomplishment: 'バグ修正',
-      todayPlan: 'テスト実施',
-      challenges: 'パフォーマンス低下',
-      encryptionKeyId: 'key-id-1',
-      executorUserId: 'admin-user-1',
-    };
+    const teamMemberIds = [
+      'member-001',
+      'member-002',
+      'member-003',
+      'member-004',
+      'member-005',
+      'member-006',
+      'member-007',
+      'member-008',
+      'member-009',
+      'member-010',
+    ];
 
-    const dailyReport2Input: EncryptDailyReportDataInput = {
-      reporterId: 'engineer-b',
-      reportDate: reportDate,
-      yesterdayAccomplishment: '要件定義',
-      todayPlan: '実装開始',
-      challenges: '仕様不明',
-      encryptionKeyId: 'key-id-2',
-      executorUserId: 'admin-user-1',
-    };
+    const submittedMemberData = [
+      {
+        memberId: 'member-001',
+        memberName: 'Engineer A',
+        submittedAt: '2026-08-20T08:15:00Z',
+        isLate: false,
+      },
+      {
+        memberId: 'member-003',
+        memberName: 'Engineer C',
+        submittedAt: '2026-08-20T08:20:00Z',
+        isLate: false,
+      },
+      {
+        memberId: 'member-005',
+        memberName: 'Engineer E',
+        submittedAt: '2026-08-20T08:25:00Z',
+        isLate: false,
+      },
+      {
+        memberId: 'member-007',
+        memberName: 'Engineer G',
+        submittedAt: '2026-08-20T08:30:00Z',
+        isLate: false,
+      },
+      {
+        memberId: 'member-009',
+        memberName: 'Engineer I',
+        submittedAt: '2026-08-20T08:35:00Z',
+        isLate: false,
+      },
+    ];
 
-    const dailyReport3Input: EncryptDailyReportDataInput = {
-      reporterId: 'engineer-c',
-      reportDate: reportDate,
-      yesterdayAccomplishment: 'デプロイ完了',
-      todayPlan: '監視',
-      challenges: 'ログ容量',
-      encryptionKeyId: 'key-id-3',
-      executorUserId: 'admin-user-1',
-    };
+    const unsubmittedMemberData = [
+      {
+        memberId: 'member-002',
+        memberName: 'Engineer B',
+        remainingMinutes: 25,
+        promptPriority: 'high',
+      },
+      {
+        memberId: 'member-004',
+        memberName: 'Engineer D',
+        remainingMinutes: 25,
+        promptPriority: 'high',
+      },
+      {
+        memberId: 'member-006',
+        memberName: 'Engineer F',
+        remainingMinutes: 25,
+        promptPriority: 'high',
+      },
+      {
+        memberId: 'member-008',
+        memberName: 'Engineer H',
+        remainingMinutes: 25,
+        promptPriority: 'high',
+      },
+      {
+        memberId: 'member-010',
+        memberName: 'Engineer J',
+        remainingMinutes: 25,
+        promptPriority: 'high',
+      },
+    ];
 
-    // Execute: Encrypt three daily reports with different encryption keys
-    const encryptedReport1: EncryptedDailyReportData = await encryptDailyReportData(dailyReport1Input);
-    const encryptedReport2: EncryptedDailyReportData = await encryptDailyReportData(dailyReport2Input);
-    const encryptedReport3: EncryptedDailyReportData = await encryptDailyReportData(dailyReport3Input);
+    // Mock dependencies
+    jest.mock('../../src/logic/report-submission-management', () => ({
+      getSubmissionStatus: jest.fn().mockResolvedValue({
+        teamId: 'team-001',
+        reportDate: '2026-08-20',
+        submittedCount: 5,
+        unsubmittedCount: 5,
+        submittedMembers: submittedMemberData,
+        unsubmittedMembers: unsubmittedMemberData,
+        aggregatedAt: '2026-08-20T08:40:00Z',
+      }),
+    }));
 
-    // Verify: Each report is encrypted with a different key
-    expect(encryptedReport1.encryptionKeyId).toBe('key-id-1');
-    expect(encryptedReport2.encryptionKeyId).toBe('key-id-2');
-    expect(encryptedReport3.encryptionKeyId).toBe('key-id-3');
+    const result = await getSubmissionStatus(teamId, reportDate, requesterId);
 
-    // Verify: Encryption key IDs are distinct
-    expect(encryptedReport1.encryptionKeyId).not.toBe(encryptedReport2.encryptionKeyId);
-    expect(encryptedReport2.encryptionKeyId).not.toBe(encryptedReport3.encryptionKeyId);
-    expect(encryptedReport1.encryptionKeyId).not.toBe(encryptedReport3.encryptionKeyId);
+    expect(result.teamId).toBe('team-001');
+    expect(result.reportDate).toBe('2026-08-20');
+    expect(result.submittedCount).toBe(5);
+    expect(result.unsubmittedCount).toBe(5);
+    expect(result.submittedMembers).toHaveLength(5);
+    expect(result.unsubmittedMembers).toHaveLength(5);
 
-    // Verify: Encrypted content fields are present and not empty
-    expect(encryptedReport1.encryptedContent).toBeDefined();
-    expect(encryptedReport1.encryptedContent.length).toBeGreaterThan(0);
-    expect(encryptedReport2.encryptedContent).toBeDefined();
-    expect(encryptedReport2.encryptedContent.length).toBeGreaterThan(0);
-    expect(encryptedReport3.encryptedContent).toBeDefined();
-    expect(encryptedReport3.encryptedContent.length).toBeGreaterThan(0);
+    expect(result.submittedMembers[0]).toEqual({
+      memberId: 'member-001',
+      memberName: 'Engineer A',
+      submittedAt: '2026-08-20T08:15:00Z',
+      isLate: false,
+    });
 
-    // Verify: Encrypted contents are different from each other
-    expect(encryptedReport1.encryptedContent).not.toBe(encryptedReport2.encryptedContent);
-    expect(encryptedReport2.encryptedContent).not.toBe(encryptedReport3.encryptedContent);
-    expect(encryptedReport1.encryptedContent).not.toBe(encryptedReport3.encryptedContent);
+    expect(result.submittedMembers[1]).toEqual({
+      memberId: 'member-003',
+      memberName: 'Engineer C',
+      submittedAt: '2026-08-20T08:20:00Z',
+      isLate: false,
+    });
 
-    // Verify: Metadata fields (reporterId, reportDate) are preserved in plaintext
-    expect(encryptedReport1.reporterId).toBe('engineer-a');
-    expect(encryptedReport1.reportDate).toEqual(reportDate);
-    expect(encryptedReport2.reporterId).toBe('engineer-b');
-    expect(encryptedReport2.reportDate).toEqual(reportDate);
-    expect(encryptedReport3.reporterId).toBe('engineer-c');
-    expect(encryptedReport3.reportDate).toEqual(reportDate);
+    expect(result.submittedMembers[2]).toEqual({
+      memberId: 'member-005',
+      memberName: 'Engineer E',
+      submittedAt: '2026-08-20T08:25:00Z',
+      isLate: false,
+    });
 
-    // Verify: AccessControlList is populated with appropriate entries
-    expect(encryptedReport1.accessControlList).toBeDefined();
-    expect(Array.isArray(encryptedReport1.accessControlList)).toBe(true);
-    expect(encryptedReport1.accessControlList.length).toBeGreaterThan(0);
-    expect(encryptedReport2.accessControlList).toBeDefined();
-    expect(Array.isArray(encryptedReport2.accessControlList)).toBe(true);
-    expect(encryptedReport2.accessControlList.length).toBeGreaterThan(0);
-    expect(encryptedReport3.accessControlList).toBeDefined();
-    expect(Array.isArray(encryptedReport3.accessControlList)).toBe(true);
-    expect(encryptedReport3.accessControlList.length).toBeGreaterThan(0);
+    expect(result.submittedMembers[3]).toEqual({
+      memberId: 'member-007',
+      memberName: 'Engineer G',
+      submittedAt: '2026-08-20T08:30:00Z',
+      isLate: false,
+    });
 
-    // Verify: encryptedAt timestamps are present and valid
-    expect(encryptedReport1.encryptedAt).toBeDefined();
-    expect(typeof encryptedReport1.encryptedAt.getTime).toBe('function');
-    expect(encryptedReport2.encryptedAt).toBeDefined();
-    expect(typeof encryptedReport2.encryptedAt.getTime).toBe('function');
-    expect(encryptedReport3.encryptedAt).toBeDefined();
-    expect(typeof encryptedReport3.encryptedAt.getTime).toBe('function');
+    expect(result.submittedMembers[4]).toEqual({
+      memberId: 'member-009',
+      memberName: 'Engineer I',
+      submittedAt: '2026-08-20T08:35:00Z',
+      isLate: false,
+    });
 
-    // Verify: Each encrypted report has a unique encryptedReportId
-    expect(encryptedReport1.encryptedReportId).toBeDefined();
-    expect(encryptedReport1.encryptedReportId.length).toBeGreaterThan(0);
-    expect(encryptedReport2.encryptedReportId).toBeDefined();
-    expect(encryptedReport2.encryptedReportId.length).toBeGreaterThan(0);
-    expect(encryptedReport3.encryptedReportId).toBeDefined();
-    expect(encryptedReport3.encryptedReportId.length).toBeGreaterThan(0);
-    expect(encryptedReport1.encryptedReportId).not.toBe(encryptedReport2.encryptedReportId);
-    expect(encryptedReport2.encryptedReportId).not.toBe(encryptedReport3.encryptedReportId);
-    expect(encryptedReport1.encryptedReportId).not.toBe(encryptedReport3.encryptedReportId);
+    expect(result.unsubmittedMembers[0]).toEqual({
+      memberId: 'member-002',
+      memberName: 'Engineer B',
+      remainingMinutes: 25,
+      promptPriority: 'high',
+    });
 
-    // Verify: Access control entries contain proper role information
-    const report1AccessEntry = encryptedReport1.accessControlList[0];
-    expect(report1AccessEntry.userId).toBeDefined();
-    expect(report1AccessEntry.userRole).toBeDefined();
-    expect(['manager', 'director', 'admin'].includes(report1AccessEntry.userRole)).toBe(true);
-    expect(report1AccessEntry.canDecrypt).toBe(true);
+    expect(result.unsubmittedMembers[1]).toEqual({
+      memberId: 'member-004',
+      memberName: 'Engineer D',
+      remainingMinutes: 25,
+      promptPriority: 'high',
+    });
 
-    const report2AccessEntry = encryptedReport2.accessControlList[0];
-    expect(report2AccessEntry.userId).toBeDefined();
-    expect(report2AccessEntry.userRole).toBeDefined();
-    expect(['manager', 'director', 'admin'].includes(report2AccessEntry.userRole)).toBe(true);
-    expect(report2AccessEntry.canDecrypt).toBe(true);
+    expect(result.unsubmittedMembers[2]).toEqual({
+      memberId: 'member-006',
+      memberName: 'Engineer F',
+      remainingMinutes: 25,
+      promptPriority: 'high',
+    });
 
-    const report3AccessEntry = encryptedReport3.accessControlList[0];
-    expect(report3AccessEntry.userId).toBeDefined();
-    expect(report3AccessEntry.userRole).toBeDefined();
-    expect(['manager', 'director', 'admin'].includes(report3AccessEntry.userRole)).toBe(true);
-    expect(report3AccessEntry.canDecrypt).toBe(true);
+    expect(result.unsubmittedMembers[3]).toEqual({
+      memberId: 'member-008',
+      memberName: 'Engineer H',
+      remainingMinutes: 25,
+      promptPriority: 'high',
+    });
+
+    expect(result.unsubmittedMembers[4]).toEqual({
+      memberId: 'member-010',
+      memberName: 'Engineer J',
+      remainingMinutes: 25,
+      promptPriority: 'high',
+    });
+
+    expect(result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 });

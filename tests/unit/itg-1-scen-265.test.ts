@@ -1,30 +1,19 @@
-import { submitDailyReport } from "../../src/logic/daily-report-management";
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe("毎朝の定時にチームメンバーへ報告入力のリマインド通知を自動送信し、報告期限までの時間を表示する機能", () => {
-  test("SCEN-265: [edge] 報告遅延判定機能 - 送信時刻が期限の1秒前の場合、遅延なしと判定される", () => {
-    const reportId = "report-test-001";
-    const userId = "engineer-001";
-    const submissionTimestamp = new Date("2024-01-15T08:59:59Z");
-    const reportContent = {
-      yesterdayAccomplishment: "データベース最適化を完了しました",
-      todayPlan: "API実装を開始します",
-      challenges: "接続タイムアウトの問題が発生しています"
-    };
+describe('Priority Scoring Engine', () => {
+  // SCEN-265: [edge] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 影響を受けるメンバー数がチーム全体の人数を超えるときという明示された境界条件で影響メンバー数はチーム人数以下に調整されます
+  test('should clamp impact score to 100 when affected members exceed team size', () => {
+    const result = calculatePriorityScoreForIssue({
+      issueId: 'ISSUE-001',
+      frequency: 50,
+      impactScore: 120,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
+    });
 
-    const reportDeadline = new Date("2024-01-15T09:00:00Z");
-
-    const result = submitDailyReport(
-      {
-        reportId,
-        userId,
-        submissionTimestamp,
-        reportContent
-      },
-      reportDeadline
-    );
-
-    expect(result.isWithinDeadline).toBe(true);
-    expect(result.deadlineComparisonResult.status).toBe("on_time");
-    expect(result.deadlineComparisonResult.minutesBeforeDeadline).toBe(0.01666666666666667);
+    expect(result.issueId).toBe('ISSUE-001');
+    expect(result.priorityScore).toBe(80);
+    expect(result.priorityRank).toBe('HIGH');
+    expect(result.colorCode).toBe('RED');
   });
 });

@@ -1,21 +1,47 @@
-import { describe, it, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import { type IssuePriorityScoringInput } from '../../src/logic/issue-extraction-prioritization';
+import { sendUnsubmittedMemberReminders } from '../../src/logic/reminder-notification-service';
+import type {
+  UnsubmittedMemberReminderInput,
+  UnsubmittedMember,
+  ReminderRetryRule,
+  RetryStage,
+} from '../../src/logic/reminder-notification-service';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-629
-  it('課題キーワードが空文字列のとき例外を発生させる', () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: '',
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 3,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
+describe('朝会報告管理システム - 未提出メンバー催促通知', () => {
+  // SCEN-629: 朝会開始予定時刻が現在時刻より過去に設定されている場合、DeadlineCalculationErrorが発生する
+  test('should throw DeadlineCalculationError when morningMeetingStartTime is in the past', () => {
+    const currentDateTime = new Date('2026-08-19T10:00:00Z');
+    const morningMeetingStartTime = new Date('2026-08-19T09:00:00Z');
+    const reportingDeadlineTime = new Date('2026-08-19T09:30:00Z');
+
+    const unsubmittedMember: UnsubmittedMember = {
+      memberId: 'user-001',
+      memberEmail: 'engineer@example.com',
+      memberName: 'エンジニア太郎',
     };
 
-    expect(() => calculateIssuePriorityScore(input)).toThrow(/課題キーワードが空/);
+    const retryStage: RetryStage = {
+      stageNumber: 1,
+      notificationMethod: 'email',
+      waitTimeMinutes: 15,
+    };
+
+    const reminderRetryRule: ReminderRetryRule = {
+      initialNotificationMethod: 'email',
+      maxRetryCount: 2,
+      retryStages: [retryStage],
+    };
+
+    const input: UnsubmittedMemberReminderInput = {
+      teamId: 'team-001',
+      unsubmittedMembers: [unsubmittedMember],
+      reportingDeadlineTime: reportingDeadlineTime,
+      morningMeetingStartTime: morningMeetingStartTime,
+      reminderRetryRule: reminderRetryRule,
+      previousReminderHistory: [],
+    };
+
+    expect(() => {
+      sendUnsubmittedMemberReminders(input);
+    }).toThrow(/期限設定/);
   });
 });

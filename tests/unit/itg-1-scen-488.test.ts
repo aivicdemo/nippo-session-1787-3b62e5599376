@@ -1,39 +1,14 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { analyzeIssuePatternsByTimeRange } from '../../src/logic/issue-pattern-analysis';
 
-describe('課題キーワード自動抽出・ランク付け機能', () => {
-  // SCEN-488
-  test('日報テキストが空文字列のときエラーハンドリングが動作する', () => {
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn().mockImplementation((text: string) => {
-        if (!text || text.trim().length === 0) {
-          throw new Error('空の入力テキスト');
-        }
-        return {
-          keywords: [],
-          confidence: 0,
-        };
-      }),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('analyzeIssuePatternsByTimeRange', () => {
+  test('SCEN-488: should throw error when periodGranularity is invalid value other than daily, weekly, or monthly', async () => {
+    const invalidRequest = {
+      startDate: new Date('2024-01-01T00:00:00Z'),
+      endDate: new Date('2024-01-31T23:59:59Z'),
+      periodGranularity: 'quarterly' as any,
+      teamId: null,
     };
 
-    const emptyReportContent = '';
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const requestUserId = 'user-001';
-
-    const input = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold: 1,
-      requestUserId,
-    };
-
-    expect(() =>
-      extractAndRankIssueKeywords(input, mockTextAnalysisService)
-    ).toThrow(/空の入力テキスト/);
+    expect(() => analyzeIssuePatternsByTimeRange(invalidRequest)).toThrow(/期間区分は日次・週次・月次から選択してください/);
   });
 });

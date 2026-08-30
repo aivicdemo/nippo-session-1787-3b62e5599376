@@ -1,32 +1,18 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveReport } from '../../src/logic/report-persistence';
 
-describe('Issue Priority Score Calculation with Impact Score Normalization', () => {
-  test('SCEN-147: Impact score exceeding 100 is normalized to 100', () => {
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockReturnValue(101),
-      classifyIssueSeverity: jest.fn(),
+describe('朝会報告管理システム - 日報永続化', () => {
+  // SCEN-147
+  test('日報データが必須項目を欠いている場合、InvalidReportDataErrorが発生する', () => {
+    const invalidReportInput = {
+      reporterId: 'user123',
+      teamId: 'team01',
+      reportDate: new Date('2026-08-19'),
+      yesterdayAccomplishment: '',
+      todayPlan: '本日の予定',
+      issuesAndConcerns: '課題内容',
+      attachmentUrls: [],
     };
 
-    const issuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'Database connection timeout during peak hours',
-      occurrenceFrequency: 5,
-      impactScore: 101,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-alpha',
-    };
-
-    const result = calculateIssuePriorityScore(issuePriorityScoringInput, mockTextAnalysisAdapter);
-
-    expect(result.issueId).toBe('issue-001');
-    expect(result.scoreBreakdown.impactScore).toBe(40);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.colorCode).toBe('#FF0000');
-    expect(result.priorityRank).toBe('高');
-    expect(result.calculatedAt).toBeTruthy();
+    expect(() => saveReport(invalidReportInput)).toThrow(/日報データの形式が不正です。必須項目を確認してください。/);
   });
 });

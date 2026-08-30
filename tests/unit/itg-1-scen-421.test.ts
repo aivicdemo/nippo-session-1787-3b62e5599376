@@ -1,91 +1,213 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { generateWeeklyAnalysisReport } from "../../src/logic/weekly-analysis-report";
 
-describe('Report Submission Status Aggregation - Deadline Boundary Edge Case', () => {
-  test('SCEN-421: When report deadline matches current system time exactly, member submission status is judged accurately', () => {
-    // Setup: Fixed deadline and system time at exact boundary
-    const deadlineTime = '2024-01-15T09:00:00Z';
-    const currentSystemTime = new Date('2024-01-15T09:00:00Z');
-    const reportDate = '2024-01-15';
-    const teamId = 'team-001';
-    const requestUserId = 'user-manager-001';
+describe("Weekly Analysis Report Generation", () => {
+  test("SCEN-421: [normal] 毎週月曜朝に前週（月曜～日曜）の日報データを集約し、課題を抽出・分析して、優先度スコア付きの週次課題傾向レポートを生成する", () => {
+    const analysisStartDate = new Date("2024-01-08");
+    const analysisEndDate = new Date("2024-01-14");
+    const teamId = "team-001";
 
-    // Member A: Not submitted (no report record)
-    const memberA = {
-      userId: 'user-a-001',
-      userName: 'Member A',
-      email: 'member-a@example.com',
-      teamId: teamId,
-      reportSubmittedAt: null,
+    const reportRecords = [
+      {
+        reportId: "report-001",
+        reportDate: "2024-01-08",
+        employeeId: "member001",
+        yesterdayWork: "APIドキュメント作成",
+        todayWork: "テスト実装",
+        issues: "データベース接続タイムアウト発生",
+      },
+      {
+        reportId: "report-002",
+        reportDate: "2024-01-09",
+        employeeId: "member002",
+        yesterdayWork: "UI修正",
+        todayWork: "レビュー対応",
+        issues: "ブラウザ互換性の問題",
+      },
+      {
+        reportId: "report-003",
+        reportDate: "2024-01-10",
+        employeeId: "member003",
+        yesterdayWork: "デプロイ準備",
+        todayWork: "本番反映",
+        issues: "リリースメモ未完成",
+      },
+      {
+        reportId: "report-004",
+        reportDate: "2024-01-11",
+        employeeId: "member004",
+        yesterdayWork: "ビルドスクリプト修正",
+        todayWork: "テスト自動化",
+        issues: "ビルド失敗",
+      },
+      {
+        reportId: "report-005",
+        reportDate: "2024-01-12",
+        employeeId: "member005",
+        yesterdayWork: "リソース割当調整",
+        todayWork: "スケジュール確認",
+        issues: "リソース不足",
+      },
+      {
+        reportId: "report-006",
+        reportDate: "2024-01-13",
+        employeeId: "member006",
+        yesterdayWork: "ドキュメント更新",
+        todayWork: "チームレビュー",
+        issues: "仕様変更への対応遅延",
+      },
+      {
+        reportId: "report-007",
+        reportDate: "2024-01-14",
+        employeeId: "member007",
+        yesterdayWork: "環境構築",
+        todayWork: "統合テスト",
+        issues: "依存パッケージの競合",
+      },
+      {
+        reportId: "report-008",
+        reportDate: "2024-01-08",
+        employeeId: "member008",
+        yesterdayWork: "パフォーマンス測定",
+        todayWork: "最適化実装",
+        issues: "レスポンスタイム遅延",
+      },
+      {
+        reportId: "report-009",
+        reportDate: "2024-01-09",
+        employeeId: "member009",
+        yesterdayWork: "セキュリティレビュー",
+        todayWork: "脆弱性対応",
+        issues: "認証機能の仕様確認不足",
+      },
+      {
+        reportId: "report-010",
+        reportDate: "2024-01-10",
+        employeeId: "member010",
+        yesterdayWork: "ログシステム導入",
+        todayWork: "ダッシュボード構築",
+        issues: "ログ出力量の増加",
+      },
+    ];
+
+    const aggregatedReportData = {
+      reportRecords: reportRecords,
+      extractedIssues: [
+        {
+          issueId: "issue-001",
+          issueContent: "データベース接続タイムアウト発生",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-002",
+          issueContent: "ブラウザ互換性の問題",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-003",
+          issueContent: "リリースメモ未完成",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-004",
+          issueContent: "ビルド失敗",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-005",
+          issueContent: "リソース不足",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-006",
+          issueContent: "仕様変更への対応遅延",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+        {
+          issueId: "issue-007",
+          issueContent: "依存パッケージの競合",
+          reporterTeamId: teamId,
+          occurrenceCount: 1,
+        },
+      ],
+      dataQualityMetrics: {
+        completenessRate: 1.0,
+        deduplicationRate: 0.95,
+        validityRate: 0.98,
+      },
     };
 
-    // Member B: Submitted on time (report saved before deadline)
-    const memberB = {
-      userId: 'user-b-001',
-      userName: 'Member B',
-      email: 'member-b@example.com',
+    const input = {
+      analysisStartDate: analysisStartDate,
+      analysisEndDate: analysisEndDate,
       teamId: teamId,
-      reportSubmittedAt: new Date('2024-01-15T08:55:00Z'),
+      aggregatedReportData: aggregatedReportData,
+      minimumReportThreshold: 5,
     };
 
-    // Member C: Submitted on time (report saved before deadline)
-    const memberC = {
-      userId: 'user-c-001',
-      userName: 'Member C',
-      email: 'member-c@example.com',
-      teamId: teamId,
-      reportSubmittedAt: new Date('2024-01-15T08:30:00Z'),
-    };
+    const result = generateWeeklyAnalysisReport(input);
 
-    const teamMembers = [memberA, memberB, memberC];
-    const totalMembers = teamMembers.length; // 3
+    expect(result.reportId).toBeDefined();
+    expect(typeof result.reportId).toBe("string");
 
-    // Calculate expected submission counts
-    const submittedCount = teamMembers.filter(m => m.reportSubmittedAt !== null && m.reportSubmittedAt <= new Date(deadlineTime)).length; // 2
-    const unsubmittedCount = totalMembers - submittedCount; // 1
-    const delayedSubmissionCount = 0; // No submissions after deadline in this scenario
-    const submissionRate = Number(((submittedCount / totalMembers) * 100).toFixed(1)); // 66.7
+    expect(result.aggregationPeriod.startDate).toEqual(analysisStartDate);
+    expect(result.aggregationPeriod.endDate).toEqual(analysisEndDate);
 
-    // Prepare unsubmitted members list
-    const unsubmittedMembers = teamMembers
-      .filter(m => m.reportSubmittedAt === null)
-      .map(m => ({
-        userId: m.userId,
-        userName: m.userName,
-        email: m.email,
-        remainingMinutes: -0, // Exactly at deadline, so remaining time is 0
-      }));
+    expect(Array.isArray(result.issueRanking)).toBe(true);
+    expect(result.issueRanking.length).toBeGreaterThanOrEqual(7);
 
-    // Execute aggregation
-    const result = aggregateReportSubmissionStatus({
-      teamId: teamId,
-      reportDate: reportDate,
-      requestUserId: requestUserId,
-      includeDelayedSubmissions: true,
+    result.issueRanking.forEach((rankedIssue) => {
+      expect(typeof rankedIssue.issueKeyword).toBe("string");
+      expect(typeof rankedIssue.frequency).toBe("number");
+      expect(rankedIssue.frequency).toBeGreaterThan(0);
     });
 
-    // Verify aggregation results with boundary-exact values
-    expect(result.teamId).toBe(teamId);
-    expect(result.reportDate).toBe(reportDate);
-    expect(result.totalMembers).toBe(totalMembers);
-    expect(result.submittedCount).toBe(submittedCount);
-    expect(result.unsubmittedCount).toBe(unsubmittedCount);
-    expect(result.delayedSubmissionCount).toBe(delayedSubmissionCount);
-    expect(result.submissionRate).toBe(submissionRate);
+    expect(Array.isArray(result.priorityScores)).toBe(true);
+    expect(result.priorityScores.length).toBeGreaterThanOrEqual(7);
 
-    // Verify unsubmitted members contain exactly Member A
-    expect(result.unsubmittedMembers).toHaveLength(1);
-    expect(result.unsubmittedMembers[0].userId).toBe('user-a-001');
-    expect(result.unsubmittedMembers[0].userName).toBe('Member A');
-    expect(result.unsubmittedMembers[0].email).toBe('member-a@example.com');
+    result.priorityScores.forEach((priorityScore) => {
+      expect(typeof priorityScore.keyword).toBe("string");
+      expect(typeof priorityScore.priorityScore).toBe("number");
+      expect(priorityScore.priorityScore).toBeGreaterThanOrEqual(0);
+      expect(priorityScore.priorityScore).toBeLessThanOrEqual(100);
+      expect(["high", "medium", "low"]).toContain(priorityScore.priorityLevel);
+    });
 
-    // Verify aggregated timestamp is precisely at the deadline boundary
-    expect(result.aggregatedAt).toBe('2024-01-15T09:00:00.000Z');
+    expect(Array.isArray(result.recommendedActions)).toBe(true);
 
-    // Verify submission status judgment is accurate at boundary
-    const memberBStatus = result.unsubmittedMembers.find(m => m.userId === 'user-b-001');
-    const memberCStatus = result.unsubmittedMembers.find(m => m.userId === 'user-c-001');
+    expect(Array.isArray(result.colorCodedIssueList)).toBe(true);
+    expect(result.colorCodedIssueList.length).toBeGreaterThanOrEqual(7);
 
-    expect(memberBStatus).toBeUndefined(); // Member B should NOT be in unsubmitted list
-    expect(memberCStatus).toBeUndefined(); // Member C should NOT be in unsubmitted list
+    result.colorCodedIssueList.forEach((colorCodedIssue) => {
+      expect(typeof colorCodedIssue.issueKeyword).toBe("string");
+      expect(["red", "yellow", "green"]).toContain(colorCodedIssue.color);
+    });
+
+    expect(result.generatedAt).toBeInstanceOf(Date);
+    expect(result.generatedAt.getTime()).toBeLessThanOrEqual(new Date().getTime());
+
+    const highPriorityCount = result.colorCodedIssueList.filter(
+      (issue) => issue.color === "red"
+    ).length;
+    expect(highPriorityCount).toBeGreaterThanOrEqual(0);
+
+    const mediumPriorityCount = result.colorCodedIssueList.filter(
+      (issue) => issue.color === "yellow"
+    ).length;
+    expect(mediumPriorityCount).toBeGreaterThanOrEqual(0);
+
+    const lowPriorityCount = result.colorCodedIssueList.filter(
+      (issue) => issue.color === "green"
+    ).length;
+    expect(lowPriorityCount).toBeGreaterThanOrEqual(0);
+
+    const totalColorCodedIssues =
+      highPriorityCount + mediumPriorityCount + lowPriorityCount;
+    expect(totalColorCodedIssues).toEqual(result.colorCodedIssueList.length);
   });
 });

@@ -1,29 +1,22 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { archiveAndManageIssueDataRetention } from '../../src/logic/issue-data-persistence';
+import { type IssueRetentionPolicy } from '../../src/logic/issue-data-persistence';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-571: [error] 課題優先度判定機能 - 課題内容が空文字列のとき影響度スコア計算エラーが発生する
-  test('課題内容が空文字列のとき影響度スコア計算エラーが発生し、エラーメッセージが表示される', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockImplementation(() => {
-        throw new Error('Empty issue content provided to assessImpactScore');
-      }),
-      classifyIssueSeverity: jest.fn(),
+describe('Issue Data Persistence', () => {
+  // SCEN-571
+  test('should throw InvalidRetentionPolicyError when aggregationPeriodStart is in the future relative to current time', () => {
+    const currentTime = new Date('2026-01-15T12:00:00Z');
+    const mockNow = jest.spyOn(Date, 'now').mockReturnValue(currentTime.getTime());
+
+    const retentionPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: 30,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: [],
+      aggregationPeriodStart: '2026-01-20',
+      aggregationPeriodEnd: '2026-02-15'
     };
 
-    const input = {
-      issueId: 'issue-001',
-      issueContent: '',
-      occurrenceFrequency: 3,
-      impactScore: 0,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 5,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001',
-    };
+    expect(() => archiveAndManageIssueDataRetention(retentionPolicy)).toThrow(/集約期間は過去の日付範囲で指定してください/);
 
-    expect(() =>
-      calculateIssuePriorityScore(input, mockTextAnalysisServiceAdapter)
-    ).toThrow(/Empty issue content provided to assessImpactScore/);
+    mockNow.mockRestore();
   });
 });

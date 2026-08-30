@@ -1,36 +1,43 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { conductEngineerGroupTraining } from "../../src/logic/adoption-training-management";
+import { type EngineerGroupTrainingInput, type EngineerGroupTrainingResult } from "../../src/logic/adoption-training-management";
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-578: [error] 課題優先度判定機能 - 報告者IDが空文字列のとき優先度判定エラーが発生する
-  test('報告者IDが空文字列のとき、INVALID_REPORTER_IDエラーオブジェクトを返す', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: '重要な障害が発生',
-      occurrenceFrequency: 5,
-      impactScore: 85,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001',
-      reporterId: '',
+describe("朝会報告管理システム", () => {
+  // SCEN-578
+  test("全エンジニア10名が統一された研修内容でアプリ操作を学習し、実習環境での一連操作を完了させる。evaluateEngineerOperationalProficiencyが設計された計算式の代表値を返す", () => {
+    const trainingInput: EngineerGroupTrainingInput = {
+      trainingSessionId: "SESSION-2024-001",
+      engineerIds: [
+        "ENG-001",
+        "ENG-002",
+        "ENG-003",
+        "ENG-004",
+        "ENG-005",
+        "ENG-006",
+        "ENG-007",
+        "ENG-008",
+        "ENG-009",
+        "ENG-010",
+      ],
+      trainingDate: new Date("2024-01-15T09:00:00Z"),
+      practiceEnvironmentUrl: "https://practice.example.com/training",
     };
 
-    const result = calculateIssuePriorityScore(input);
+    const result: EngineerGroupTrainingResult = conductEngineerGroupTraining(
+      trainingInput
+    );
 
-    expect(result).toEqual({
-      issueId: 'issue-001',
-      priorityScore: null,
-      priorityRank: null,
-      scoreBreakdown: null,
-      colorCode: null,
-      calculatedAt: null,
-      error: {
-        code: 'INVALID_REPORTER_ID',
-        message: '報告者IDが空文字列です',
-      },
-    });
-    expect(result.error).toBeDefined();
-    expect(result.error.code).toBe('INVALID_REPORTER_ID');
-    expect(result.error.message).toBe('報告者IDが空文字列です');
+    expect(result.trainingSessionId).toBe("SESSION-2024-001");
+    expect(result.participantResults).toHaveLength(10);
+
+    const eng001Result = result.participantResults.find(
+      (r) => r.engineerId === "ENG-001"
+    );
+    expect(eng001Result).toBeDefined();
+    if (eng001Result) {
+      expect(eng001Result.operationSkillScore).toBe(100);
+      expect(eng001Result.passJudgment).toBe(true);
+    }
+
+    expect(result.trainingCompletionStatus).toBe("completed");
   });
 });

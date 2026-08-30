@@ -1,28 +1,52 @@
-import { describe, test, expect } from '@jest/globals';
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import type { SubmitDailyReportInput, SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { sendUnsubmittedMemberReminders } from "../../src/logic/reminder-notification-service";
 
-describe('Daily Report Management - Submit Daily Report', () => {
-  // SCEN-078: [error] 日報送信期限判定機能 - 入力された日報項目が 3 項目未満のとき処理が進まずエラーを返す
-  test('should reject submission when fewer than 3 required fields are provided', async () => {
-    const incompleteInput: Omit<SubmitDailyReportInput, 'challenges'> & { challenges?: string } = {
-      userId: 'user-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: 'Completed API integration testing',
-      todayPlan: 'Will review pull requests and update documentation',
-      challenges: undefined,
-      reportDate: '2024-01-15',
+describe("朝会報告管理システム - 未提出メンバー催促通知", () => {
+  // SCEN-078
+  test("再催促ルール設定が無効な場合、InvalidReminderConfigurationErrorが発生する", () => {
+    const teamId = "team-001";
+    const now = new Date("2024-01-15T07:00:00Z");
+    const reportingDeadlineTime = new Date("2024-01-15T09:00:00Z");
+    const morningMeetingStartTime = new Date("2024-01-15T08:00:00Z");
+
+    const unsubmittedMembers = [
+      {
+        memberId: "user-001",
+        memberName: "田中太郎",
+        memberEmail: "tanaka@example.com",
+      },
+      {
+        memberId: "user-002",
+        memberName: "山田花子",
+        memberEmail: "yamada@example.com",
+      },
+    ];
+
+    const invalidReminderRetryRule = {
+      initialNotificationMethod: "email" as const,
+      maxRetryCount: -1,
+      retryStages: [
+        {
+          stageNumber: 1,
+          notificationMethod: "email",
+          waitingTimeMinutes: 30,
+        },
+      ],
     };
 
-    const inputWithTwoFields: SubmitDailyReportInput = {
-      userId: 'user-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: 'Completed API integration testing',
-      todayPlan: 'Will review pull requests and update documentation',
-      challenges: '',
-      reportDate: '2024-01-15',
+    const previousReminderHistory: any[] = [];
+
+    const input = {
+      teamId,
+      unsubmittedMembers,
+      reportingDeadlineTime,
+      morningMeetingStartTime,
+      reminderRetryRule: invalidReminderRetryRule,
+      previousReminderHistory,
+      currentDateTime: now,
     };
 
-    expect(() => submitDailyReport(inputWithTwoFields)).toThrow(/3項目/);
+    expect(() => sendUnsubmittedMemberReminders(input)).toThrow(
+      /再催促ルール設定が無効です/
+    );
   });
 });

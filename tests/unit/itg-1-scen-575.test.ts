@@ -1,20 +1,25 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveExtractedIssueData } from '../../src/logic/issue-data-persistence';
 
-describe('課題の優先度スコア計算機能', () => {
-  test('SCEN-575: チーム波及度スコアが101のとき無効な入力エラーが発生する', () => {
-    // Arrange: 無効なチーム波及度スコア（101）を含む入力データ
+describe('朝会報告管理システム - 課題データ永続化', () => {
+  // SCEN-575
+  test('抽出済み課題データを保存する際に、データ集計期間の開始日が終了日より後の場合、エラーをスロー', () => {
     const invalidInput = {
-      issueId: 'issue-001',
-      issueContent: 'システムの応答時間が遅い',
-      occurrenceFrequency: 5,
-      impactScore: 101, // 有効範囲外（0-100を超える）
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
+      reportId: 'report-001',
+      issueContent: 'Build failure on production server',
+      issueType: 'technical_issue',
+      priorityScore: 85,
+      impactLevel: 'high',
+      extractedKeywords: ['build', 'production', 'server'],
+      analysisResult: {
+        rootCause: 'Deployment script error',
+        proposedCountermeasure: 'Rollback to previous version',
+        estimatedResolutionDays: 2
+      },
+      executorId: 'user-pm-001',
+      dataRangeStart: new Date('2024-01-15T00:00:00Z'),
+      dataRangeEnd: new Date('2024-01-10T00:00:00Z')
     };
 
-    // Act & Assert: チーム波及度スコアが範囲外の場合、エラーが発生する
-    expect(() => calculateIssuePriorityScore(invalidInput)).toThrow(/チーム波及度スコアは0～100の範囲/);
+    expect(() => saveExtractedIssueData(invalidInput)).toThrow(/データ集計期間/);
   });
 });

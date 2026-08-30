@@ -1,82 +1,130 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { prepareDashboardData } from "../../src/logic/dashboard-presentation";
+import { type DashboardDisplayData } from "../../src/logic/dashboard-presentation";
 
-describe('報告提出状況リアルタイム更新機能', () => {
-  it('SCEN-358: 送信時刻が日報送信時点の時刻ちょうどで記録される', () => {
-    // Arrange
-    const fixedSystemTime = new Date('2026-08-20T09:00:00.000Z');
-    const teamId = 'team_001';
-    const reportDate = '2026-08-20';
-    const requestUserId = 'admin_user_001';
+describe("朝会報告管理システム - ダッシュボード表示準備", () => {
+  // SCEN-358: [normal] 部長向けダッシュボード表示用に、提出状況サマリー、未提出メンバー一覧、優先度別課題一覧、課題キーワード発生頻度ランキングを集計・整形して返す。
+  test("prepareDashboardData は提出状況・未提出者・優先度別課題・キーワードランキングを整形したダッシュボードデータを返す", () => {
+    // 入力値を設定
+    const teamId = "team-001";
+    const targetDate = new Date("2024-01-15");
+    const requestingUserId = "user-manager-001";
+    const includeHistoricalTrend = false;
 
-    // チームメンバー構成: 総10名
-    const totalMembers = 10;
+    // aggregateSubmissionStatusSummary のスタブ
+    const mockSubmissionStatusSummary = {
+      submittedCount: 8,
+      unsubmittedCount: 2,
+      submissionDeadline: "09:30",
+    };
 
-    // 期限内に提出済み: 6名
-    const submittedOnTimeCount = 6;
-
-    // 期限超過で提出: 2名
-    const delayedSubmissionCount = 2;
-
-    // 未提出: 2名
-    const unsubmittedCount = 2;
-
-    // 期限内提出率の計算: (6 / 10) * 100 = 60.0%
-    const expectedSubmissionRate = 60.0;
-
-    // 未提出メンバーの詳細情報
-    const unsubmittedMembers = [
+    // buildUnsubmittedMembersList のスタブ
+    const mockUnsubmittedMembers = [
       {
-        userId: 'user_002',
-        userName: '山田太郎',
-        email: 'yamada.taro@example.com',
-        remainingMinutes: -45, // 期限超過45分
+        memberId: "mem-003",
+        memberName: "田中太郎",
+        department: "営業部",
+        colorCode: "#FF6B6B",
       },
       {
-        userId: 'user_007',
-        userName: '佐藤花子',
-        email: 'sato.hanako@example.com',
-        remainingMinutes: -30, // 期限超過30分
+        memberId: "mem-007",
+        memberName: "佐藤花子",
+        department: "企画部",
+        colorCode: "#FF6B6B",
       },
     ];
 
-    const input = {
-      teamId,
-      reportDate,
-      requestUserId,
-      includeDelayedSubmissions: true,
-    };
+    // formatIssueListWithColorCoding のスタブ
+    const mockPrioritizedIssueList = [
+      {
+        issueId: "issue-001",
+        content: "サーバー障害対応",
+        priorityScore: 95,
+        colorCode: "#FF4444",
+        impactLevel: "HIGH",
+      },
+      {
+        issueId: "issue-002",
+        content: "ドキュメント未更新",
+        priorityScore: 60,
+        colorCode: "#FFAA00",
+        impactLevel: "MEDIUM",
+      },
+    ];
 
-    // Act
-    const result = aggregateReportSubmissionStatus(input);
+    const mockIssueKeywordRanking = [
+      {
+        keyword: "サーバー",
+        frequency: 5,
+        occurrenceRate: 0.45,
+      },
+      {
+        keyword: "障害",
+        frequency: 4,
+        occurrenceRate: 0.36,
+      },
+    ];
 
-    // Assert
-    // 基本情報の検証
-    expect(result.teamId).toBe(teamId);
-    expect(result.reportDate).toBe(reportDate);
-    expect(result.totalMembers).toBe(totalMembers);
+    // jest.mock を使ってモジュールの依存関数をモック化
+    const mockAggregateSubmissionStatusSummary = jest.fn().mockReturnValue(mockSubmissionStatusSummary);
+    const mockBuildUnsubmittedMembersList = jest.fn().mockReturnValue(mockUnsubmittedMembers);
+    const mockFormatIssueListWithColorCoding = jest.fn().mockReturnValue({
+      prioritizedIssueList: mockPrioritizedIssueList,
+      issueKeywordRanking: mockIssueKeywordRanking,
+    });
 
-    // 提出状況の検証
-    expect(result.submittedCount).toBe(submittedOnTimeCount);
-    expect(result.delayedSubmissionCount).toBe(delayedSubmissionCount);
-    expect(result.unsubmittedCount).toBe(unsubmittedCount);
+    // jest.doMock を使ってモジュール内部の関数をモック化する代わりに、
+    // prepareDashboardData を実際に呼び出す際、モック対象の関数が既に
+    // モジュール内で正しく動作する前提でテストする
 
-    // 提出率の検証（小数第1位まで）
-    expect(result.submissionRate).toBe(expectedSubmissionRate);
+    // prepareDashboardData を実行
+    const result: DashboardDisplayData = prepareDashboardData(
+      {
+        teamId,
+        targetDate,
+        requestingUserId,
+        includeHistoricalTrend,
+      }
+    );
 
-    // 集計実行時刻がISO 8601形式であることを検証
-    expect(result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    // 返却値の構造と値を検証
+    // (1) submissionStatusSummary の検証
+    expect(result.submissionStatusSummary.submittedCount).toBe(8);
+    expect(result.submissionStatusSummary.unsubmittedCount).toBe(2);
+    expect(result.submissionStatusSummary.submissionDeadline).toBe("09:30");
 
-    // 未提出メンバー情報の検証
+    // (2) unsubmittedMembers の検証
     expect(result.unsubmittedMembers).toHaveLength(2);
-    expect(result.unsubmittedMembers[0].userId).toBe('user_002');
-    expect(result.unsubmittedMembers[0].userName).toBe('山田太郎');
-    expect(result.unsubmittedMembers[0].email).toBe('yamada.taro@example.com');
-    expect(result.unsubmittedMembers[0].remainingMinutes).toBe(-45);
+    expect(result.unsubmittedMembers[0].memberId).toBe("mem-003");
+    expect(result.unsubmittedMembers[0].memberName).toBe("田中太郎");
+    expect(result.unsubmittedMembers[0].department).toBe("営業部");
+    expect(result.unsubmittedMembers[0].colorCode).toBe("#FF6B6B");
+    expect(result.unsubmittedMembers[1].memberId).toBe("mem-007");
+    expect(result.unsubmittedMembers[1].memberName).toBe("佐藤花子");
 
-    expect(result.unsubmittedMembers[1].userId).toBe('user_007');
-    expect(result.unsubmittedMembers[1].userName).toBe('佐藤花子');
-    expect(result.unsubmittedMembers[1].email).toBe('sato.hanako@example.com');
-    expect(result.unsubmittedMembers[1].remainingMinutes).toBe(-30);
+    // (3) prioritizedIssueList の検証
+    expect(result.prioritizedIssueList).toHaveLength(2);
+    // 優先度スコアの降順を確認
+    expect(result.prioritizedIssueList[0].priorityScore).toBe(95);
+    expect(result.prioritizedIssueList[1].priorityScore).toBe(60);
+    expect(result.prioritizedIssueList[0].issueId).toBe("issue-001");
+    expect(result.prioritizedIssueList[0].content).toBe("サーバー障害対応");
+    expect(result.prioritizedIssueList[0].colorCode).toBe("#FF4444");
+    expect(result.prioritizedIssueList[0].impactLevel).toBe("HIGH");
+
+    // (4) issueKeywordRanking の検証
+    expect(result.issueKeywordRanking).toHaveLength(2);
+    expect(result.issueKeywordRanking[0].keyword).toBe("サーバー");
+    expect(result.issueKeywordRanking[0].frequency).toBe(5);
+    expect(result.issueKeywordRanking[0].occurrenceRate).toBe(0.45);
+    expect(result.issueKeywordRanking[1].keyword).toBe("障害");
+    expect(result.issueKeywordRanking[1].frequency).toBe(4);
+    expect(result.issueKeywordRanking[1].occurrenceRate).toBe(0.36);
+
+    // (5) lastUpdatedAt の検証（Date 型で、現在時刻付近の値であることを確認）
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
+    const now = new Date();
+    const timeDiff = Math.abs(now.getTime() - result.lastUpdatedAt.getTime());
+    // 5秒以内の差分を許容
+    expect(timeDiff).toBeLessThan(5000);
   });
 });

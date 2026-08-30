@@ -1,47 +1,134 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { prepareDashboardData } from '../../src/logic/dashboard-presentation';
 
-describe('課題キーワード自動抽出・ランク付け機能', () => {
-  // SCEN-614
-  test('日報から抽出された課題キーワードが1件の場合、そのキーワードが一覧に含まれる', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          {
-            keyword: 'データベース接続エラー',
-            frequency: 1,
-            impactScore: 65,
-          },
-        ],
-      }),
-      assessImpactScore: jest.fn().mockResolvedValue(65),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('medium'),
+describe('Dashboard Presentation Logic', () => {
+  test('SCEN-614: prepareDashboardData returns aggregated dashboard data with calculated priority scores, impact degrees, and color codes sorted by priority', () => {
+    // Prepare test report data
+    const report1 = {
+      report_id: 'report-1',
+      engineer_name: 'Engineer A',
+      yesterday_work: 'Fixed authentication module',
+      today_plan: 'Deploy to staging',
+      issues: 'Database connection error occurred during testing',
+      submitted_at: new Date('2024-01-15T08:00:00Z'),
+      priority_score: 0, // Will be calculated
+      priority_level: '', // Will be calculated
+      impact_degree: 0, // Will be calculated
+      display_color: '', // Will be calculated
     };
 
-    const reportText =
-      '昨日やったこと：API開発、今日やること：テスト実施、抱えている課題：データベース接続エラーが発生している';
-
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-15T00:00:00Z'),
-      endDate: new Date('2024-01-15T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001',
-      reportTexts: [reportText],
-      textAnalysisServiceAdapter: mockTextAnalysisServiceAdapter,
+    const report2 = {
+      report_id: 'report-2',
+      engineer_name: 'Engineer B',
+      yesterday_work: 'Implemented API endpoints',
+      today_plan: 'Write unit tests',
+      issues: 'Database connection error and memory leak suspected',
+      submitted_at: new Date('2024-01-15T08:15:00Z'),
+      priority_score: 0,
+      priority_level: '',
+      impact_degree: 0,
+      display_color: '',
     };
 
-    const result = extractAndRankIssueKeywords(input);
+    const report3 = {
+      report_id: 'report-3',
+      engineer_name: 'Engineer C',
+      yesterday_work: 'Refactored database queries',
+      today_plan: 'Code review session',
+      issues: 'Minor UI bug in dashboard',
+      submitted_at: new Date('2024-01-15T08:30:00Z'),
+      priority_score: 0,
+      priority_level: '',
+      impact_degree: 0,
+      display_color: '',
+    };
 
-    expect(result.keywords).toHaveLength(1);
-    expect(result.keywords[0].keyword).toBe('データベース接続エラー');
-    expect(result.keywords[0].frequency).toBe(1);
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[0].keywordId).toBeDefined();
-    expect(result.totalKeywordCount).toBe(1);
-    expect(result.extractedAt).toBeDefined();
-    expect(result.analysisPeriodDays).toBe(1);
+    const reportList = [report1, report2, report3];
 
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).toHaveBeenCalled();
+    // Prepare issue frequency map for past 30 days
+    // 'Database connection error' appears 5 times
+    // 'Memory leak' appears 2 times
+    // 'UI bug' appears 1 time
+    const issueFrequencyMap = new Map<string, number>([
+      ['Database connection error', 5],
+      ['Memory leak', 2],
+      ['UI bug', 1],
+    ]);
+
+    const teamSize = 10;
+    const maxFrequency = 5; // Maximum frequency among all keywords
+
+    // Calculate expected values for report1 (Database connection error)
+    // frequency = 5
+    // impactDegree = (5 / 10) * 100 = 50
+    // priorityScore = (5 * 0.4) + (50 * 0.6) = 2 + 30 = 32
+    // priorityLevel('low') because 32 < 40
+    // displayColor('green') for 'low' priority
+
+    const expectedPriorityScore1 = 32; // (5 * 0.4) + (50 * 0.6)
+    const expectedImpactDegree1 = 50; // (5 / 10) * 100
+    const expectedPriorityLevel1 = 'low';
+    const expectedDisplayColor1 = 'green';
+
+    // Calculate expected values for report2 (Database connection error and Memory leak)
+    // Maximum frequency for this report is 5 (Database connection error)
+    // impactDegree = (5 / 10) * 100 = 50
+    // priorityScore = (5 * 0.4) + (50 * 0.6) = 32
+    // priorityLevel = 'low'
+    // displayColor = 'green'
+
+    const expectedPriorityScore2 = 32;
+    const expectedImpactDegree2 = 50;
+    const expectedPriorityLevel2 = 'low';
+    const expectedDisplayColor2 = 'green';
+
+    // Calculate expected values for report3 (UI bug)
+    // frequency = 1
+    // impactDegree = (1 / 10) * 100 = 10
+    // priorityScore = (1 * 0.4) + (10 * 0.6) = 0.4 + 6 = 6.4, rounded to 6
+    // priorityLevel = 'low' because 6 < 40
+    // displayColor = 'green'
+
+    const expectedPriorityScore3 = 6; // (1 * 0.4) + (10 * 0.6)
+    const expectedImpactDegree3 = 10; // (1 / 10) * 100
+    const expectedPriorityLevel3 = 'low';
+    const expectedDisplayColor3 = 'green';
+
+    // Call the function under test
+    const result = prepareDashboardData(
+      reportList,
+      issueFrequencyMap,
+      teamSize
+    );
+
+    // Verify that result is an array
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(3);
+
+    // Verify first report (should have highest or tied priority score)
+    expect(result[0]).toHaveProperty('priority_score');
+    expect(result[0]).toHaveProperty('priority_level');
+    expect(result[0]).toHaveProperty('impact_degree');
+    expect(result[0]).toHaveProperty('display_color');
+
+    // Check specific calculated values for first report
+    expect(result[0].priority_score).toBe(expectedPriorityScore1);
+    expect(result[0].priority_level).toBe(expectedPriorityLevel1);
+    expect(result[0].impact_degree).toBe(expectedImpactDegree1);
+    expect(result[0].display_color).toBe(expectedDisplayColor1);
+
+    // Verify all reports are sorted by priority score in descending order
+    for (let i = 0; i < result.length - 1; i++) {
+      expect(result[i].priority_score).toBeGreaterThanOrEqual(
+        result[i + 1].priority_score
+      );
+    }
+
+    // Verify that color codes are properly assigned based on priority levels
+    const lowPriorityReports = result.filter(
+      (r) => r.priority_level === 'low'
+    );
+    lowPriorityReports.forEach((report) => {
+      expect(report.display_color).toBe('green');
+    });
   });
 });

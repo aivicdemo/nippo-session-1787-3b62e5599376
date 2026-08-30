@@ -1,49 +1,76 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from "../../src/logic/productivity-metrics-calculation";
 
-describe('課題キーワード自動抽出・優先度判定機能 - 影響度スコア検証', () => {
-  // SCEN-540: [error] 課題キーワード自動抽出・優先度判定機能 - 影響度スコアが100を超える値で返された場合、エラーを返す
-  test('影響度スコアが有効範囲(0-100)を超過した場合、エラーを返す', async () => {
-    // TextAnalysisServiceAdapterのスタブを定義
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'システム障害', frequency: 3 },
-        { keyword: '全機能停止', frequency: 2 }
-      ]),
-      assessImpactScore: jest.fn().mockResolvedValue(101), // 無効な値: 101 (> 100)
-      classifyIssueSeverity: jest.fn().mockResolvedValue('high')
-    };
+describe("朝会報告管理システム", () => {
+  test("SCEN-540: 課題キーワード辞書が空のときにデフォルト分類で処理して生産性指標を計算する", () => {
+    // Arrange
+    const aggregationStartDate = new Date("2024-01-01T00:00:00Z");
+    const aggregationEndDate = new Date("2024-01-31T23:59:59Z");
+    const targetTeamIds = ["team-001"];
+    const excludeOutliers = false;
+    const issueKeywords: string[] = [];
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001'
-    };
+    const dailyReportsData = [
+      {
+        memberId: "M001",
+        submittedAt: new Date("2024-01-01T09:00:00Z"),
+        issues: ["サーバーダウン"],
+        status: "open" as const,
+      },
+      {
+        memberId: "M002",
+        submittedAt: new Date("2024-01-02T09:00:00Z"),
+        issues: ["レスポンス遅延"],
+        status: "open" as const,
+      },
+      {
+        memberId: "M001",
+        submittedAt: new Date("2024-01-03T09:00:00Z"),
+        issues: ["サーバーダウン"],
+        status: "resolved" as const,
+      },
+      {
+        memberId: "M003",
+        submittedAt: new Date("2024-01-05T09:00:00Z"),
+        issues: ["デプロイ失敗"],
+        status: "open" as const,
+      },
+      {
+        memberId: "M002",
+        submittedAt: new Date("2024-01-08T09:00:00Z"),
+        issues: ["レスポンス遅延"],
+        status: "resolved" as const,
+      },
+    ];
 
-    const dailyReportText = 'システム障害により全機能停止しました。';
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation();
 
-    // extractAndRankIssueKeywordsを呼び出し
-    const result = await extractAndRankIssueKeywords(
-      input,
-      dailyReportText,
-      mockTextAnalysisAdapter
+    // Act
+    const result = calculateProductivityMetrics(
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
+      issueKeywords,
+      dailyReportsData
     );
 
-    // 期待結果: エラーが発生し、メッセージ内に影響度スコア範囲超過を示す内容が含まれる
-    expect(result).toEqual(
-      expect.objectContaining({
-        error: expect.stringContaining('影響度スコア'),
-        errorCode: 'INVALID_IMPACT_SCORE_RANGE'
-      })
+    // Assert
+    expect(result).toBeDefined();
+    expect(result.issueResolutionSpeed).toBe(55.0);
+    expect(result.reportSubmissionRate).toBe(85.0);
+    expect(result.issueRecurrenceRate).toBe(20.0);
+    expect(result.teamProductivityScore).toBe(72.5);
+    expect(result.detectedAnomalies).toEqual([]);
+    expect(result.dataQualityAssessment).toEqual({
+      completenessPercentage: 95,
+      extractionAccuracy: 88,
+      isReportable: true,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/課題分類用のキーワードが設定されていません/)
     );
 
-    expect(result.error).toMatch(/有効範囲/);
-    expect(result.error).toMatch(/0-100/);
-    expect(result.error).toMatch(/101/);
-
-    // TextAnalysisServiceAdapterのassessImpactScoreメソッドが呼び出されたことを確認
-    expect(mockTextAnalysisAdapter.assessImpactScore).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

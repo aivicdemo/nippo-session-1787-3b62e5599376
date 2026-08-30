@@ -1,167 +1,76 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput, GenerateAndSendSummaryEmailOutput, SubmittedReportSummary } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports, type ExtractAndRankIssuesInput, type RankedIssueList, type Report } from "../../src/logic/issue-extraction-and-ranking";
 
-const fetchMock = require('jest-fetch-mock');
+describe("Issue Extraction and Ranking", () => {
+  // SCEN-207: [edge] 複数の日報から課題キーワードを自動抽出し、発生頻度と影響度に基づいて優先度スコアを計算して、優先度別に順序付けされた課題一覧を生成する。 - 課題項目のテキストが空または100文字を超えるときという明示された境界条件で不正な形式の課題テキストはスキップされます
+  test("should skip invalid issue text and extract only valid reports", () => {
+    // Arrange
+    const validIssueText = "Database connection timeout during peak hours affecting application response time";
+    const emptyIssueText = "";
+    const oversizedIssueText =
+      "This is a very long issue text that exceeds one hundred characters in total length to test the upper boundary condition for issue text validation purposes in the system architecture";
 
-describe('優先度付き課題一覧生成機能 - 集約メール配信', () => {
-  beforeEach(() => {
-    fetchMock.resetMocks();
-    jest.clearAllMocks();
-  });
-
-  afterEach(() => {
-    fetchMock.resetMocks();
-  });
-
-  // SCEN-207: [normal] 優先度付き課題一覧生成機能 - 集約された日報から抽出された課題が優先度スコアで順序付けられて集約メールに含まれる
-  test('should generate and send summary email with prioritized issues ordered by impact score descending', async () => {
-    // Arrange: テストデータを準備する
-    const teamId = 'team-001';
-    const reportDate = '2024-01-15';
-    const managerUserId = 'manager-001';
-    
-    // 3件の日報データを準備（各日報に課題記述あり）
-    const submittedReports: SubmittedReportSummary[] = [
+    const reports: Report[] = [
       {
-        reporterId: 'engineer-001',
-        reporterName: 'エンジニア太郎',
-        submittedAt: '2024-01-15T08:30:00Z',
-        challenges: ['データベース接続エラーが発生', 'ネットワーク遅延の問題']
+        reportId: "report-empty",
+        reportDate: new Date("2024-01-15"),
+        issueText: emptyIssueText,
+        teamId: "team-001",
       },
       {
-        reporterId: 'engineer-002',
-        reporterName: 'エンジニア花子',
-        submittedAt: '2024-01-15T08:35:00Z',
-        challenges: ['データベース接続エラーが引き続き発生', 'デプロイメント失敗']
+        reportId: "report-oversized",
+        reportDate: new Date("2024-01-15"),
+        issueText: oversizedIssueText,
+        teamId: "team-001",
       },
       {
-        reporterId: 'engineer-003',
-        reporterName: 'エンジニア次郎',
-        submittedAt: '2024-01-15T08:40:00Z',
-        challenges: ['ネットワーク遅延の問題が改善されない', 'テスト環境の不安定性']
-      }
+        reportId: "report-valid",
+        reportDate: new Date("2024-01-15"),
+        issueText: validIssueText,
+        teamId: "team-001",
+      },
     ];
 
-    const unsubmittedMemberIds: string[] = ['engineer-004'];
-    const reportDeadlineTime = '09:00';
+    const analysisStartDate = new Date("2023-12-16");
+    const analysisEndDate = new Date("2024-01-15");
+    const minimumConfidenceThreshold = 50;
 
-    // TextAnalysisServiceAdapter のスタブを作成
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(async (text: string) => {
-        // キーワード抽出をシミュレート
-        // 「データベース接続エラー」「ネットワーク遅延」「デプロイメント失敗」「テスト環境の不安定性」を検出
-        if (text.includes('データベース接続エラー')) {
-          return { keyword: 'データベース接続エラー', frequency: 2 };
-        }
-        if (text.includes('ネットワーク遅延')) {
-          return { keyword: 'ネットワーク遅延', frequency: 2 };
-        }
-        if (text.includes('デプロイメント失敗')) {
-          return { keyword: 'デプロイメント失敗', frequency: 1 };
-        }
-        if (text.includes('テスト環境の不安定性')) {
-          return { keyword: 'テスト環境の不安定性', frequency: 1 };
-        }
-        return { keyword: 'unknown', frequency: 0 };
-      }),
-      assessImpactScore: jest.fn(async (keyword: string) => {
-        // 異なる優先度スコアを返す
-        // キーワードA（データベース接続エラー）= 85
-        // キーワードC（ネットワーク遅延）= 72
-        // キーワードB（デプロイメント失敗）= 60
-        // キーワードD（テスト環境の不安定性）= 45
-        const scoreMap: { [key: string]: number } = {
-          'データベース接続エラー': 85,
-          'ネットワーク遅延': 72,
-          'デプロイメント失敗': 60,
-          'テスト環境の不安定性': 45
-        };
-        return scoreMap[keyword] || 0;
-      }),
-      classifyIssueSeverity: jest.fn(async (text: string) => {
-        return 'high';
-      })
+    const input: ExtractAndRankIssuesInput = {
+      reports: reports,
+      analysisStartDate: analysisStartDate,
+      analysisEndDate: analysisEndDate,
+      minimumConfidenceThreshold: minimumConfidenceThreshold,
     };
 
-    // マネージャーの取得をモック
-    fetchMock.mockResponseOnce(
-      JSON.stringify({
-        userId: managerUserId,
-        name: '部長太郎',
-        email: 'manager@example.com',
-        role: 'MANAGER'
-      }),
-      { status: 200 }
+    // Act
+    const result: RankedIssueList = extractAndRankIssuesFromReports(input);
+
+    // Assert
+    expect(result.issues).toBeDefined();
+    expect(Array.isArray(result.issues)).toBe(true);
+
+    const issuesFromEmptyReport = result.issues.filter(
+      (issue) =>
+        issue.issueId &&
+        issue.issueId.startsWith("report-empty")
     );
+    expect(issuesFromEmptyReport.length).toBe(0);
 
-    // メール送信のモック（メール送信結果を返す）
-    fetchMock.mockResponseOnce(
-      JSON.stringify({
-        emailId: 'email-001',
-        sentAt: '2024-01-15T08:45:00Z'
-      }),
-      { status: 200 }
+    const issuesFromOversizedReport = result.issues.filter(
+      (issue) =>
+        issue.issueId &&
+        issue.issueId.startsWith("report-oversized")
     );
+    expect(issuesFromOversizedReport.length).toBe(0);
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId,
-      reportDate,
-      managerUserId,
-      submittedReports,
-      unsubmittedMemberIds,
-      reportDeadlineTime
-    };
-
-    // Act: generateAndSendSummaryEmail を実行
-    const result: GenerateAndSendSummaryEmailOutput = await generateAndSendSummaryEmail(
-      input,
-      mockTextAnalysisAdapter
+    const issuesFromValidReport = result.issues.filter(
+      (issue) =>
+        issue.issueId &&
+        issue.issueId.startsWith("report-valid")
     );
+    expect(issuesFromValidReport.length).toBeGreaterThan(0);
 
-    // Assert: 結果を検証
-    // 1. メールが送信されたことを確認
-    expect(result).toBeDefined();
-    expect(result.emailId).toBe('email-001');
-    expect(result.sentAt).toBe('2024-01-15T08:45:00Z');
-    expect(result.recipientEmail).toBe('manager@example.com');
-
-    // 2. メール本文に含まれた課題が正しい件数で含まれていることを確認
-    // 抽出される課題: データベース接続エラー、ネットワーク遅延、デプロイメント失敗、テスト環境の不安定性
-    // = 4件
-    expect(result.includedIssueCount).toBe(4);
-
-    // 3. 提出状況サマリーを確認
-    expect(result.submissionSummary.submittedCount).toBe(3);
-    expect(result.submissionSummary.unsubmittedCount).toBe(1);
-    expect(result.submissionSummary.submissionRate).toBe(75); // 3/4 = 0.75 = 75%
-
-    // 4. メール本文で課題が優先度スコアの降順で並んでいることを確認
-    // TextAnalysisServiceAdapter.extractKeywords が呼ばれ、優先度スコアが取得されたことを確認
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalled();
-    expect(mockTextAnalysisAdapter.assessImpactScore).toHaveBeenCalled();
-
-    // 5. 優先度スコアが正しく計算されていることを確認
-    // extractKeywords から返されたキーワードに対して assessImpactScore が呼ばれる
-    // 期待される呼び出し順: スコア 85 → 72 → 60 → 45
-    const assessImpactScoreCalls = mockTextAnalysisAdapter.assessImpactScore.mock.calls;
-    const scoreResults = assessImpactScoreCalls.map((call) => {
-      const keyword = call[0];
-      const scoreMap: { [key: string]: number } = {
-        'データベース接続エラー': 85,
-        'ネットワーク遅延': 72,
-        'デプロイメント失敗': 60,
-        'テスト環境の不安定性': 45
-      };
-      return scoreMap[keyword] || 0;
-    });
-
-    // スコアが降順で並んでいることを確認（85 >= 72 >= 60 >= 45）
-    for (let i = 0; i < scoreResults.length - 1; i++) {
-      expect(scoreResults[i]).toBeGreaterThanOrEqual(scoreResults[i + 1]);
-    }
-
-    // 6. メール送信が実行されたことを確認
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.totalIssueCount).toBe(issuesFromValidReport.length);
+    expect(result.analysisTimestamp).toBeDefined();
+    expect(result.analysisTimestamp instanceof Date).toBe(true);
   });
 });

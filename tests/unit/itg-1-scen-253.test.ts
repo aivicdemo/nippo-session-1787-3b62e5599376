@@ -1,40 +1,14 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import { type SubmitDailyReportInput, type SubmitDailyReportOutput } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('部長向けダッシュボードに本日の報告提出状況（提出済み・未提出）をリアルタイム表示し、未提出メンバーを一目で把握できる機能', () => {
-  // SCEN-253: [error] 報告送信時刻の遅延判定機能 - 報告送信時刻が null のとき、エラーが発生して処理が進まない
-  test('報告送信時刻が null の場合、ValidationError が発生し、報告データベースへの書き込みと外部通知が実行されない', () => {
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent',
-        deliveryTimestamp: new Date().toISOString(),
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduleId: 'test-schedule-001' }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ status: 'pending' }),
+describe('Priority Scoring Engine', () => {
+  // SCEN-253: [edge] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 課題キーワードが空文字列または null のときという明示された境界条件で無効な課題キーワードをスキップします
+  test('should throw InvalidIssueDataError when issueId is empty string', () => {
+    const input = {
+      issueId: '',
+      frequency: 50,
+      impactScore: 75,
     };
 
-    const submitDailyReportInput: SubmitDailyReportInput = {
-      userId: 'ENG-001',
-      teamId: 'TEAM-A',
-      yesterdayAccomplishment: 'Completed API integration for user authentication module',
-      todayPlan: 'Review code and prepare deployment',
-      challenges: 'Database query performance needs optimization',
-      reportDate: '2024-01-15',
-    };
-
-    const invalidSubmissionData = {
-      ...submitDailyReportInput,
-      submissionTimestamp: null as unknown as Date,
-      notificationServiceAdapter: mockNotificationServiceAdapter,
-    };
-
-    expect(() => {
-      submitDailyReport(
-        invalidSubmissionData as any,
-        mockNotificationServiceAdapter
-      );
-    }).toThrow(/報告送信時刻|Submission timestamp/);
-
-    expect(mockNotificationServiceAdapter.sendReminderNotification).not.toHaveBeenCalled();
+    expect(() => calculatePriorityScoreForIssue(input)).toThrow(/課題データが不完全/);
   });
 });

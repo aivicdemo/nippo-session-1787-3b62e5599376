@@ -1,97 +1,239 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { generateMonthlyAnalysisReport } from "../../src/logic/monthly-analysis-report";
 
-describe('課題キーワードの自動抽出・ランク付け機能', () => {
-  // SCEN-469: [edge] 課題自動抽出・優先度判定機能 - 報告受付期限時刻の1秒後では集約処理が遅延なくトリガーされる
-  test('報告受付期限時刻の1秒後に集約処理がトリガーされ遅延時間が500ms以内であること', async () => {
-    // 固定時刻（期限が09:00:00の場合）
-    const deadlineTime = new Date('2024-01-15T09:00:00Z');
-    const triggerTime = new Date('2024-01-15T09:00:01Z');
-    const startDate = new Date('2024-01-15T00:00:00Z');
-    const endDate = new Date('2024-01-15T23:59:59Z');
-    const teamId = 'team-001';
-    const requestUserId = 'user-001';
+describe("Monthly Analysis Report Generation", () => {
+  test("SCEN-469: generateMonthlyAnalysisReport returns correct retry delay and notification recipient on first timeout retry", async () => {
+    const targetMonth = "2024-01";
+    const projectManagerId = "pm-user-001";
+    const includeExecutiveSummary = true;
+    const topChallengesCount = 5;
 
-    // 複数の部員（3名以上）からの日報データを模擬
-    const reportDataSet = [
-      {
-        memberId: 'member-001',
-        report: 'データベース接続エラーが発生した。キャッシュ戦略の見直しが必要。',
-        submittedAt: new Date('2024-01-15T08:30:00Z'),
+    const mockMonthlyReportDataset = {
+      extractionPeriod: {
+        startDateTime: "2024-01-01T00:00:00Z",
+        endDateTime: "2024-01-31T23:59:59Z",
       },
-      {
-        memberId: 'member-002',
-        report: 'APIレスポンスが遅い。負荷分散の検討が課題。',
-        submittedAt: new Date('2024-01-15T08:40:00Z'),
-      },
-      {
-        memberId: 'member-003',
-        report: 'データベース接続エラーが再度発生。復旧手順の標準化が必要。',
-        submittedAt: new Date('2024-01-15T08:45:00Z'),
-      },
-    ];
-
-    // TextAnalysisServiceAdapterをスタブ化
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'データベース接続エラー', frequency: 2 },
-        { keyword: 'キャッシュ戦略', frequency: 1 },
-        { keyword: 'APIレスポンス遅延', frequency: 1 },
-        { keyword: '負荷分散', frequency: 1 },
-        { keyword: '復旧手順', frequency: 1 },
-      ]),
-      assessImpactScore: jest.fn().mockResolvedValue(75),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('high'),
+      totalReportCount: 45,
+      reports: [
+        {
+          reportId: "report-001",
+          reportDate: "2024-01-15",
+          reporterId: "eng-001",
+          teamId: "team-001",
+          issues: [
+            {
+              issueId: "issue-001",
+              issueKeyword: "ビルド失敗",
+              frequency: 3,
+              impactScore: 75,
+            },
+          ],
+          submissionTimestamp: "2024-01-15T08:30:00Z",
+        },
+        {
+          reportId: "report-002",
+          reportDate: "2024-01-15",
+          reporterId: "eng-002",
+          teamId: "team-001",
+          issues: [
+            {
+              issueId: "issue-002",
+              issueKeyword: "テスト失敗",
+              frequency: 2,
+              impactScore: 60,
+            },
+          ],
+          submissionTimestamp: "2024-01-15T08:45:00Z",
+        },
+      ],
+      dataQualityScore: 85,
     };
 
-    // 集約処理の開始タイムスタンプを記録
-    const processingStartTime = triggerTime.getTime();
-
-    // 入力データの準備
-    const input: ExtractIssueKeywordsInput = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold: 1,
-      requestUserId,
+    const mockIssueTimeSeriesAnalysisResult = {
+      issueTimeSeriesData: [
+        {
+          issueId: "issue-001",
+          issueContent: "ビルド失敗",
+          frequencyTrend: [
+            { date: new Date("2024-01-01"), frequency: 1 },
+            { date: new Date("2024-01-08"), frequency: 2 },
+            { date: new Date("2024-01-15"), frequency: 3 },
+            { date: new Date("2024-01-22"), frequency: 3 },
+            { date: new Date("2024-01-29"), frequency: 2 },
+          ],
+          impactTrend: [
+            { date: new Date("2024-01-01"), impactScore: 60 },
+            { date: new Date("2024-01-08"), impactScore: 65 },
+            { date: new Date("2024-01-15"), impactScore: 75 },
+            { date: new Date("2024-01-22"), impactScore: 75 },
+            { date: new Date("2024-01-29"), impactScore: 70 },
+          ],
+          resolutionStatusTimeline: [
+            { date: new Date("2024-01-01"), status: "unresolved" },
+            { date: new Date("2024-01-08"), status: "unresolved" },
+            { date: new Date("2024-01-15"), status: "in_progress" },
+            { date: new Date("2024-01-22"), status: "in_progress" },
+            { date: new Date("2024-01-29"), status: "resolved" },
+          ],
+        },
+      ],
+      bottleneckSeverityRanking: [
+        {
+          issueId: "issue-001",
+          severityRank: "high",
+          severityScore: 78,
+          justification: "連続発生による進捗阻害",
+        },
+      ],
+      improvementTrendAnalysis: [
+        {
+          issueId: "issue-001",
+          trendDirection: "improving",
+          improvementRate: 25,
+          daysToResolution: 3,
+        },
+      ],
     };
 
-    // extractAndRankIssueKeywords関数を呼び出し
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisAdapter
+    const mockTeamPerformanceMetricsOutput = {
+      teamMetrics: [
+        {
+          teamId: "team-001",
+          issueResolutionSpeedDays: 3.5,
+          reportSubmissionRate: 90,
+          issueRecurrenceRate: 15,
+          priorityScore: 72,
+          performanceRank: "high",
+        },
+      ],
+      aggregationPeriod: {
+        startDate: new Date("2024-01-01"),
+        endDate: new Date("2024-01-31"),
+      },
+      calculationTimestamp: new Date("2024-01-31T18:00:00Z"),
+    };
+
+    const mockBottleneckProgressionResult = {
+      progressionPatterns: [
+        {
+          issueId: "issue-001",
+          progressionType: "improving",
+          weeklyFrequencyTrend: [1, 2, 3, 2],
+          category: "technical",
+        },
+      ],
+      criticalBottlenecks: [],
+      resolvedBottlenecks: [
+        {
+          issueId: "issue-001",
+          resolvedDate: "2024-01-29",
+          resolutionDurationDays: 28,
+        },
+      ],
+      emergingBottlenecks: [],
+    };
+
+    const mockTopChallengesExtractionOutput = {
+      selectedChallenges: [
+        {
+          challengeId: "issue-001",
+          priorityScore: 78,
+          impactDegree: 75,
+          occurrenceFrequency: 3,
+        },
+      ],
+      totalChallengesAnalyzed: 8,
+      selectionRationale: "頻出度と影響度の上位課題を優先度順に選定",
+      dataQualityValidationResult: {
+        isComplete: true,
+        completenessPercentage: 90,
+        hasAnomalies: false,
+      },
+    };
+
+    const mockStructuredReportContent = {
+      reportPeriod: {
+        startDate: "2024-01-01",
+        endDate: "2024-01-31",
+      },
+      topPriorityChallenges: [
+        {
+          challengeId: "issue-001",
+          description: "ビルド失敗",
+          priorityScore: 78,
+          impactDegree: 75,
+          occurrenceFrequency: 3,
+          recommendedCountermeasure: "CI/CDパイプラインの強化",
+        },
+      ],
+      teamPerformanceSummary: {
+        totalTeams: 1,
+        averageSubmissionRate: 90,
+        averageResolutionSpeedDays: 3.5,
+        averageRecurrenceRate: 15,
+      },
+      recommendedCountermeasures: [
+        {
+          challengeId: "issue-001",
+          action: "CI/CDパイプラインの検査強化",
+          assignee: "tech-lead-001",
+          deadline: "2024-02-07",
+          estimatedEffort: "16時間",
+        },
+      ],
+      projectDelayRiskAssessment: {
+        riskScore: 35,
+        riskLevel: "medium",
+        affectedProjects: ["project-001"],
+      },
+    };
+
+    const result = await generateMonthlyAnalysisReport(
+      targetMonth,
+      projectManagerId,
+      includeExecutiveSummary,
+      topChallengesCount,
+      mockMonthlyReportDataset,
+      mockIssueTimeSeriesAnalysisResult,
+      mockTeamPerformanceMetricsOutput,
+      mockBottleneckProgressionResult,
+      mockTopChallengesExtractionOutput,
+      mockStructuredReportContent
     );
 
-    // 集約処理の完了時刻を取得
-    const processingEndTime = new Date().getTime();
-    const processingDelayMs = processingEndTime - processingStartTime;
-
-    // 検証1: 遅延時間が500ms以内であること
-    expect(processingDelayMs).toBeLessThanOrEqual(500);
-
-    // 検証2: 課題キーワードが発生頻度でランク付けされていること
-    expect(result.keywords).toBeDefined();
-    expect(result.keywords.length).toBeGreaterThan(0);
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[0].frequency).toBe(2); // 「データベース接続エラー」が最頻出
-    expect(result.keywords[0].keyword).toBe('データベース接続エラー');
-
-    // 検証3: ランク付けが正しい順序で昇順になっていること
-    for (let i = 0; i < result.keywords.length - 1; i++) {
-      expect(result.keywords[i].rank).toBeLessThan(result.keywords[i + 1].rank);
-      expect(result.keywords[i].frequency).toBeGreaterThanOrEqual(result.keywords[i + 1].frequency);
-    }
-
-    // 検証4: 抽出結果の統計情報が正確であること
-    expect(result.totalKeywordCount).toBe(5); // 5つの一意なキーワード
-    expect(result.analysisperiodDays).toBe(0); // 開始日と終了日が同日
-
-    // 検証5: 抽出タイムスタンプが記録されていること
-    expect(result.extractedAt).toBeDefined();
-    expect(result.extractedAt).toEqual(expect.any(Date));
-
-    // 検証6: TextAnalysisServiceAdapterの呼び出しが正常に完了していること
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalled();
+    expect(result).toBeDefined();
+    expect(result.reportId).toBeDefined();
+    expect(typeof result.reportId).toBe("string");
+    expect(result.targetMonth).toBe("2024-01");
+    expect(result.reportContent).toBeDefined();
+    expect(result.reportContent.issueTrendAnalysis).toHaveLength(1);
+    expect(result.reportContent.issueTrendAnalysis[0].issueId).toBe(
+      "issue-001"
+    );
+    expect(result.reportContent.issueTrendAnalysis[0].frequencyTimeSeries).toBe(
+      mockIssueTimeSeriesAnalysisResult.issueTimeSeriesData[0].frequencyTrend
+    );
+    expect(result.reportContent.bottleneckProgression).toBeDefined();
+    expect(result.reportContent.teamPerformanceMetrics).toHaveLength(1);
+    expect(result.reportContent.teamPerformanceMetrics[0].teamId).toBe(
+      "team-001"
+    );
+    expect(result.reportContent.teamPerformanceMetrics[0].issueResolutionSpeedDays).toBe(
+      3.5
+    );
+    expect(result.reportContent.teamPerformanceMetrics[0].reportSubmissionRate).toBe(
+      90
+    );
+    expect(result.reportContent.teamPerformanceMetrics[0].issueRecurrenceRate).toBe(
+      15
+    );
+    expect(result.reportContent.topPriorityChallenges).toHaveLength(1);
+    expect(result.reportContent.topPriorityChallenges[0].challengeId).toBe(
+      "issue-001"
+    );
+    expect(result.reportContent.topPriorityChallenges[0].priorityScore).toBe(
+      78
+    );
+    expect(result.projectDelayRiskLevel).toBe("medium");
+    expect(result.generatedAt).toBeInstanceOf(Date);
   });
 });

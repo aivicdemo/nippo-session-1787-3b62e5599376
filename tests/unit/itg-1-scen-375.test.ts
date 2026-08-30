@@ -1,91 +1,24 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
+import { aggregateReportsByPeriod } from "../../src/logic/report-data-aggregation";
 
-describe('定時リマインド送信機能', () => {
-  test('SCEN-375: メールアドレス欠落時は処理が中断される', async () => {
-    const scheduledTime = new Date('2024-01-15T09:00:00Z');
-    const reportDeadlineTime = new Date('2024-01-15T10:00:00Z');
-    const teamIds = ['TEAM-001'];
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email'];
+describe("朝会報告管理システム - 日報データ集約処理", () => {
+  test("SCEN-375: 指定期間内に日報データが存在しない場合、NoReportDataFoundErrorをthrowする", () => {
+    // 入力値を準備
+    const startDate = new Date("2024-01-01T00:00:00Z");
+    const endDate = new Date("2024-01-07T23:59:59Z");
+    const periodType = "daily";
+    const targetTeamIds: string[] = [];
+    const includeArchivedReports = false;
 
-    const mockNotificationAdapter = {
-      sendReminderNotification: jest.fn().mockImplementation(async (userId: string) => {
-        if (userId === 'USR-005') {
-          throw new Error('Notification recipient email is missing for user: USR-005');
-        }
-        return {
-          userId,
-          status: 'sent' as const,
-          sentAt: new Date('2024-01-15T09:00:00Z'),
-          errorMessage: null,
-        };
-      }),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
-
-    const mockLoggerAdapter = {
-      logNotificationDistribution: jest.fn(),
-      logError: jest.fn(),
-    };
-
-    const mockMemberRepository = {
-      findTeamMembersWithEmails: jest.fn().mockResolvedValue([
-        { userId: 'USR-001', email: 'user001@example.com' },
-        { userId: 'USR-002', email: 'user002@example.com' },
-        { userId: 'USR-003', email: 'user003@example.com' },
-        { userId: 'USR-004', email: 'user004@example.com' },
-        { userId: 'USR-005', email: null },
-        { userId: 'USR-006', email: 'user006@example.com' },
-        { userId: 'USR-007', email: 'user007@example.com' },
-        { userId: 'USR-008', email: 'user008@example.com' },
-        { userId: 'USR-009', email: 'user009@example.com' },
-        { userId: 'USR-010', email: 'user010@example.com' },
-      ]),
-    };
-
-    const input = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
-    };
-
-    let thrownError: Error | null = null;
-    let result: any = null;
-
-    try {
-      result = await sendDailyReportReminder(
-        input,
-        mockNotificationAdapter,
-        mockLoggerAdapter,
-        mockMemberRepository
+    // aggregateReportsByPeriod 関数に準備した入力値を渡して呼び出す
+    // 戻り値の型・内容を検証する - NoReportDataFoundError エラーが throw されることを確認
+    expect(() => {
+      aggregateReportsByPeriod(
+        startDate,
+        endDate,
+        periodType,
+        targetTeamIds,
+        includeArchivedReports
       );
-    } catch (error) {
-      if (error instanceof Error) {
-        thrownError = error;
-      }
-    }
-
-    expect(thrownError).not.toBeNull();
-    expect(thrownError?.message).toMatch(/通知先|email|missing/i);
-
-    expect(mockLoggerAdapter.logError).toHaveBeenCalled();
-    const errorLogCall = mockLoggerAdapter.logError.mock.calls[0];
-    expect(errorLogCall[0]).toMatch(/USR-005/);
-
-    expect(mockLoggerAdapter.logNotificationDistribution).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: 'USR-005',
-        status: expect.stringMatching(/error|failed|前エラー/i),
-        errorMessage: expect.stringMatching(/email|未設定|missing/i),
-      })
-    );
-
-    expect(mockNotificationAdapter.sendReminderNotification).toHaveBeenCalledTimes(0);
-
-    if (result) {
-      expect(result.sentCount).toBe(0);
-      expect(result.failedCount).toBeGreaterThan(0);
-    }
+    }).toThrow(/報告データ/);
   });
 });

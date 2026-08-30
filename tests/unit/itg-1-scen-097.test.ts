@@ -1,15 +1,18 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { analyzeIssuePatternsByTimeRange } from '../../src/logic/issue-pattern-analysis';
+import { type IssuePatternAnalysisRequest } from '../../src/logic/issue-pattern-analysis';
 
-describe('部長向けダッシュボード提出状況リアルタイム表示機能', () => {
+describe('朝会報告管理システム - 課題パターン分析', () => {
   // SCEN-097
-  test('部長のユーザーIDが空文字列のとき、エラーが発生する', () => {
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: '',
-      includeDelayedSubmissions: true,
+  test('指定された開始日が終了日より後である場合、分析対象期間が無効というエラーをスロー', () => {
+    const invalidRequest: IssuePatternAnalysisRequest = {
+      startDate: new Date('2026-01-15T00:00:00Z'),
+      endDate: new Date('2026-01-10T00:00:00Z'),
+      periodGranularity: 'daily',
+      teamId: null,
     };
 
-    expect(() => aggregateReportSubmissionStatus(input)).toThrow(/ユーザーID/);
+    expect(() => analyzeIssuePatternsByTimeRange(invalidRequest)).toThrow(
+      /分析対象期間が無効です/
+    );
   });
 });

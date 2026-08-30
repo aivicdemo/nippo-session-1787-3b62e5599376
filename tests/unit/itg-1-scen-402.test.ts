@@ -1,20 +1,34 @@
-import { detectAndNotifyUnsubmittedMembers } from '../../src/logic/submission-status-tracking';
+import { syncExtractedIssuesToExternalTool } from '../../src/logic/existing-tool-integration';
 
-describe('未提出メンバー一覧の生成機能', () => {
-  // SCEN-402: [normal] 未提出メンバー一覧の生成機能 - 未提出メンバーが0人の場合、空の一覧が返される
-  test('全メンバーが報告提出済みの場合、未提出メンバー一覧が空の配列として返される', () => {
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      morningMeetingStartTime: '09:00',
-      executorUserId: 'user-admin-001'
+describe('朝会報告管理システム - 既存ツール連携', () => {
+  // SCEN-402: [normal] 抽出済み課題データを既存ツール（JiraまたはAsana）に連携し、API通信、重複排除、データ整合性検証、リトライ処理を実行して連携完了ステータスを記録する。
+  test('validateIntegrationCompletion関数が設計された計算式の代表値を返す', () => {
+    const integrationResult = {
+      sentRecordCount: 5,
+      statusCode: 200,
+      sentRecords: [
+        { id: 'ISSUE-1', title: '課題1', priority: 'high', assignee: 'user1' },
+        { id: 'ISSUE-2', title: '課題2', priority: 'medium', assignee: 'user2' },
+        { id: 'ISSUE-3', title: '課題3', priority: 'low', assignee: 'user3' },
+        { id: 'ISSUE-4', title: '課題4', priority: 'high', assignee: 'user4' },
+        { id: 'ISSUE-5', title: '課題5', priority: 'medium', assignee: 'user5' }
+      ],
+      retryable: false
     };
 
-    const result = detectAndNotifyUnsubmittedMembers(input);
+    const expectedRecordCount = 5;
+    const requiredFields = ['id', 'title', 'priority', 'assignee'];
 
-    expect(result.unsubmittedMembers).toEqual([]);
-    expect(result.notificationsSent).toBe(0);
-    expect(result.notificationFailures).toEqual([]);
-    expect(typeof result.executedAt).toBe('string');
+    const result = syncExtractedIssuesToExternalTool(
+      integrationResult,
+      expectedRecordCount,
+      requiredFields
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.sentRecordCount).toBe(5);
+    expect(result.discrepancies).toEqual([]);
+    expect(result.requiresRetry).toBe(false);
+    expect(result.notificationMessage).toBe('本日の課題データ連携が完了しました');
   });
 });

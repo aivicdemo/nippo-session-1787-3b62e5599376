@@ -1,97 +1,60 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { archiveAndManageIssueDataRetention } from '../../src/logic/issue-data-persistence';
+import { type IssueRetentionPolicy, type IssueRetentionResult } from '../../src/logic/issue-data-persistence';
 
-describe('Issue Extraction and Prioritization - extractAndRankIssueKeywords', () => {
-  // SCEN-522: [normal] 課題自動抽出・優先度判定機能 - 10名のチームメンバーから集約された日報複数件の場合、抽出された全課題が発生頻度でランク付けされる
-  test('should rank extracted issue keywords by frequency in descending order when processing reports from 10 team members', async () => {
-    // Arrange: テスト用の日報データを準備
-    const teamId = 'team-001';
-    const requestUserId = 'admin-user-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const minFrequencyThreshold = 1;
-
-    // モック化されたTextAnalysisServiceAdapter を作成
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn(async (reportContent: string) => {
-        // 日報内容に応じてキーワードを抽出（モック実装）
-        const keywords: Array<{ keyword: string; frequency: number }> = [];
-
-        if (reportContent.includes('データベース接続エラー')) {
-          keywords.push({ keyword: 'データベース接続エラー', frequency: 1 });
-        }
-        if (reportContent.includes('デプロイ遅延')) {
-          keywords.push({ keyword: 'デプロイ遅延', frequency: 1 });
-        }
-        if (reportContent.includes('ドキュメント不備')) {
-          keywords.push({ keyword: 'ドキュメント不備', frequency: 1 });
-        }
-
-        return keywords;
-      }),
-      assessImpactScore: jest.fn(async () => 50),
-      classifyIssueSeverity: jest.fn(async () => 'medium'),
+describe('Issue Data Persistence - Archive and Manage Retention', () => {
+  test('SCEN-522: Archives old issue data based on retention policy and deletes expired archived data', async () => {
+    const retentionPolicy: IssueRetentionPolicy = {
+      archiveDaysThreshold: 30,
+      deleteDaysThreshold: 365,
+      protectedDataCategories: ['audit_required', 'executive_reference'],
+      aggregationPeriodStart: '2026-01-01T00:00:00Z',
+      aggregationPeriodEnd: '2026-02-01T00:00:00Z',
     };
 
-    // テスト用の集約日報データ
-    const aggregatedReports = [
-      { userId: 'user001', content: 'Yesterday: API development. Today: Testing. Challenge: データベース接続エラー occurred' },
-      { userId: 'user002', content: 'Yesterday: DB setup. Today: Migration. Challenge: データベース接続エラー in production' },
-      { userId: 'user003', content: 'Yesterday: Schema design. Today: Optimization. Challenge: データベース接続エラー after restart' },
-      { userId: 'user004', content: 'Yesterday: Query tuning. Today: Indexing. Challenge: データベース接続エラー on backup' },
-      { userId: 'user005', content: 'Yesterday: Monitoring. Today: Alerts. Challenge: データベース接続エラー detected' },
-      { userId: 'user006', content: 'Yesterday: Build setup. Today: CI/CD. Challenge: デプロイ遅延 in pipeline' },
-      { userId: 'user007', content: 'Yesterday: Testing. Today: Staging. Challenge: デプロイ遅延 with dependencies' },
-      { userId: 'user008', content: 'Yesterday: Review. Today: Release. Challenge: デプロイ遅延 on approval' },
-      { userId: 'user009', content: 'Yesterday: Writing docs. Today: Editing. Challenge: ドキュメント不備 in spec' },
-      { userId: 'user010', content: 'Yesterday: API docs. Today: Examples. Challenge: ドキュメント不備 in changelog' },
-    ];
+    const mockIdentifyIssueDataForArchival = jest.fn().mockResolvedValue({
+      archivedIssueDataItems: Array.from({ length: 30 }, (_, i) => ({
+        issueExtractionResultId: `issue_${i + 1}`,
+        reportId: `report_${i + 1}`,
+        issueContent: `Issue content ${i + 1}`,
+        createdAt: '2025-12-01T10:00:00Z',
+        priorityScore: 50 + i,
+        status: 'OPEN',
+      })),
+    });
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold,
-      requestUserId,
-    };
+    const mockIdentifyArchivedIssueDataForDeletion = jest.fn().mockResolvedValue({
+      archivedIssueDataForDeletion: Array.from({ length: 5 }, (_, i) => ({
+        issueDataId: `archived_${i + 1}`,
+        archivedDate: '2024-12-01T10:00:00Z',
+        deletionEligibilityDate: '2025-12-01T10:00:00Z',
+        dataCategory: 'extracted_issue',
+        integrityValidationStatus: 'valid',
+      })),
+    });
 
-    // Act: 対象関数を呼び出し、集約日報とモック化されたサービスを渡す
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
-      input,
-      aggregatedReports,
-      mockTextAnalysisService,
+    const mockRecordIssueAuditLog = jest.fn().mockResolvedValue({
+      auditLogId: 'audit_log_001',
+      issueExtractionResultId: 'issue_extraction_001',
+      executorUserId: 'user_001',
+      operationType: 'DELETE' as const,
+      changedFieldsEncrypted: 'encrypted_changes',
+      logicVersionApplied: 'v1.0.0',
+      recordedAt: new Date('2026-08-19T05:57:30.777Z'),
+    });
+
+    const result: IssueRetentionResult = await archiveAndManageIssueDataRetention(
+      retentionPolicy,
+      mockIdentifyIssueDataForArchival,
+      mockIdentifyArchivedIssueDataForDeletion,
+      mockRecordIssueAuditLog
     );
 
-    // Assert: 結果がランク付けされた課題キーワードの配列であることを検証
-    expect(result).toBeDefined();
-    expect(result.keywords).toBeDefined();
-    expect(Array.isArray(result.keywords)).toBe(true);
-    expect(result.keywords.length).toBe(3);
-
-    // Assert: 課題が発生頻度の降順でランク付けされていることを検証
-    expect(result.keywords[0].keyword).toBe('データベース接続エラー');
-    expect(result.keywords[0].frequency).toBe(5);
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[0].keywordId).toBeDefined();
-
-    expect(result.keywords[1].keyword).toBe('デプロイ遅延');
-    expect(result.keywords[1].frequency).toBe(3);
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.keywords[1].keywordId).toBeDefined();
-
-    expect(result.keywords[2].keyword).toBe('ドキュメント不備');
-    expect(result.keywords[2].frequency).toBe(2);
-    expect(result.keywords[2].rank).toBe(3);
-    expect(result.keywords[2].keywordId).toBeDefined();
-
-    // Assert: メタデータの検証
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.extractedAt).toBeDefined();
-    expect(result.extractedAt instanceof Date).toBe(true);
-    expect(result.analysisperiodDays).toBe(7);
-
-    // Assert: モック関数が正しく呼び出されたことを検証
-    expect(mockTextAnalysisService.extractKeywords).toHaveBeenCalledTimes(10);
+    expect(result.archivedCount).toBe(30);
+    expect(result.deletedCount).toBe(5);
+    expect(result.protectedCount).toBe(0);
+    expect(result.executionTimestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(mockIdentifyIssueDataForArchival).toHaveBeenCalledWith(retentionPolicy);
+    expect(mockIdentifyArchivedIssueDataForDeletion).toHaveBeenCalled();
+    expect(mockRecordIssueAuditLog).toHaveBeenCalled();
   });
 });

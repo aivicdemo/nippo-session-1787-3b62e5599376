@@ -1,87 +1,30 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect, jest } from '@jest/globals';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題キーワード自動抽出・優先度判定機能', () => {
-  test('SCEN-556: 抽出されたキーワードが impactScore の高い順（降順）に並んでいることを確認', () => {
-    // Arrange
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-08T00:00:00Z');
-    const endDate = new Date('2024-01-14T23:59:59Z');
-    const minFrequencyThreshold = 1;
-    const requestUserId = 'user-manager-001';
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  test('SCEN-556: 指定された集約期間内の日報データから課題解決速度、提出率、課題再発率を定量化し、生産性指標を計算する', () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = false;
 
-    // TextAnalysisServiceAdapter のモック
-    const mockTextAnalysisService = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        {
-          keyword: '顧客対応',
-          frequency: 15,
-          impactScore: 85,
-        },
-        {
-          keyword: 'DB障害',
-          frequency: 8,
-          impactScore: 92,
-        },
-        {
-          keyword: 'ドキュメント作成',
-          frequency: 5,
-          impactScore: 45,
-        },
-      ]),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
-
-    // Act
-    const result = extractAndRankIssueKeywords(
-      {
-        teamId,
-        startDate,
-        endDate,
-        minFrequencyThreshold,
-        requestUserId,
-      },
-      mockTextAnalysisService
-    );
-
-    // Assert
-    expect(result).resolves.toMatchObject({
-      keywords: [
-        {
-          keyword: 'DB障害',
-          frequency: 8,
-          impactScore: 92,
-          rank: 1,
-        },
-        {
-          keyword: '顧客対応',
-          frequency: 15,
-          impactScore: 85,
-          rank: 2,
-        },
-        {
-          keyword: 'ドキュメント作成',
-          frequency: 5,
-          impactScore: 45,
-          rank: 3,
-        },
-      ],
-      totalKeywordCount: 3,
-      analysisperiodDays: 7,
+    const result = calculateProductivityMetrics({
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
     });
 
-    // キーワード順序が impactScore の降順であることを明示的に検証
-    result.then((rankingResult) => {
-      expect(rankingResult.keywords[0].impactScore).toBe(92);
-      expect(rankingResult.keywords[1].impactScore).toBe(85);
-      expect(rankingResult.keywords[2].impactScore).toBe(45);
-
-      // 降順の検証：前のスコアが後ろのスコアより大きい
-      for (let i = 0; i < rankingResult.keywords.length - 1; i++) {
-        expect(rankingResult.keywords[i].impactScore).toBeGreaterThan(
-          rankingResult.keywords[i + 1].impactScore
-        );
-      }
-    });
+    expect(result).toBeDefined();
+    expect(result.issueResolutionSpeed).toBeCloseTo(3.5, 1);
+    expect(result.reportSubmissionRate).toBeCloseTo(92.5, 1);
+    expect(result.issueRecurrenceRate).toBeCloseTo(8.3, 1);
+    expect(result.teamProductivityScore).toBe(78);
+    expect(Array.isArray(result.detectedAnomalies)).toBe(true);
+    expect(result.detectedAnomalies?.length).toBe(0);
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(result.dataQualityAssessment.completenessPercentage).toBeCloseTo(95, 1);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeCloseTo(88, 1);
+    expect(result.dataQualityAssessment.isReportable).toBe(true);
   });
 });

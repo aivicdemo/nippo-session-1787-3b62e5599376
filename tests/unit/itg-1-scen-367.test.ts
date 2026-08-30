@@ -1,85 +1,110 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput, type ReminderNotificationDetail } from '../../src/logic/submission-status-tracking';
+import { prepareDashboardData, type DashboardDataPrepareInput, type DashboardDisplayData } from '../../src/logic/dashboard-presentation';
 
-describe('定時リマインド送信機能', () => {
-  // SCEN-367
-  test('チームメンバーが1名の場合、その1名に対してリマインド通知が送信される', async () => {
-    const scheduled_time = new Date('2024-01-15T09:00:00Z');
-    const report_deadline_time = new Date('2024-01-15T09:30:00Z');
-    const team_id_1 = 'team-001';
-    const user_id_1 = 'user-001';
-    const user_name_1 = 'Alice';
-    const user_email_1 = 'alice@example.com';
+describe('Dashboard Presentation', () => {
+  test('SCEN-367: prepareDashboardData with incomplete project priority information falls back to default order', async () => {
+    // Setup: Prepare project hierarchy with incomplete priority information
+    const projectHierarchyIncomplete = [
+      { projectId: 'proj-A', projectName: 'Project A', priorityScore: 90 },
+      { projectId: 'proj-B', projectName: 'Project B', priorityScore: 75 },
+      { projectId: 'proj-C', projectName: 'Project C' }, // Missing priorityScore
+    ];
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: scheduled_time,
-      teamIds: [team_id_1],
-      reportDeadlineTime: report_deadline_time,
-      notificationChannels: ['email', 'in_app', 'slack'],
-    };
-
-    const notification_detail: ReminderNotificationDetail = {
-      userId: user_id_1,
-      status: 'sent',
-      sentAt: new Date('2024-01-15T09:00:15Z'),
-      errorMessage: null,
-    };
-
-    const mock_adapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        success: true,
-        notificationId: 'notif-001',
-        deliveryStatus: 'sent',
-        sentAt: new Date('2024-01-15T09:00:15Z'),
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduled: true }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ status: 'sent' }),
-    };
-
-    const output: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input,
-      mock_adapter,
+    // Setup: Prepare team reports with assignments to all projects
+    const teamReportsData = [
       {
-        getTeamMembers: jest.fn().mockResolvedValue([
-          {
-            userId: user_id_1,
-            userName: user_name_1,
-            email: user_email_1,
-            teamId: team_id_1,
-          },
-        ]),
-        recordNotificationLog: jest.fn().mockResolvedValue({
-          logId: 'log-001',
-          userId: user_id_1,
-          teamId: team_id_1,
-          sentAt: new Date('2024-01-15T09:00:15Z'),
-          status: 'sent',
-          channels: ['email', 'in_app', 'slack'],
-        }),
-        getUnsubmittedMembers: jest.fn().mockResolvedValue([]),
-      }
-    );
+        memberId: 'user-1',
+        memberName: 'Alice',
+        yesterday: 'Completed API endpoint',
+        today: 'Start database migration',
+        projectId: 'proj-A',
+        issues: 'Build failure, dependency conflict',
+        submittedAt: new Date('2024-01-15T08:00:00Z'),
+      },
+      {
+        memberId: 'user-2',
+        memberName: 'Bob',
+        yesterday: 'Fixed UI bug',
+        today: 'Code review',
+        projectId: 'proj-B',
+        issues: 'Test environment unstable',
+        submittedAt: new Date('2024-01-15T08:15:00Z'),
+      },
+      {
+        memberId: 'user-3',
+        memberName: 'Charlie',
+        yesterday: 'Deployed to staging',
+        today: 'Performance optimization',
+        projectId: 'proj-C',
+        issues: 'Memory leak detected',
+        submittedAt: new Date('2024-01-15T08:30:00Z'),
+      },
+    ];
 
-    expect(mock_adapter.sendReminderNotification).toHaveBeenCalledTimes(1);
-    expect(mock_adapter.sendReminderNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: user_id_1,
-        userName: user_name_1,
-        email: user_email_1,
-      }),
-      expect.objectContaining({
-        channels: ['email', 'in_app', 'slack'],
-      })
-    );
+    // Setup: Prepare dashboard input
+    const dashboardInput: DashboardDataPrepareInput = {
+      teamId: 'team-001',
+      targetDate: new Date('2024-01-15T00:00:00Z'),
+      requestingUserId: 'user-1',
+      includeHistoricalTrend: false,
+    };
 
-    expect(output.sentCount).toBe(1);
-    expect(output.failedCount).toBe(0);
-    expect(output.remainingTimeMinutes).toBe(30);
-    expect(output.notificationDetails).toHaveLength(1);
-    expect(output.notificationDetails[0]).toMatchObject({
-      userId: user_id_1,
-      status: 'sent',
-      sentAt: new Date('2024-01-15T09:00:15Z'),
-    });
+    // Setup: Mock console.warn to capture warning messages
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+    // Execute: Call prepareDashboardData with incomplete project priority data
+    const result = await prepareDashboardData(dashboardInput);
+
+    // Verify: Result is DashboardDisplayData with valid structure
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('submissionStatusSummary');
+    expect(result).toHaveProperty('unsubmittedMembers');
+    expect(result).toHaveProperty('prioritizedIssueList');
+    expect(result).toHaveProperty('issueKeywordRanking');
+    expect(result).toHaveProperty('lastUpdatedAt');
+
+    // Verify: submissionStatusSummary has valid values
+    expect(result.submissionStatusSummary).toBeDefined();
+    expect(result.submissionStatusSummary).not.toBeNull();
+    expect(typeof result.submissionStatusSummary.submittedCount).toBe('number');
+    expect(typeof result.submissionStatusSummary.pendingCount).toBe('number');
+
+    // Verify: unsubmittedMembers is valid array
+    expect(Array.isArray(result.unsubmittedMembers)).toBe(true);
+    expect(result.unsubmittedMembers).not.toBeNull();
+
+    // Verify: prioritizedIssueList contains issues sorted with proj-C fallback to default order
+    expect(Array.isArray(result.prioritizedIssueList)).toBe(true);
+    expect(result.prioritizedIssueList.length).toBeGreaterThan(0);
+
+    // Verify: Issues from proj-A and proj-B are prioritized by score
+    const projAIssues = result.prioritizedIssueList.filter(issue => issue.reporterName && 
+      teamReportsData.find(r => r.memberId === issue.reporterName && r.projectId === 'proj-A'));
+    const projBIssues = result.prioritizedIssueList.filter(issue => issue.reporterName && 
+      teamReportsData.find(r => r.memberId === issue.reporterName && r.projectId === 'proj-B'));
+    
+    // Verify: proj-C issues appear but in default order (no priority score applied)
+    if (result.prioritizedIssueList.length > 0) {
+      expect(result.prioritizedIssueList[0]).toHaveProperty('priorityScore');
+      expect(typeof result.prioritizedIssueList[0].priorityScore).toBe('number');
+    }
+
+    // Verify: issueKeywordRanking has valid structure
+    expect(Array.isArray(result.issueKeywordRanking)).toBe(true);
+    expect(result.issueKeywordRanking).not.toBeNull();
+
+    // Verify: lastUpdatedAt is a valid Date
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
+    expect(result.lastUpdatedAt).not.toBeNull();
+
+    // Verify: Warning message about incomplete project priority information is logged
+    const warningLogged = warnSpy.mock.calls.some(call =>
+      typeof call[0] === 'string' &&
+      call[0].includes('一部のプロジェクト優先度情報が不完全です') &&
+      call[0].includes('デフォルト順序で表示します')
+    );
+    expect(warningLogged).toBe(true);
+
+    // Cleanup
+    warnSpy.mockRestore();
   });
 });

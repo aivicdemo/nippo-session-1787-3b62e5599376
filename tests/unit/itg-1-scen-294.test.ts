@@ -1,39 +1,27 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import type { SendDailyReportReminderInput } from '../../src/logic/submission-status-tracking';
+import { sendDailyReminderNotifications } from "../../src/logic/reminder-notification-service";
 
-describe('朝会報告リマインド通知自動送信機能', () => {
+describe("朝会報告管理システム - リマインド通知送信", () => {
   // SCEN-294
-  test('営業日カレンダーが登録されていないとき定時実行が中止される', async () => {
-    const scheduledTime = new Date('2024-01-22T09:00:00+09:00');
-    const reportDeadlineTime = new Date('2024-01-22T11:00:00+09:00');
+  test("報告期限が現在時刻以前の場合、InvalidDeadlineCalculationErrorが発生する", async () => {
+    const executionTimestamp = new Date("2026-08-20T08:30:00Z");
+    const reportDeadlineDateTime = new Date(
+      executionTimestamp.getTime() - 0
+    );
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds: ['team-001', 'team-002'],
-      reportDeadlineTime,
-      notificationChannels: ['email', 'slack']
+    const dailyReminderInput = {
+      teamId: "team-001",
+      reportDeadlineDateTime: reportDeadlineDateTime,
+      executionTimestamp: executionTimestamp,
+      notificationChannels: [
+        {
+          channelType: "email",
+          isEnabled: true,
+        },
+      ],
     };
 
-    const mockNotificationAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn()
-    };
-
-    const mockCalendarService = {
-      isBusinessDay: jest.fn().mockRejectedValueOnce(
-        new Error('Calendar not found')
-      )
-    };
-
-    expect(async () => {
-      await sendDailyReportReminder(
-        input,
-        mockNotificationAdapter,
-        mockCalendarService
-      );
-    }).rejects.toThrow(/Calendar/);
-
-    expect(mockNotificationAdapter.scheduleNotification).not.toHaveBeenCalled();
+    await expect(
+      sendDailyReminderNotifications(dailyReminderInput)
+    ).rejects.toThrow(/報告期限の計算に失敗しました/);
   });
 });

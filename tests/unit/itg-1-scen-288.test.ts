@@ -1,131 +1,63 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput, type ReminderNotificationDetail } from '../../src/logic/submission-status-tracking';
+import { sendDailyReminderNotifications } from '../../src/logic/reminder-notification-service';
+import { type DailyReminderInput } from '../../src/logic/reminder-notification-service';
 
-describe('SendDailyReportReminder - Empty UserID Failure', () => {
-  // SCEN-288
-  test('should record failed notification when user ID is empty string and continue sending to valid members', async () => {
-    const scheduledTime = new Date('2024-01-15T08:30:00Z');
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00Z');
-    const teamIds = ['team-001'];
-    const notificationChannels = ['email', 'in_app'] as const;
+jest.mock('../../src/logic/reminder-notification-service', () => {
+  const actualModule = jest.requireActual('../../src/logic/reminder-notification-service');
+  return {
+    ...actualModule,
+    buildNotificationRecipientList: jest.fn(),
+    formatReminderNotificationContent: jest.fn(),
+    recordNotificationSendingHistory: jest.fn(),
+  };
+});
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(async (userId: string, message: string, channels: string[]) => {
-        if (userId === '') {
-          return {
-            success: false,
-            error: 'INVALID_USER_ID',
-            userId: '',
-            sentAt: null,
-          };
-        }
-        return {
-          success: true,
-          userId: userId,
-          sentAt: new Date('2024-01-15T08:30:15Z'),
-        };
-      }),
-    };
+describe('朝会報告管理システム - 定時リマインド通知送信', () => {
+  test('SCEN-288: 毎朝定時に登録済みチームメンバー全員へ報告入力のリマインド通知を自動送信し、報告期限までの残り時間を表示する', () => {
+    const { buildNotificationRecipientList, formatReminderNotificationContent, recordNotificationSendingHistory } = require('../../src/logic/reminder-notification-service');
 
-    const mockTeamRepository = {
-      findTeamById: jest.fn(async (teamId: string) => ({
-        teamId: teamId,
-        teamName: 'Development Team',
+    const mockMemberIds = ['member001', 'member002', 'member003', 'member004', 'member005', 'member006', 'member007', 'member008', 'member009', 'member010'];
+    const mockHistoryIds = ['hist-001', 'hist-002', 'hist-003', 'hist-004', 'hist-005', 'hist-006', 'hist-007', 'hist-008', 'hist-009', 'hist-010'];
+
+    buildNotificationRecipientList.mockReturnValue({
+      recipients: mockMemberIds.map(id => ({
+        userId: id,
+        emailAddress: `${id}@company.example.com`,
+        displayName: `Member ${id}`,
+        role: 'engineer',
       })),
-      getTeamMembersByTeamId: jest.fn(async (teamId: string) => [
-        {
-          userId: '',
-          userName: 'Invalid User',
-          email: 'invalid@example.com',
-        },
-        {
-          userId: 'user-002',
-          userName: 'Valid User',
-          email: 'valid@example.com',
-        },
-      ]),
+      totalCount: 10,
+      excludedUserCount: 0,
+    });
+
+    formatReminderNotificationContent.mockImplementation((input) => ({
+      subject: '朝会報告入力のお願い',
+      body: `残り${Math.floor((new Date(input.reportDeadlineAt).getTime() - new Date(input.currentTimeAt).getTime()) / 60000)}分です。入力をお願いします。`,
+      remainingHours: Math.floor((new Date(input.reportDeadlineAt).getTime() - new Date(input.currentTimeAt).getTime()) / 3600000),
+      remainingMinutes: Math.floor(((new Date(input.reportDeadlineAt).getTime() - new Date(input.currentTimeAt).getTime()) % 3600000) / 60000),
+    }));
+
+    recordNotificationSendingHistory.mockReturnValue(mockHistoryIds);
+
+    const currentTime = new Date('2025-01-15T08:30:00Z');
+    const reportDeadline = new Date('2025-01-15T09:00:00Z');
+    const scheduledTime = new Date('2025-01-15T08:30:00Z');
+
+    const input: DailyReminderInput = {
+      teamId: 'team-alpha',
+      reportDeadlineDateTime: reportDeadline,
+      executionTimestamp: scheduledTime,
+      notificationChannels: [
+        { channelType: 'email', isEnabled: true },
+        { channelType: 'in_app_notification', isEnabled: true },
+      ],
     };
 
-    const mockNotificationLogRepository = {
-      recordNotificationAttempt: jest.fn(async (record: {
-        userId: string;
-        status: 'sent' | 'failed' | 'skipped';
-        sentAt: Date | null;
-        errorMessage: string | null;
-      }) => {
-        return {
-          notificationLogId: 'log-' + Math.random().toString(36),
-          ...record,
-          recordedAt: new Date('2024-01-15T08:30:15Z'),
-        };
-      }),
-    };
+    const result = sendDailyReminderNotifications(input);
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime: scheduledTime,
-      teamIds: teamIds,
-      reportDeadlineTime: reportDeadlineTime,
-      notificationChannels: notificationChannels,
-    };
-
-    const result = await sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter as any,
-      mockTeamRepository as any,
-      mockNotificationLogRepository as any
-    );
-
-    expect(result.sentCount).toBe(1);
-    expect(result.failedCount).toBe(1);
-    expect(result.remainingTimeMinutes).toBe(30);
-
-    const notificationDetails = result.notificationDetails;
-    expect(notificationDetails.length).toBe(2);
-
-    const failedNotification = notificationDetails.find((nd: ReminderNotificationDetail) => nd.userId === '');
-    expect(failedNotification).toBeDefined();
-    expect(failedNotification?.status).toBe('failed');
-    expect(failedNotification?.sentAt).toBeNull();
-    expect(failedNotification?.errorMessage).toBe('INVALID_USER_ID');
-
-    const successNotification = notificationDetails.find((nd: ReminderNotificationDetail) => nd.userId === 'user-002');
-    expect(successNotification).toBeDefined();
-    expect(successNotification?.status).toBe('sent');
-    expect(successNotification?.sentAt).toEqual(new Date('2024-01-15T08:30:15Z'));
-    expect(successNotification?.errorMessage).toBeNull();
-
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalledTimes(2);
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenNthCalledWith(
-      1,
-      '',
-      expect.any(String),
-      expect.arrayContaining(['email', 'in_app'])
-    );
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenNthCalledWith(
-      2,
-      'user-002',
-      expect.any(String),
-      expect.arrayContaining(['email', 'in_app'])
-    );
-
-    expect(mockNotificationLogRepository.recordNotificationAttempt).toHaveBeenCalledTimes(2);
-    expect(mockNotificationLogRepository.recordNotificationAttempt).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        userId: '',
-        status: 'failed',
-        sentAt: null,
-        errorMessage: 'INVALID_USER_ID',
-      })
-    );
-    expect(mockNotificationLogRepository.recordNotificationAttempt).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        userId: 'user-002',
-        status: 'sent',
-        sentAt: expect.any(Date),
-        errorMessage: null,
-      })
-    );
+    expect(result.successCount).toBe(10);
+    expect(result.failureCount).toBe(0);
+    expect(result.notificationHistoryIds).toHaveLength(10);
+    expect(result.notificationHistoryIds).toEqual(mockHistoryIds);
+    expect(result.remainingTimeDisplay).toBe('残り30分');
   });
 });

@@ -1,70 +1,25 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
+import { getReportSubmissionTimestamp } from '../../src/logic/report-persistence';
+import type { GetReportSubmissionTimestampInput, ReportSubmissionTimestampOutput } from '../../src/logic/report-persistence';
 
-describe('朝会報告リマインド通知スケジュール登録', () => {
-  // SCEN-159
-  test('定時スケジュール登録時刻が朝9時直後（9時1分）であるとき、翌日の同時刻に予約される', () => {
-    const mockScheduledTime = new Date('2026-09-15T09:01:00+09:00');
-    const expectedNextDayScheduleTime = new Date('2026-09-16T09:00:00+09:00');
-    
-    const teamIds = ['team-001'];
-    const reportDeadlineTime = new Date('2026-09-15T09:30:00+09:00');
-    const notificationChannels = ['email', 'in_app', 'slack'] as const;
-    
-    const scheduledNotifications: Array<{
-      scheduleTime: Date;
-      teamIds: string[];
-      notificationChannels: (typeof notificationChannels)[number][];
-    }> = [];
-    
-    const notificationServiceAdapterStub = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        userId: 'user-001',
-        status: 'sent' as const,
-        sentAt: new Date('2026-09-15T09:01:00+09:00'),
-        errorMessage: null
-      }),
-      scheduleNotification: jest.fn((scheduleTime: Date, tids: string[], channels: (typeof notificationChannels)[number][]) => {
-        scheduledNotifications.push({
-          scheduleTime,
-          teamIds: tids,
-          notificationChannels: channels
-        });
-        return Promise.resolve({
-          scheduledAt: new Date('2026-09-15T09:01:00+09:00'),
-          nextExecutionTime: scheduleTime
-        });
-      }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({
-        sent: 0,
-        failed: 0,
-        pending: 0
-      })
+describe('朝会報告管理システム - 報告送信時刻取得', () => {
+  test('SCEN-159: 指定された日報の送信時刻を取得し、報告期限管理と遅延判定の基礎データを提供する', async () => {
+    const input: GetReportSubmissionTimestampInput = {
+      reportId: 'RPT-20250819-001',
+      requestingUserId: 'USER-001'
     };
-    
-    const input = {
-      scheduledTime: mockScheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels
+
+    const expectedOutput: ReportSubmissionTimestampOutput = {
+      reportId: 'RPT-20250819-001',
+      submissionTimestamp: new Date('2025-08-19T09:30:45.000Z'),
+      submittedByUserId: 'USER-002',
+      reportDate: new Date('2025-08-19')
     };
-    
-    return sendDailyReportReminder(input, notificationServiceAdapterStub)
-      .then((output) => {
-        expect(notificationServiceAdapterStub.scheduleNotification).toHaveBeenCalled();
-        
-        expect(scheduledNotifications).toHaveLength(1);
-        const [firstScheduledNotification] = scheduledNotifications;
-        
-        expect(firstScheduledNotification.scheduleTime.toISOString()).toBe(
-          expectedNextDayScheduleTime.toISOString()
-        );
-        
-        expect(firstScheduledNotification.teamIds).toEqual(teamIds);
-        expect(firstScheduledNotification.notificationChannels).toEqual(notificationChannels);
-        
-        expect(output).toBeDefined();
-        expect(output.sentCount).toBeGreaterThanOrEqual(0);
-        expect(output.failedCount).toBeGreaterThanOrEqual(0);
-      });
+
+    const result = await getReportSubmissionTimestamp(input);
+
+    expect(result.reportId).toBe(expectedOutput.reportId);
+    expect(result.submissionTimestamp).toEqual(expectedOutput.submissionTimestamp);
+    expect(result.submittedByUserId).toBe(expectedOutput.submittedByUserId);
+    expect(result.reportDate).toEqual(expectedOutput.reportDate);
   });
 });

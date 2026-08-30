@@ -1,60 +1,125 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import { type ExtractIssueKeywordsInput, type RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { describe, test, expect } from "@jest/globals";
+import { generateMonthlyAnalysisReport } from "../../src/logic/monthly-analysis-report";
 
-describe('課題自動抽出・優先度判定機能 - チーム波及度スコア判定', () => {
-  // SCEN-460: [edge] 課題自動抽出・優先度判定機能 - チーム波及度スコアが0（波及なし）と判定された課題は優先度ランクの最下位に配置される
-  test('チーム波及度スコア0の課題は優先度ランク最下位に配置される', async () => {
-    const mockAssessImpactScore = jest.fn().mockImplementation((keyword: string) => {
-      if (keyword === 'ネットワーク障害') return 85;
-      if (keyword === 'データベース接続エラー') return 72;
-      if (keyword === '軽微なUIバグ') return 0;
-      return 50;
-    });
+describe("Monthly Analysis Report Generation", () => {
+  test("SCEN-460: Generate monthly analysis report with project delay risk calculation based on design formula", () => {
+    // Prepare test data for monthly report analysis
+    const targetMonth = "2024-01";
+    const teamCapacity = 40; // person-days capacity
+    const currentDateTime = new Date("2024-01-15T10:00:00Z");
+    const projectDeadline = new Date("2024-02-14T17:00:00Z"); // 30 days from current
+    const reportDeadlineTime = "09:00";
 
-    const mockExtractKeywords = jest.fn().mockResolvedValue([
-      { keyword: 'ネットワーク障害', frequency: 3 },
-      { keyword: 'データベース接続エラー', frequency: 2 },
-      { keyword: '軽微なUIバグ', frequency: 1 }
-    ]);
-
-    const textAnalysisServiceAdapter = {
-      extractKeywords: mockExtractKeywords,
-      assessImpactScore: mockAssessImpactScore,
-      classifyIssueSeverity: jest.fn()
+    // Setup monthly report data with issues
+    const monthlyReportData = {
+      issues: [
+        {
+          keyword: "ビルド失敗",
+          frequency: 8,
+          impactScore: 75,
+        },
+        {
+          keyword: "テスト環境不安定",
+          frequency: 5,
+          impactScore: 60,
+        },
+        {
+          keyword: "リソース不足",
+          frequency: 3,
+          impactScore: 50,
+        },
+        {
+          keyword: "依存関係エラー",
+          frequency: 2,
+          impactScore: 45,
+        },
+      ],
     };
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001'
+    // Setup risk threshold criteria
+    const riskThresholds = {
+      high: 80,
+      medium: 50,
     };
 
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(input, textAnalysisServiceAdapter);
+    // Manual calculation based on br-tx_7-008 formula
+    // Step 1: Calculate issue weight = frequency × impactScore
+    const issueWeights = monthlyReportData.issues.map((issue) => issue.frequency * issue.impactScore);
+    // [600, 300, 150, 90]
 
-    expect(result.keywords).toBeDefined();
-    expect(Array.isArray(result.keywords)).toBe(true);
-    expect(result.keywords.length).toBe(3);
+    // Step 2: Estimate required days (assuming 0.5 days per unit weight)
+    const estimatedResolutionDaysPerUnit = 0.5;
+    const totalRequiredDays = issueWeights.reduce((sum, weight) => sum + weight * estimatedResolutionDaysPerUnit, 0);
+    // (600 + 300 + 150 + 90) * 0.5 = 570
 
-    const zeroImpactKeyword = result.keywords.find(k => k.keyword === '軽微なUIバグ');
-    const highImpactKeywords = result.keywords.filter(k => k.keyword !== '軽微なUIバグ');
+    // Step 3: Available capacity days = teamCapacity / 8
+    const availableCapacityDays = teamCapacity / 8;
+    // 40 / 8 = 5
 
-    expect(zeroImpactKeyword).toBeDefined();
-    expect(zeroImpactKeyword!.rank).toBe(3);
+    // Step 4: Calculate risk score = min(100, (totalRequiredDays / availableCapacityDays) * 100)
+    const expectedRiskScore = Math.min(100, (totalRequiredDays / availableCapacityDays) * 100);
+    // min(100, (570 / 5) * 100) = min(100, 11400) = 100
 
-    highImpactKeywords.forEach(kw => {
-      expect(kw.rank).toBeLessThan(zeroImpactKeyword!.rank);
+    // Step 5: Determine risk level
+    let expectedRiskLevel: "high" | "medium" | "low";
+    if (expectedRiskScore >= riskThresholds.high) {
+      expectedRiskLevel = "high";
+    } else if (expectedRiskScore >= riskThresholds.medium) {
+      expectedRiskLevel = "medium";
+    } else {
+      expectedRiskLevel = "low";
+    }
+    // expectedRiskLevel = "high"
+
+    // Step 6: Sort issues by importance (frequency × impactScore) in descending order
+    const sortedIssuesWithWeight = monthlyReportData.issues
+      .map((issue) => ({
+        ...issue,
+        weight: issue.frequency * issue.impactScore,
+      }))
+      .sort((a, b) => b.weight - a.weight);
+
+    const expectedCriticalIssues = sortedIssuesWithWeight.slice(0, 3);
+    // [ビルド失敗 (600), テスト環境不安定 (300), リソース不足 (150)]
+
+    // Step 7: Calculate recommended action deadline (30% buffer)
+    const daysUntilDeadline = Math.floor((projectDeadline.getTime() - currentDateTime.getTime()) / (1000 * 60 * 60 * 24));
+    // 30 days
+    const recommendedActionDeadlineMs = projectDeadline.getTime() - (daysUntilDeadline * 0.3 * 24 * 60 * 60 * 1000);
+    const expectedRecommendedActionDeadline = new Date(recommendedActionDeadlineMs);
+
+    // Execute function under test
+    const result = generateMonthlyAnalysisReport({
+      targetMonth,
+      monthlyReportData,
+      teamCapacity,
+      projectDeadline,
+      currentDateTime,
+      riskThresholds,
     });
 
-    const rankedByFrequency = result.keywords.sort((a, b) => b.frequency - a.frequency);
-    expect(rankedByFrequency[0].keyword).toBe('ネットワーク障害');
-    expect(rankedByFrequency[1].keyword).toBe('データベース接続エラー');
-    expect(rankedByFrequency[2].keyword).toBe('軽微なUIバグ');
+    // Verify risk score matches calculated value
+    expect(result.riskScore).toBe(expectedRiskScore);
 
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.extractedAt).toBeInstanceOf(Date);
-    expect(result.analysisperiodDays).toBe(7);
+    // Verify risk level is correctly determined
+    expect(result.riskLevel).toBe(expectedRiskLevel);
+
+    // Verify critical issues are top 3 sorted by weight in descending order
+    expect(result.criticalIssues).toHaveLength(3);
+    expect(result.criticalIssues[0].keyword).toBe("ビルド失敗");
+    expect(result.criticalIssues[0].frequency).toBe(8);
+    expect(result.criticalIssues[0].impactScore).toBe(75);
+    expect(result.criticalIssues[1].keyword).toBe("テスト環境不安定");
+    expect(result.criticalIssues[1].frequency).toBe(5);
+    expect(result.criticalIssues[1].impactScore).toBe(60);
+    expect(result.criticalIssues[2].keyword).toBe("リソース不足");
+    expect(result.criticalIssues[2].frequency).toBe(3);
+    expect(result.criticalIssues[2].impactScore).toBe(50);
+
+    // Verify days until deadline
+    expect(result.daysUntilDeadline).toBe(daysUntilDeadline);
+
+    // Verify recommended action deadline is calculated with 30% buffer
+    expect(result.recommendedActionDeadline).toEqual(expectedRecommendedActionDeadline);
   });
 });

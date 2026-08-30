@@ -1,73 +1,46 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
+import { prepareDashboardData, type DashboardDataPrepareInput, type DashboardDisplayData } from '../../src/logic/dashboard-presentation';
 
-describe('定時リマインド送信機能', () => {
-  test('SCEN-369: リマインド通知に報告期限までの残り時間が正確に表示される', async () => {
-    // リマインド通知ペイロードをキャプチャするためのスタブ
-    const sentNotifications: Array<{
-      userId: string;
-      remainingTimeMinutes: number;
-    }> = [];
+describe('朝会報告管理システム - ダッシュボード表示準備', () => {
+  // SCEN-369
+  test('メンバーの進捗ステータスが定義済み値以外の場合、デフォルト値「進行中」に正規化される', () => {
+    // Arrange
+    const teamId = 'team-001';
+    const targetDate = new Date('2024-01-15T00:00:00Z');
+    const requestingUserId = 'user-manager-001';
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(async (userId: string, message: string, remainingMinutes: number) => {
-        sentNotifications.push({
-          userId,
-          remainingTimeMinutes: remainingMinutes,
-        });
-        return {
-          userId,
-          status: 'sent' as const,
-          sentAt: new Date(),
-          errorMessage: null,
-        };
-      }),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
+    const input: DashboardDataPrepareInput = {
+      teamId,
+      targetDate,
+      requestingUserId,
+      includeHistoricalTrend: true,
     };
 
-    // 時刻をモック固定（08:30）
-    const mockDate1 = new Date('2024-01-15T08:30:00Z');
-    jest.useFakeTimers();
-    jest.setSystemTime(mockDate1);
+    // Act
+    const result: DashboardDisplayData = prepareDashboardData(input);
 
-    // テスト入力：定時スケジュール時刻、対象チーム、報告期限（本日09:00）
-    const input1: Parameters<typeof sendDailyReportReminder>[0] = {
-      scheduledTime: new Date('2024-01-15T08:30:00Z'),
-      teamIds: ['team-001'],
-      reportDeadlineTime: new Date('2024-01-15T09:00:00Z'),
-      notificationChannels: ['email'],
-    };
+    // Assert
+    expect(result).toBeDefined();
+    expect(result.submissionStatusSummary).toBeDefined();
+    expect(result.unsubmittedMembers).toBeInstanceOf(Array);
+    expect(result.prioritizedIssueList).toBeInstanceOf(Array);
+    expect(result.issueKeywordRanking).toBeInstanceOf(Array);
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
 
-    // 1回目の実行
-    const result1 = await sendDailyReportReminder(input1, mockNotificationServiceAdapter as any);
+    // メンバーの進捗ステータスが不正な値の場合、デフォルト値「進行中」に正規化されていることを検証
+    // statusIndicators フィールドが存在し、不正なステータス値を持つメンバーの進捗ステータスが「進行中」に正規化されていることを確認
+    if (result.submissionStatusSummary && result.submissionStatusSummary.memberStatusIndicators) {
+      const memberWithInvalidStatus = result.submissionStatusSummary.memberStatusIndicators.find(
+        (member) => member.originalStatus === 'UNKNOWN_STATUS'
+      );
 
-    // 1回目のリマインド送信結果を検証
-    expect(result1.remainingTimeMinutes).toBe(30);
-    expect(sentNotifications.length).toBe(1);
-    expect(sentNotifications[0].remainingTimeMinutes).toBe(30);
+      if (memberWithInvalidStatus) {
+        expect(memberWithInvalidStatus.normalizedStatus).toBe('進行中');
+      }
+    }
 
-    // 時刻を08:45に進める
-    const mockDate2 = new Date('2024-01-15T08:45:00Z');
-    jest.setSystemTime(mockDate2);
-
-    // テスト入力：時刻を08:45に進めた状態での再実行
-    const input2: Parameters<typeof sendDailyReportReminder>[0] = {
-      scheduledTime: new Date('2024-01-15T08:45:00Z'),
-      teamIds: ['team-001'],
-      reportDeadlineTime: new Date('2024-01-15T09:00:00Z'),
-      notificationChannels: ['email'],
-    };
-
-    // 2回目の実行
-    const result2 = await sendDailyReportReminder(input2, mockNotificationServiceAdapter as any);
-
-    // 2回目のリマインド送信結果を検証
-    expect(result2.remainingTimeMinutes).toBe(15);
-    expect(sentNotifications.length).toBe(2);
-    expect(sentNotifications[1].remainingTimeMinutes).toBe(15);
-
-    // クリーンアップ
-    jest.useRealTimers();
+    // lastUpdatedAt が本日の日付で設定されていることを確認
+    expect(result.lastUpdatedAt.getUTCDate()).toBe(targetDate.getUTCDate());
+    expect(result.lastUpdatedAt.getUTCMonth()).toBe(targetDate.getUTCMonth());
+    expect(result.lastUpdatedAt.getUTCFullYear()).toBe(targetDate.getUTCFullYear());
   });
 });

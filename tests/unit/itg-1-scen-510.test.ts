@@ -1,41 +1,52 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { analyzeProductivityTrends } from '../../src/logic/productivity-metrics-calculation';
+import { type ProductivityTrendsAnalysisInput, type ProductivityMetricsDataPoint, type SuccessCriteria } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題の影響度判定と優先度スコア計算', () => {
+describe('朝会報告管理システム - 生産性指標傾向分析', () => {
   // SCEN-510
-  test('[edge] チーム波及度スコア100で最高優先度に昇格される', () => {
-    // アレンジ: チーム波及度スコアが100の場合のテスト入力を準備
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'システム全体の認証機能が停止',
-      occurrenceFrequency: 3,
-      impactScore: 100,
-      affectedTeamCount: 5,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'team-engineering'
+  test('ベースライン課題発生頻度が0以下の場合、設計済みエラーを発生させる', () => {
+    const aggregationPeriodStart = new Date('2024-01-01');
+    const aggregationPeriodEnd = new Date('2024-03-31');
+
+    const dataPoint1: ProductivityMetricsDataPoint = {
+      periodDate: new Date('2024-01-31'),
+      issueResolutionSpeed: 5.2,
+      reportSubmissionRate: 85.0,
+      issueRecurrenceRate: 12.5,
+      teamProductivityScore: 78.0
     };
 
-    // アクト: 優先度スコア計算関数を実行
-    const result: IssuePriorityScoringOutput = calculateIssuePriorityScore(input);
+    const dataPoint2: ProductivityMetricsDataPoint = {
+      periodDate: new Date('2024-02-29'),
+      issueResolutionSpeed: 4.8,
+      reportSubmissionRate: 88.0,
+      issueRecurrenceRate: 10.0,
+      teamProductivityScore: 82.0
+    };
 
-    // アサート: 計算結果を検証
-    // impactScore=100の場合、最高優先度ランク（'高'）となることを確認
-    expect(result.issueId).toBe('issue-001');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(70);
-    expect(result.priorityRank).toBe('高');
-    expect(result.colorCode).toBe('#FF0000');
+    const dataPoint3: ProductivityMetricsDataPoint = {
+      periodDate: new Date('2024-03-31'),
+      issueResolutionSpeed: 4.5,
+      reportSubmissionRate: 90.0,
+      issueRecurrenceRate: 8.5,
+      teamProductivityScore: 85.0
+    };
 
-    // スコア内訳の検証
-    // impactScore=100に対応する影響度スコア部分が最大値(40)であることを確認
-    expect(result.scoreBreakdown.impactScore).toBe(40);
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
+    const successCriteria: SuccessCriteria = {
+      productivityImprovementRateTarget: 15.0,
+      issueRecurrenceRateReductionTarget: 30.0,
+      deadlineComplianceRateTarget: 90.0
+    };
 
-    // 計算日時が正しく記録されていることを確認（ISO 8601形式）
-    expect(result.calculatedAt).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?/);
+    const input: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart: aggregationPeriodStart,
+      aggregationPeriodEnd: aggregationPeriodEnd,
+      productivityMetricsDataPoints: [dataPoint1, dataPoint2, dataPoint3],
+      successCriteria: successCriteria,
+      teamId: 'team-001',
+      analysisContext: '対策実行計画ID: plan-123'
+    };
+
+    // baselineIssueFrequency が 0 の場合、エラーが発生することを検証
+    expect(() => analyzeProductivityTrends(input)).toThrow(/対策前の課題発生頻度/);
   });
 });

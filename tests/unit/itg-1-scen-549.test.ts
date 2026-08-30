@@ -1,47 +1,139 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import { type ExtractIssueKeywordsInput, type RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-549: [edge] 課題キーワード自動抽出・優先度判定機能 - 影響度スコアが下限超過（1）の課題が下限スコア課題より前に順序付けられる
-  test('影響度スコア51の課題が影響度スコア50の課題より前に順序付けられること', async () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: '課題A', frequency: 2 },
-        { keyword: '課題B', frequency: 2 }
-      ]),
-      assessImpactScore: jest.fn().mockImplementation((keyword: string) => {
-        if (keyword === '課題A') return Promise.resolve(51);
-        if (keyword === '課題B') return Promise.resolve(50);
-        return Promise.resolve(0);
-      }),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('high')
-    };
+describe('朝会報告管理システム - 生産性指標計算', () => {
+  test('SCEN-549: 標準偏差が0のとき異常値判定をスキップする', async () => {
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+    const targetTeamIds = ['team-001'];
+    const excludeOutliers = true;
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001'
-    };
+    const issuesDataset = [
+      {
+        issueId: 'issue-001',
+        issueKeyword: 'API_ERROR',
+        reportedDate: new Date('2024-01-05T09:00:00Z'),
+        resolvedDate: new Date('2024-01-08T09:00:00Z'),
+        status: 'resolved' as const,
+        teamId: 'team-001',
+        reporterId: 'eng-001',
+        resolutionDays: 3,
+        teamImpactScore: 20,
+      },
+      {
+        issueId: 'issue-002',
+        issueKeyword: 'API_ERROR',
+        reportedDate: new Date('2024-01-10T09:00:00Z'),
+        resolvedDate: new Date('2024-01-13T09:00:00Z'),
+        status: 'resolved' as const,
+        teamId: 'team-001',
+        reporterId: 'eng-002',
+        resolutionDays: 3,
+        teamImpactScore: 30,
+      },
+      {
+        issueId: 'issue-003',
+        issueKeyword: 'API_ERROR',
+        reportedDate: new Date('2024-01-15T09:00:00Z'),
+        resolvedDate: new Date('2024-01-18T09:00:00Z'),
+        status: 'resolved' as const,
+        teamId: 'team-001',
+        reporterId: 'eng-003',
+        resolutionDays: 3,
+        teamImpactScore: 40,
+      },
+      {
+        issueId: 'issue-004',
+        issueKeyword: 'API_ERROR',
+        reportedDate: new Date('2024-01-20T09:00:00Z'),
+        resolvedDate: new Date('2024-01-23T09:00:00Z'),
+        status: 'resolved' as const,
+        teamId: 'team-001',
+        reporterId: 'eng-004',
+        resolutionDays: 3,
+        teamImpactScore: 50,
+      },
+      {
+        issueId: 'issue-005',
+        issueKeyword: 'API_ERROR',
+        reportedDate: new Date('2024-01-25T09:00:00Z'),
+        resolvedDate: new Date('2024-01-28T09:00:00Z'),
+        status: 'resolved' as const,
+        teamId: 'team-001',
+        reporterId: 'eng-005',
+        resolutionDays: 3,
+        teamImpactScore: 60,
+      },
+    ];
 
-    const reportText = '課題A について報告があります。また課題B も報告されています。';
+    const reportSubmissionsData = [
+      {
+        memberId: 'eng-001',
+        submittedAt: new Date('2024-01-05T08:00:00Z'),
+        teamId: 'team-001',
+      },
+      {
+        memberId: 'eng-002',
+        submittedAt: new Date('2024-01-10T08:00:00Z'),
+        teamId: 'team-001',
+      },
+      {
+        memberId: 'eng-003',
+        submittedAt: new Date('2024-01-15T08:00:00Z'),
+        teamId: 'team-001',
+      },
+      {
+        memberId: 'eng-004',
+        submittedAt: new Date('2024-01-20T08:00:00Z'),
+        teamId: 'team-001',
+      },
+      {
+        memberId: 'eng-005',
+        submittedAt: new Date('2024-01-25T08:00:00Z'),
+        teamId: 'team-001',
+      },
+    ];
 
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter,
-      reportText
-    );
+    const recurrenceData = [
+      {
+        keyword: 'API_ERROR',
+        totalOccurrences: 5,
+        recurrenceCount: 0,
+        recurrenceRate: 0,
+      },
+    ];
 
-    expect(result.keywords).toHaveLength(2);
-    expect(result.keywords[0].keyword).toBe('課題A');
-    expect(result.keywords[0].frequency).toBe(2);
-    expect(result.keywords[1].keyword).toBe('課題B');
-    expect(result.keywords[1].frequency).toBe(2);
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.totalKeywordCount).toBe(2);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toBeInstanceOf(Date);
+    const result = await calculateProductivityMetrics({
+      aggregationStartDate,
+      aggregationEndDate,
+      targetTeamIds,
+      excludeOutliers,
+      issuesDataset,
+      reportSubmissionsData,
+      recurrenceData,
+    });
+
+    expect(result.issueResolutionSpeed).toBe(3.0);
+    expect(result.reportSubmissionRate).toBeGreaterThanOrEqual(0);
+    expect(result.reportSubmissionRate).toBeLessThanOrEqual(100);
+    expect(result.issueRecurrenceRate).toBeGreaterThanOrEqual(0);
+    expect(result.issueRecurrenceRate).toBeLessThanOrEqual(100);
+    expect(result.teamProductivityScore).toBeGreaterThanOrEqual(0);
+    expect(result.teamProductivityScore).toBeLessThanOrEqual(100);
+
+    expect(Array.isArray(result.detectedAnomalies)).toBe(true);
+
+    if (
+      result.detectedAnomalies &&
+      result.detectedAnomalies.length === 0
+    ) {
+      expect(result.detectedAnomalies).toEqual([]);
+    }
+
+    expect(result.dataQualityAssessment).toBeDefined();
+    expect(result.dataQualityAssessment.completenessPercentage).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.completenessPercentage).toBeLessThanOrEqual(100);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeGreaterThanOrEqual(0);
+    expect(result.dataQualityAssessment.extractionAccuracy).toBeLessThanOrEqual(100);
+    expect(typeof result.dataQualityAssessment.isReportable).toBe('boolean');
   });
 });

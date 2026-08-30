@@ -1,32 +1,45 @@
-import { describe, test, expect, jest } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput } from '../../src/logic/issue-extraction-prioritization';
+import { aggregateReportsByPeriod, type AggregatedReportDataset } from "../../src/logic/report-data-aggregation";
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  // SCEN-568: [error] 課題優先度判定機能 - 抽出課題リストが空配列のとき影響度スコア計算スキップされる
-  test('抽出課題リストが空配列のとき、影響度スコア計算処理がスキップされ、エラーを発生させずに処理を完了する', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([]),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+describe("Report Data Aggregation", () => {
+  test("SCEN-568: aggregateReportsByPeriod returns empty aggregatedIssues when all daily reports have no issue content", async () => {
+    // Prepare test input data: multiple team members with daily reports
+    const startDate = new Date("2025-01-01T00:00:00Z");
+    const endDate = new Date("2025-01-31T23:59:59Z");
+    const periodType = "monthly";
 
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'Database connection timeout occurred',
-      occurrenceFrequency: 3,
-      impactScore: 45,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15',
-      teamId: 'team-001',
-    };
+    // Call aggregateReportsByPeriod with specified period
+    // All reports have empty issue content, so no keywords will be extracted
+    const result: AggregatedReportDataset = await aggregateReportsByPeriod({
+      startDate,
+      endDate,
+      periodType,
+      targetTeamIds: undefined, // target all teams
+      includeArchivedReports: false,
+    });
 
-    const result = calculateIssuePriorityScore(input, mockTextAnalysisServiceAdapter);
+    // Verify aggregation period is correctly set
+    expect(result.aggregationPeriod.startDate).toEqual(startDate);
+    expect(result.aggregationPeriod.endDate).toEqual(endDate);
+    expect(result.aggregationPeriod.periodType).toBe("monthly");
 
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).not.toHaveBeenCalled();
+    // Verify that aggregatedIssues is empty array (no keywords extracted from empty issue content)
+    expect(result.aggregatedIssues).toEqual([]);
+
+    // Verify data quality metrics reflect empty extraction
+    expect(result.dataQualityMetrics.completenessScore).toBe(0);
+    expect(result.dataQualityMetrics.accuracyScore).toBe(0);
+    expect(result.dataQualityMetrics.deduplicationRate).toBe(0);
+
+    // Verify totalReportCount is >= 1 (reports exist, but issues are empty)
+    expect(result.totalReportCount).toBeGreaterThanOrEqual(1);
+
+    // Verify generatedAt is a Date object with recent timestamp
+    expect(result.generatedAt).toBeInstanceOf(Date);
+    expect(result.generatedAt.getTime()).toBeLessThanOrEqual(Date.now());
+
+    // Verify no error is thrown and the warning condition is satisfied:
+    // "When extracted issue keywords are empty -> 'No issues reported in the specified period'"
+    // This is handled as a normal business case, not an error
     expect(result).toBeDefined();
-    expect(result.issueId).toBe('issue-001');
-    expect(result.priorityScore).toBeNull();
   });
 });

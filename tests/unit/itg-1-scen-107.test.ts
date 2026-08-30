@@ -1,44 +1,66 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { identifyProductivityAnomalies } from '../../src/logic/productivity-metrics-calculation';
+import type { ProductivityMetric, AnomalyThresholdConfiguration, ProductivityAnomalyDetectionResult } from '../../src/logic/productivity-metrics-calculation';
 
-describe('部長ダッシュボード提出状況リアルタイム表示機能', () => {
-  // SCEN-107
-  test('メンバーの報告提出時刻が null で提出ステータスが提出済みのとき、データ整合性エラーが発生する', () => {
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'admin-user-001',
-      includeDelayedSubmissions: true,
+describe('朝会報告管理システム - 生産性指標異常値検出', () => {
+  // SCEN-107: [normal] 生産性指標の異常値を検出し、正常範囲の傾向を保持しつつ異常値の原因を分類する。
+  test('identifyProductivityAnomaliesが代表的な正常入力を設計どおり処理する', () => {
+    const metricsDataset: ProductivityMetric[] = [
+      {
+        metricId: 'metric-001',
+        metricType: 'issueResolutionSpeed',
+        value: 5,
+        teamId: 'team-001',
+        measurementDate: new Date('2024-01-01'),
+      },
+      {
+        metricId: 'metric-002',
+        metricType: 'reportSubmissionRate',
+        value: 95,
+        teamId: 'team-001',
+        measurementDate: new Date('2024-01-01'),
+      },
+      {
+        metricId: 'metric-003',
+        metricType: 'issueRecurrenceRate',
+        value: 2,
+        teamId: 'team-001',
+        measurementDate: new Date('2024-01-01'),
+      },
+      {
+        metricId: 'metric-004',
+        metricType: 'teamProductivityScore',
+        value: 88,
+        teamId: 'team-001',
+        measurementDate: new Date('2024-01-01'),
+      },
+    ];
+
+    const anomalyThresholdConfig: AnomalyThresholdConfiguration = {
+      standardDeviationMultiplier: 2.0,
+      percentileThreshold: 95,
     };
 
-    const mockTeamMembers = [
-      {
-        userId: 'M001',
-        userName: 'Member One',
-        email: 'member1@example.com',
-      },
-    ];
+    const requestingUserId = 'user-001';
 
-    const mockSubmissionRecords = [
-      {
-        userId: 'M001',
-        teamId: 'team-001',
-        reportDate: '2024-01-15',
-        submissionStatus: '提出済み',
-        submissionTimestamp: null,
-        delayedSubmission: false,
-      },
-    ];
+    const result: ProductivityAnomalyDetectionResult = identifyProductivityAnomalies(
+      metricsDataset,
+      'monthly',
+      anomalyThresholdConfig,
+      requestingUserId
+    );
 
-    const mockGetTeamMembers = jest.fn().mockReturnValue(mockTeamMembers);
-    const mockGetSubmissionRecords = jest
-      .fn()
-      .mockReturnValue(mockSubmissionRecords);
+    expect(result).toBeDefined();
+    expect(result.detectedAnomalies).toBeDefined();
+    expect(Array.isArray(result.detectedAnomalies)).toBe(true);
+    expect(result.detectedAnomalies.length).toBe(0);
 
-    expect(() => {
-      aggregateReportSubmissionStatus(input, {
-        getTeamMembers: mockGetTeamMembers,
-        getSubmissionRecords: mockGetSubmissionRecords,
-      });
-    }).toThrow(/整合性/);
+    expect(result.normalRangeStatistics).toBeDefined();
+    expect(typeof result.normalRangeStatistics.mean).toBe('number');
+    expect(typeof result.normalRangeStatistics.standardDeviation).toBe('number');
+    expect(typeof result.normalRangeStatistics.percentile95).toBe('number');
+
+    expect(result.anomalyClassifications).toBeDefined();
+    expect(Array.isArray(result.anomalyClassifications)).toBe(true);
+    expect(result.anomalyClassifications.length).toBe(0);
   });
 });

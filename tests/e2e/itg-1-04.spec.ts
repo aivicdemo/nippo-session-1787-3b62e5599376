@@ -1,114 +1,138 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('日報入力・編集画面', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/login.html');
-    await page.fill('[name="username"]', 'test');
-    await page.fill('[name="password"]', 'test');
-    await Promise.all([
-      page.waitForURL(url => !url.toString().includes('/login.html')),
-      page.click('button[type="submit"]'),
-    ]);
-    await page.goto('/panels/scr-1787119190590.html');
-    await page.waitForLoadState('networkidle');
-  });
+test.describe("ダッシュボード詳細レポート表示フロー", () => {
+  // SCEN-641: [normal] ダッシュボード詳細レポート表示フロー - 業務フロー「ダッシュボード詳細レポート表示フロー」を開始から完了まで実行する
+  test("should complete the full dashboard detail report display flow", async ({ page, request }) => {
+    // Get API configuration from environment
+    const apiUrl = process.env.PLAYWRIGHT_API_URL || "http://localhost:3000/api";
+    const appId = process.env.PLAYWRIGHT_APP_ID || "app-1";
 
-  // SCEN-001
-  test('日報作成日時が画面に表示される', async ({ page }) => {
-    const reportDateElement = page.locator('#report-date');
-    await expect(reportDateElement).toBeVisible();
-    const reportDate = await reportDateElement.textContent();
-    expect(reportDate).toMatch(/\d{4}年\d{2}月\d{2}日\s\d{2}:\d{2}:\d{2}/);
-  });
+    // Step 1: Navigate to root and verify manager dashboard is displayed
+    await test.step("部長向けダッシュボードにログインする", async () => {
+      await page.goto("/");
+      await expect(page).toHaveTitle(/nippo/);
+      // Verify dashboard shell is loaded
+      await expect(page.locator('.shell-container')).toBeVisible();
+    });
 
-  // SCEN-002
-  test('報告者名が画面に表示される', async ({ page }) => {
-    const reporterNameElement = page.locator('#reporter-name');
-    await expect(reporterNameElement).toBeVisible();
-    const reporterName = await reporterNameElement.textContent();
-    expect(reporterName).not.toBeNull();
-  });
+    // Step 2: Verify dashboard screen is displayed with submission counts
+    await test.step("ダッシュボード画面が表示されたことを確認する", async () => {
+      // Check for key dashboard elements
+      const submittedCount = page.locator('[data-testid="submitted-count"]');
+      const unsubmittedCount = page.locator('[data-testid="unsubmitted-count"]');
+      const viewFullReportBtn = page.locator('[data-testid="view-full-report-button"]');
+      
+      await expect(submittedCount).toBeVisible();
+      await expect(unsubmittedCount).toBeVisible();
+      await expect(viewFullReportBtn).toBeVisible();
+    });
 
-  // SCEN-003
-  test('チーム名が画面に表示される', async ({ page }) => {
-    const teamNameElement = page.locator('#team-name');
-    await expect(teamNameElement).toBeVisible();
-    const teamName = await teamNameElement.textContent();
-    expect(teamName).not.toBeNull();
-  });
+    // Step 3: Click on "詳細レポート表示" button to initiate detail report flow
+    await test.step("ダッシュボード上の「詳細レポート表示」ボタン（または同等のナビゲーション要素）をクリックする", async () => {
+      const viewFullReportBtn = page.locator('[data-testid="view-full-report-button"]');
+      await Promise.all([
+        page.waitForURL(url => url.toString().includes('/panels/')),
+        viewFullReportBtn.click(),
+      ]);
+    });
 
-  // SCEN-004
-  test('本日の実績入力欄に入力した値が保存される', async ({ page }) => {
-    const inputText = '顧客A社との打ち合わせ実施、提案資料作成完了';
-    const yesterdayInput = page.locator('[data-testid="yesterday-achievement-input"]');
-    await yesterdayInput.fill(inputText);
-    await page.click('#draft-button');
-    await expect(page.locator('#success-message')).toBeVisible();
-    await page.reload();
-    await expect(yesterdayInput).toHaveValue(inputText);
-  });
+    // Step 4: Verify navigation to report confirmation and search screen
+    await test.step("詳細レポート表示フローが開始され、日報確認・検索画面へ遷移することを確認する", async () => {
+      // Verify we're on the report confirmation screen
+      const keywordSearch = page.locator('[data-testid="keyword-search"]');
+      const searchButton = page.locator('[data-testid="search-button"]');
+      const recordList = page.locator('[data-testid="record-list"]');
+      
+      await expect(keywordSearch).toBeVisible();
+      await expect(searchButton).toBeVisible();
+      await expect(recordList).toBeVisible();
+    });
 
-  // SCEN-005
-  test('本日の課題入力欄に入力した値が保存される', async ({ page }) => {
-    const inputText = 'データベース接続エラーの調査';
-    const issuesInput = page.locator('[data-testid="issues-input"]');
-    await issuesInput.fill(inputText);
-    await page.click('#draft-button');
-    await expect(page.locator('#success-message')).toBeVisible();
-    await page.reload();
-    await expect(issuesInput).toHaveValue(inputText);
-  });
+    // Step 5: Verify submitted report list is displayed
+    await test.step("日報確認・検索画面で、提出済み日報の一覧が表示されることを確認する", async () => {
+      const reportRows = page.locator('tr[data-testid*="report-"]');
+      // Wait for at least one report row to be visible
+      const firstRow = page.locator('tbody tr').first();
+      await expect(firstRow).toBeVisible();
+    });
 
-  // SCEN-006
-  test('明日の予定入力欄に入力した値が保存される', async ({ page }) => {
-    const inputText = '顧客A向けプレゼン資料作成';
-    const todayPlanInput = page.locator('[data-testid="today-plan-input"]');
-    await todayPlanInput.fill(inputText);
-    await page.click('#draft-button');
-    await expect(page.locator('#success-message')).toBeVisible();
-    await page.reload();
-    await expect(todayPlanInput).toHaveValue(inputText);
-  });
+    // Step 6: Select a report and click to expand detail information
+    await test.step("一覧から任意の日報を選択して、詳細情報表示セクションをクリックする", async () => {
+      // Click on first report row to expand details
+      const firstReportRow = page.locator('tbody tr').first();
+      await firstReportRow.click();
+      
+      // Wait for detail panel to appear
+      const detailPanel = page.locator('[id="detail-panel"]');
+      await expect(detailPanel).toBeVisible();
+    });
 
-  // SCEN-007
-  test('課題キーワード選択ドロップダウンから選択した値が反映される', async ({ page }) => {
-    await page.locator('[data-testid="issues-input"]').fill('サーバー障害が発生');
-    await page.click('#draft-button');
-    await expect(page.locator('#success-message')).toBeVisible();
-    const issuesField = page.locator('[data-testid="issues-input"]');
-    await expect(issuesField).toContainText('サーバー障害');
-  });
+    // Step 7: Verify detail content is expanded showing all three required items
+    await test.step("選択した日報の詳細内容（昨日やったこと、今日やること、抱えている課題の3項目）が画面に展開されることを確認する", async () => {
+      const detailPanel = page.locator('[id="detail-panel"]');
+      const yesterdayContent = page.locator('[id="detail-yesterday"]');
+      const todayContent = page.locator('[id="detail-today"]');
+      const issuesContent = page.locator('[id="detail-issues"]');
+      
+      await expect(detailPanel).toBeVisible();
+      await expect(yesterdayContent).toBeVisible();
+      await expect(todayContent).toBeVisible();
+      await expect(issuesContent).toBeVisible();
+      
+      // Verify content is not empty
+      const yesterdayText = await yesterdayContent.textContent();
+      const todayText = await todayContent.textContent();
+      const issuesText = await issuesContent.textContent();
+      
+      expect(yesterdayText).not.toBeNull();
+      expect(todayText).not.toBeNull();
+      expect(issuesText).not.toBeNull();
+    });
 
-  // SCEN-008
-  test('課題詳細説明入力欄に入力した値が保存される', async ({ page }) => {
-    const inputText = 'データベース接続のタイムアウト問題が発生している';
-    const issuesInput = page.locator('[data-testid="issues-input"]');
-    await issuesInput.fill(inputText);
-    await page.reload();
-    const issuesField = page.locator('[data-testid="issues-input"]');
-    const value = await issuesField.inputValue();
-    expect(value).not.toBeNull();
-  });
+    // Step 8: Click back button to return to report list
+    await test.step("詳細表示から戻るボタン（またはブラウザバック相当）をクリックして、日報確認・検索画面に戻ることを確認する", async () => {
+      const closeDetailBtn = page.locator('[data-testid="close-detail-button"]');
+      await closeDetailBtn.click();
+      
+      // Verify detail panel is closed
+      const detailPanel = page.locator('[id="detail-panel"]');
+      await expect(detailPanel).not.toBeVisible();
+      
+      // Verify we're back at the report list
+      const recordList = page.locator('[data-testid="record-list"]');
+      await expect(recordList).toBeVisible();
+    });
 
-  // SCEN-009
-  test('課題優先度選択ラジオボタンで選択した値が反映される', async ({ page }) => {
-    await page.locator('[data-testid="yesterday-achievement-input"]').fill('バグ修正対応');
-    await page.locator('[data-testid="today-plan-input"]').fill('テスト実施');
-    await page.locator('[data-testid="issues-input"]').fill('パフォーマンス改善が必要');
-    await page.click('#submit-button');
-    await expect(page.locator('#success-message')).toBeVisible();
-  });
+    // Step 9: Click back to dashboard button to return to main dashboard
+    await test.step("部長向けダッシュボードに戻るボタンをクリックして、ダッシュボード画面に戻ることを確認する", async () => {
+      const backDashboardBtn = page.locator('[data-testid="back-dashboard-button"]');
+      await backDashboardBtn.click();
+      
+      // Wait for navigation back to dashboard
+      await page.waitForURL(url => !url.toString().includes('/panels/scr-1787119221707'));
+      
+      // Verify we're back on the dashboard
+      const submittedCount = page.locator('[data-testid="submitted-count"]');
+      const viewFullReportBtn = page.locator('[data-testid="view-full-report-button"]');
+      
+      await expect(submittedCount).toBeVisible();
+      await expect(viewFullReportBtn).toBeVisible();
+    });
 
-  // SCEN-010
-  test('添付ファイルアップロード操作でファイルが選択される', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]');
-    if ((await expect(fileInput).toBeVisible(), true)) {
-      await fileInput.setInputFiles({
-        name: 'test.pdf',
-        mimeType: 'application/pdf',
-        buffer: Buffer.from('test content'),
-      });
-      await expect(page.locator('text=test.pdf').or(page.locator('[aria-label*="test.pdf"]'))).toBeVisible({ timeout: 5000 }).catch(() => {});
-    }
+    // Step 10: Verify complete flow execution
+    await test.step("ダッシュボード詳細レポート表示フローが開始から完了まで正常に実行されたことを確認する", async () => {
+      // Final verification that we're back at the dashboard with all elements visible
+      const shell = page.locator('.shell-container');
+      const header = page.locator('.header');
+      const contentArea = page.locator('.content-area');
+      
+      await expect(shell).toBeVisible();
+      await expect(header).toBeVisible();
+      await expect(contentArea).toBeVisible();
+      
+      // Verify key dashboard elements are present
+      const viewFullReportBtn = page.locator('[data-testid="view-full-report-button"]');
+      await expect(viewFullReportBtn).toBeVisible();
+    });
   });
 });

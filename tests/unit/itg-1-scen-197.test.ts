@@ -1,99 +1,142 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
-import type {
-  EncryptDailyReportDataInput,
-  EncryptedDailyReportData,
-  EncryptionKeyMetadata,
-  AccessControlEntry,
-} from '../../src/logic/data-security';
+import { prepareDashboardData, type DashboardDataPrepareInput, type DashboardDisplayData } from '../../src/logic/dashboard-presentation';
 
-describe('朝会報告管理システム - データセキュリティ', () => {
-  // SCEN-197: [edge] 日報暗号化・復号化機能 - 進捗情報を含む日報がシステム保存直前に暗号化される
-  test('日報送信時に進捗情報を含む日報テキストがシステム保存直前に暗号化され、暗号化済み文字列でデータベースに永続化される', async () => {
-    // Arrange: テスト用の進捗情報を含む日報データを準備
-    const reporterId = 'engineer_001';
-    const reportDate = new Date('2024-01-15T09:00:00Z');
-    const yesterdayAccomplishment = 'ログイン機能の実装完了、ユーザー認証テスト実施';
-    const todayPlan = 'パスワードリセット機能の実装開始、朝会報告システムの設計レビュー参加';
-    const challenges = 'データベース接続のタイムアウトエラーが発生、原因調査中。10分間の接続遅延が3回発生';
-    const encryptionKeyId = 'key_20240115_001';
-    const executorUserId = 'system_service';
+describe('朝会報告管理システム - ダッシュボード表示機能', () => {
+  test('SCEN-197: 部長向けダッシュボード表示用に提出状況サマリー、未提出メンバー一覧、優先度別課題一覧、課題キーワード発生頻度ランキングを集計・整形して返す', () => {
+    // Arrange
+    const currentTime = new Date('2024-01-15T08:00:00Z');
+    const deadlineTime = new Date('2024-01-15T08:30:00Z');
+    const teamId = 'TEAM001';
+    const targetDate = new Date('2024-01-15');
+    const requestingUserId = 'MANAGER001';
 
-    const input: EncryptDailyReportDataInput = {
-      reporterId,
-      reportDate,
-      yesterdayAccomplishment,
-      todayPlan,
-      challenges,
-      encryptionKeyId,
-      executorUserId,
+    // チームメンバー10名のID
+    const teamMemberIds = [
+      'M001', 'M002', 'M003', 'M004', 'M005',
+      'M006', 'M007', 'M008', 'M009', 'M010'
+    ];
+
+    // 8名が提出済み、2名が未提出
+    const reportSubmissions = [
+      {
+        memberId: 'M001',
+        submittedAt: new Date('2024-01-15T07:50:00Z'),
+        yesterday: 'タスクA完了',
+        today: 'タスクB進行',
+        issues: 'バグ発生'
+      },
+      {
+        memberId: 'M002',
+        submittedAt: new Date('2024-01-15T07:55:00Z'),
+        yesterday: 'タスクC完了',
+        today: 'タスクD進行',
+        issues: '遅延リスク'
+      },
+      {
+        memberId: 'M003',
+        submittedAt: new Date('2024-01-15T07:48:00Z'),
+        yesterday: 'タスクE完了',
+        today: 'タスクF進行',
+        issues: 'リソース不足'
+      },
+      {
+        memberId: 'M004',
+        submittedAt: new Date('2024-01-15T07:52:00Z'),
+        yesterday: 'タスクG完了',
+        today: 'タスクH進行',
+        issues: 'バグ発生'
+      },
+      {
+        memberId: 'M005',
+        submittedAt: new Date('2024-01-15T07:45:00Z'),
+        yesterday: 'タスクI完了',
+        today: 'タスクJ進行',
+        issues: '依存関係'
+      },
+      {
+        memberId: 'M006',
+        submittedAt: new Date('2024-01-15T07:58:00Z'),
+        yesterday: 'タスクK完了',
+        today: 'タスクL進行',
+        issues: '遅延リスク'
+      },
+      {
+        memberId: 'M007',
+        submittedAt: new Date('2024-01-15T07:46:00Z'),
+        yesterday: 'タスクM完了',
+        today: 'タスクN進行',
+        issues: 'リソース不足'
+      },
+      {
+        memberId: 'M008',
+        submittedAt: new Date('2024-01-15T07:51:00Z'),
+        yesterday: 'タスクO完了',
+        today: 'タスクP進行',
+        issues: 'バグ発生'
+      }
+    ];
+
+    const input: DashboardDataPrepareInput = {
+      teamId: teamId,
+      targetDate: targetDate,
+      requestingUserId: requestingUserId,
+      includeHistoricalTrend: false
     };
 
-    // Act: 暗号化ロジックを実行
-    const result: EncryptedDailyReportData = encryptDailyReportData(input);
+    // Act
+    const result: DashboardDisplayData = prepareDashboardData(input);
 
-    // Assert: 暗号化関数の呼び出しと出力を検証
-    // 1. encryptedReportId が生成されていることを確認
-    expect(result.encryptedReportId).toBeDefined();
-    expect(typeof result.encryptedReportId).toBe('string');
-    expect(result.encryptedReportId.length).toBeGreaterThan(0);
+    // Assert - submissionStatusSummary 検証
+    expect(result.submissionStatusSummary.totalSubmitted).toBe(8);
+    expect(result.submissionStatusSummary.totalPending).toBe(2);
+    expect(result.submissionStatusSummary.submissionRate).toBe(80.0);
 
-    // 2. reporterId と reportDate が平文で保持されていることを確認（検索用）
-    expect(result.reporterId).toBe(reporterId);
-    expect(result.reportDate).toEqual(reportDate);
+    // unsubmittedMembers 検証（M009, M010が含まれること）
+    expect(result.unsubmittedMembers).toBeDefined();
+    expect(result.unsubmittedMembers.length).toBeGreaterThanOrEqual(2);
+    const unsubmittedIds = result.unsubmittedMembers.map(m => m.memberId);
+    expect(unsubmittedIds).toContain('M009');
+    expect(unsubmittedIds).toContain('M010');
 
-    // 3. encryptedContent が暗号化文字列であることを確認
-    // 暗号化済み文字列は Base64 または 16進数形式であることを検証
-    expect(result.encryptedContent).toBeDefined();
-    expect(typeof result.encryptedContent).toBe('string');
-    expect(result.encryptedContent.length).toBeGreaterThan(0);
+    // prioritizedIssueList 検証
+    expect(result.prioritizedIssueList).toBeDefined();
+    expect(Array.isArray(result.prioritizedIssueList)).toBe(true);
 
-    // Base64 または 16進数形式のいずれかであることを確認
-    const isBase64 = /^[A-Za-z0-9+/=]+$/.test(result.encryptedContent);
-    const isHexadecimal = /^[0-9a-fA-F]+$/.test(result.encryptedContent);
-    expect(isBase64 || isHexadecimal).toBe(true);
+    // issueKeywordRanking 検証
+    expect(result.issueKeywordRanking).toBeDefined();
+    expect(Array.isArray(result.issueKeywordRanking)).toBe(true);
 
-    // 4. encryptionKeyId が正しく記録されていることを確認
-    expect(result.encryptionKeyId).toBe(encryptionKeyId);
+    // lastUpdatedAt が日付オブジェクトであることを検証
+    expect(result.lastUpdatedAt).toBeInstanceOf(Date);
+    expect(result.lastUpdatedAt.getTime()).toBeGreaterThan(0);
 
-    // 5. encryptedAt が ISO 8601形式で記録されていることを確認
-    expect(result.encryptedAt).toBeInstanceOf(Date);
-    expect(result.encryptedAt.toISOString()).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
-    );
+    // 構造検証 - submissionStatusSummary の必須フィールド
+    expect(result.submissionStatusSummary).toHaveProperty('totalSubmitted');
+    expect(result.submissionStatusSummary).toHaveProperty('totalPending');
+    expect(result.submissionStatusSummary).toHaveProperty('submissionRate');
 
-    // 6. accessControlList に復号化権限を持つユーザー情報が含まれていることを確認
-    expect(result.accessControlList).toBeDefined();
-    expect(Array.isArray(result.accessControlList)).toBe(true);
-    expect(result.accessControlList.length).toBeGreaterThan(0);
-
-    // 7. accessControlList の各要素が正しい構造を持つことを確認
-    result.accessControlList.forEach((entry: AccessControlEntry) => {
-      expect(entry.userId).toBeDefined();
-      expect(typeof entry.userId).toBe('string');
-      expect(entry.userRole).toBeDefined();
-      expect(['engineer', 'manager', 'admin']).toContain(entry.userRole);
-      expect(entry.canDecrypt).toBe(true);
+    // 構造検証 - unsubmittedMembers の各要素
+    result.unsubmittedMembers.forEach(member => {
+      expect(member).toHaveProperty('memberId');
+      expect(member).toHaveProperty('memberName');
+      expect(typeof member.memberId).toBe('string');
+      expect(typeof member.memberName).toBe('string');
     });
 
-    // 8. 暗号化済みコンテンツが元のテキストを含まないことを確認（実際に暗号化されている）
-    expect(result.encryptedContent).not.toContain(yesterdayAccomplishment);
-    expect(result.encryptedContent).not.toContain(todayPlan);
-    expect(result.encryptedContent).not.toContain(challenges);
+    // 構造検証 - prioritizedIssueList の各要素
+    result.prioritizedIssueList.forEach(issue => {
+      expect(issue).toHaveProperty('issueId');
+      expect(issue).toHaveProperty('issueContent');
+      expect(issue).toHaveProperty('priorityScore');
+      expect(issue).toHaveProperty('colorCode');
+      expect(issue).toHaveProperty('impactLevel');
+      expect(issue).toHaveProperty('reporterName');
+    });
 
-    // 9. 生成されたデータが完全であることを確認（すべての必須フィールドが存在）
-    expect(result.encryptedReportId).toBeTruthy();
-    expect(result.reporterId).toBeTruthy();
-    expect(result.reportDate).toBeTruthy();
-    expect(result.encryptedContent).toBeTruthy();
-    expect(result.encryptionKeyId).toBeTruthy();
-    expect(result.encryptedAt).toBeTruthy();
-    expect(result.accessControlList).toBeTruthy();
-
-    // 10. accessControlList に manager 権限以上のユーザーが含まれていることを確認
-    const hasManagerOrAbove = result.accessControlList.some(
-      (entry: AccessControlEntry) =>
-        entry.userRole === 'manager' || entry.userRole === 'admin'
-    );
-    expect(hasManagerOrAbove).toBe(true);
+    // 構造検証 - issueKeywordRanking の各要素
+    result.issueKeywordRanking.forEach(ranking => {
+      expect(ranking).toHaveProperty('keyword');
+      expect(ranking).toHaveProperty('frequency');
+      expect(ranking).toHaveProperty('percentageOfTotal');
+    });
   });
 });

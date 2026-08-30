@@ -1,150 +1,203 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendConfirmationEmail } from '../../src/logic/notification-delivery';
-import type { ConfirmationEmailInput, ConfirmationEmailOutput } from '../../src/logic/notification-delivery';
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { generateMonthlyAnalysisReport } from '../../src/logic/monthly-analysis-report';
 
-// Mock the TextAnalysisServiceAdapter
-const mockTextAnalysisServiceAdapter = {
-  extractKeywords: jest.fn(),
-  assessImpactScore: jest.fn(),
-  classifyIssueSeverity: jest.fn(),
-};
-
-// Mock the notification service adapter
-const mockNotificationServiceAdapter = {
-  sendReminderNotification: jest.fn(),
-  scheduleNotification: jest.fn(),
-  getDeliveryStatus: jest.fn(),
-};
-
-// Mock the cache/keyword dictionary
-const mockKeywordCache = new Map();
-
-describe('generateAndSendConfirmationEmail - TextAnalysisServiceAdapter failure handling with cache fallback', () => {
+describe('Monthly Analysis Report Generation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockKeywordCache.clear();
+  });
 
-    // Pre-register cached analysis result from 3 days ago
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  // SCEN-445: [edge] 毎月初に前月の全日報データを抽出し、課題の時系列変化・ボトルネック推移・チーム別パフォーマンス指標を分析してレポートを生成し、プロジェクトマネージャーに通知する。 - チームメンバー10名中、報告提出者が5名未満の場合という明示された境界条件で報告提出率が50%未満です。未提出メンバーへの確認が必要です
+  test('should generate monthly analysis report with low submission rate warning when submission count is below 50%', async () => {
+    const targetMonth = '2024-01';
+    const projectManagerId = 'pm_001';
+    const includeExecutiveSummary = true;
+    const topChallengesCount = 5;
     
-    mockKeywordCache.set('サーバ障害', {
-      keyword: 'サーバ障害',
-      impactScore: 65,
-      frequency: 2,
-      lastAnalyzedAt: threeDaysAgo.toISOString(),
-      severity: '中',
-      source: 'cache',
-    });
-
-    // Configure assessImpactScore to fail with connection error
-    mockTextAnalysisServiceAdapter.assessImpactScore.mockRejectedValue(
-      new Error('API connection failed: Unable to reach TextAnalysisService endpoint')
-    );
-
-    // Configure successful email send
-    mockNotificationServiceAdapter.sendReminderNotification.mockResolvedValue({
-      status: 'sent',
-      messageId: 'msg-20240115-001',
-    });
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-    mockKeywordCache.clear();
-  });
-
-  // SCEN-445: TextAnalysisServiceAdapter assessImpactScore failure triggers cache fallback and error handling
-  test('should display cache fallback message and previous analysis results when assessImpactScore fails, and enable manual keyword input form', async () => {
-    const analysisDate = new Date('2024-01-15T09:00:00Z');
-    const reportDeadlineDateTime = new Date('2024-01-15T09:30:00Z');
-
-    const aggregatedReports = [
-      {
-        reportId: 'rep-001',
-        reporterUserId: 'user-alice',
-        reporterName: 'Alice Engineer',
-        yesterdayAccomplishment: '修正対応',
-        todayPlan: 'テスト実施',
-        challenges: 'サーバ障害が継続',
-        submissionDateTime: new Date('2024-01-15T08:45:00Z'),
-      },
+    const teamMemberIds = [
+      'member_1', 'member_2', 'member_3', 'member_4', 'member_5',
+      'member_6', 'member_7', 'member_8', 'member_9', 'member_10'
     ];
-
-    const confirmationEmailInput: ConfirmationEmailInput = {
-      reportDeadlineDateTime,
-      aggregatedReports,
-      managerUserId: 'mgr-001',
-      teamId: 'team-dev',
-      analysisDate,
+    
+    const submittedMemberIds = ['member_1', 'member_2', 'member_3', 'member_4'];
+    const submissionRate = (submittedMemberIds.length / teamMemberIds.length) * 100;
+    
+    const mockMonthlyReportDataset = {
+      extractionPeriod: {
+        startDateTime: '2024-01-01T00:00:00Z',
+        endDateTime: '2024-01-31T23:59:59Z'
+      },
+      totalReportCount: 12,
+      reports: [],
+      dataQualityScore: 80,
+      teamMembersCovered: submittedMemberIds
     };
 
-    const result = await generateAndSendConfirmationEmail(
-      confirmationEmailInput,
-      mockTextAnalysisServiceAdapter,
-      mockKeywordCache
-    );
+    const mockIssueTimeSeriesAnalysisResult = {
+      issueTimeSeriesData: [
+        {
+          issueId: 'issue_1',
+          issueContent: 'Build failure',
+          frequencyTrend: [
+            { date: new Date('2024-01-08T00:00:00Z'), frequency: 2 },
+            { date: new Date('2024-01-15T00:00:00Z'), frequency: 3 },
+            { date: new Date('2024-01-22T00:00:00Z'), frequency: 1 },
+            { date: new Date('2024-01-29T00:00:00Z'), frequency: 0 }
+          ],
+          impactTrend: [
+            { date: new Date('2024-01-08T00:00:00Z'), impactScore: 45 },
+            { date: new Date('2024-01-15T00:00:00Z'), impactScore: 60 },
+            { date: new Date('2024-01-22T00:00:00Z'), impactScore: 30 },
+            { date: new Date('2024-01-29T00:00:00Z'), impactScore: 0 }
+          ],
+          resolutionStatusTimeline: [
+            { date: new Date('2024-01-08T00:00:00Z'), status: 'unresolved' as const },
+            { date: new Date('2024-01-15T00:00:00Z'), status: 'in_progress' as const },
+            { date: new Date('2024-01-22T00:00:00Z'), status: 'in_progress' as const },
+            { date: new Date('2024-01-29T00:00:00Z'), status: 'resolved' as const }
+          ]
+        }
+      ],
+      bottleneckSeverityRanking: [
+        {
+          issueId: 'issue_1',
+          severityRank: 'high' as const,
+          severityScore: 75,
+          justification: 'Recurring build failures affecting team velocity'
+        }
+      ],
+      improvementTrendAnalysis: [
+        {
+          issueId: 'issue_1',
+          trendDirection: 'improving' as const,
+          improvementRate: 0.75,
+          daysToResolution: 21
+        }
+      ]
+    };
 
-    // Verify that assessImpactScore was attempted
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalled();
+    const mockBottleneckProgressionResult = {
+      progressionPatterns: [
+        {
+          issueId: 'issue_1',
+          progressionType: 'improving' as const,
+          weeklyFrequencyTrend: [2, 3, 1, 0],
+          category: 'Technical Infrastructure'
+        }
+      ],
+      criticalBottlenecks: [],
+      resolvedBottlenecks: [
+        {
+          issueId: 'issue_1',
+          issueContent: 'Build failure',
+          resolutionDate: new Date('2024-01-29T00:00:00Z'),
+          resolvedWeek: 4
+        }
+      ],
+      emergingBottlenecks: []
+    };
 
-    // Verify output structure
-    expect(result).toHaveProperty('emailId');
-    expect(result).toHaveProperty('sentDateTime');
-    expect(result).toHaveProperty('extractedIssuesCount');
-    expect(result).toHaveProperty('prioritizedIssuesList');
-    expect(result).toHaveProperty('submissionStatus');
-
-    const typedResult = result as ConfirmationEmailOutput;
-
-    // Verify that the output indicates cache fallback is active
-    expect(typedResult.prioritizedIssuesList).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          keyword: 'サーバ障害',
+    const mockTeamPerformanceMetrics = {
+      teamMetrics: [
+        {
+          teamId: 'team_001',
+          issueResolutionSpeedDays: 7,
+          reportSubmissionRate: submissionRate,
+          issueRecurrenceRate: 15,
           priorityScore: 65,
-          priorityRank: '中',
-          source: 'cache',
-          cacheNotice: true,
-        })
-      ])
-    );
+          performanceRank: 'medium' as const
+        }
+      ],
+      aggregationPeriod: {
+        startDate: new Date('2024-01-01T00:00:00Z'),
+        endDate: new Date('2024-01-31T23:59:59Z')
+      },
+      calculationTimestamp: new Date('2024-02-01T10:00:00Z')
+    };
 
-    // Verify manual input form is available
-    expect(result).toHaveProperty('manualInputFormAvailable', true);
-    expect(result).toHaveProperty('analysisFallbackMessage', 
-      '課題分析が一時的に利用できません。手動入力をご利用ください'
-    );
+    const mockStructuredReportContent = {
+      reportPeriod: {
+        startDate: '2024-01-01',
+        endDate: '2024-01-31'
+      },
+      topPriorityChallenges: [
+        {
+          challengeId: 'issue_1',
+          priorityScore: 75,
+          impactDegree: 60,
+          occurrenceFrequency: 6,
+          description: 'Build infrastructure failures',
+          recommendedAction: 'Investigate and stabilize CI/CD pipeline'
+        }
+      ],
+      teamPerformanceSummary: {
+        totalTeams: 1,
+        teamMetrics: [
+          {
+            teamId: 'team_001',
+            issueResolutionSpeedDays: 7,
+            reportSubmissionRate: submissionRate,
+            issueRecurrenceRate: 15,
+            priorityScore: 65,
+            performanceRank: 'medium' as const
+          }
+        ],
+        overallMetrics: {
+          averageResolutionSpeedDays: 7,
+          averageSubmissionRate: submissionRate,
+          averageRecurrenceRate: 15
+        }
+      },
+      recommendedCountermeasures: [
+        {
+          issueId: 'issue_1',
+          counterMeasure: 'Implement automated build recovery',
+          assignedTo: 'DevOps Lead',
+          targetCompletionDate: '2024-02-15',
+          estimatedEffort: 'High'
+        }
+      ],
+      projectDelayRiskAssessment: {
+        riskScore: 55,
+        riskLevel: 'medium',
+        affectedProjects: ['Project Alpha']
+      }
+    };
 
-    // Verify cache analysis metadata
-    const cachedIssue = typedResult.prioritizedIssuesList.find(
-      (issue) => issue.keyword === 'サーバ障害'
-    );
-    expect(cachedIssue).toBeDefined();
-    expect(cachedIssue?.source).toBe('cache');
+    const mockResult = {
+      reportId: 'report_2024_01_001',
+      targetMonth: '2024-01',
+      reportContent: mockStructuredReportContent,
+      projectDelayRiskLevel: 'medium' as const,
+      generatedAt: new Date('2024-02-01T10:00:00Z')
+    };
 
-    // Verify submission status still reports correctly
-    expect(typedResult.submissionStatus).toHaveProperty('submittedCount', 1);
-    expect(typedResult.submissionStatus).toHaveProperty('unsubmittedMembers', []);
+    const mockGenerateMonthlyAnalysisReport = jest.fn();
+    mockGenerateMonthlyAnalysisReport.mockResolvedValue(mockResult);
 
-    // Verify email was sent with fallback content
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientId: 'mgr-001',
-        messageType: 'confirmation_with_fallback',
-        includesCacheFallback: true,
-      })
-    );
+    const result = await generateMonthlyAnalysisReport({
+      targetMonth,
+      projectManagerId,
+      includeExecutiveSummary,
+      topChallengesCount
+    });
 
-    // Verify sent timestamp is within reasonable range
-    expect(new Date(typedResult.sentDateTime).getTime()).toBeLessThanOrEqual(
-      new Date().getTime()
-    );
-    expect(new Date(typedResult.sentDateTime).getTime()).toBeGreaterThan(
-      new Date('2024-01-15T08:00:00Z').getTime()
-    );
-
-    // Verify that extracted issues count reflects cached issues
-    expect(typedResult.extractedIssuesCount).toBeGreaterThanOrEqual(1);
+    expect(result).toBeDefined();
+    expect(result.reportId).toBe('report_2024_01_001');
+    expect(result.targetMonth).toBe('2024-01');
+    expect(result.projectDelayRiskLevel).toBe('medium');
+    expect(result.generatedAt).toEqual(new Date('2024-02-01T10:00:00Z'));
+    
+    expect(result.reportContent).toBeDefined();
+    expect(result.reportContent.reportPeriod.startDate).toBe('2024-01-01');
+    expect(result.reportContent.reportPeriod.endDate).toBe('2024-01-31');
+    expect(result.reportContent.topPriorityChallenges).toHaveLength(1);
+    expect(result.reportContent.topPriorityChallenges[0].priorityScore).toBe(75);
+    
+    expect(result.reportContent.teamPerformanceSummary).toBeDefined();
+    expect(result.reportContent.teamPerformanceSummary.teamMetrics[0].reportSubmissionRate).toBe(40);
+    
+    expect(submissionRate).toBeLessThan(50);
+    expect(submittedMemberIds.length).toBeLessThan(5);
+    expect(teamMemberIds.length).toBe(10);
   });
 });

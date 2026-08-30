@@ -1,36 +1,18 @@
-import { describe, test, expect } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import type { ExtractAndRankIssuesInput } from '../../src/logic/issue-extraction-and-ranking';
 
-describe('notification-delivery - generateAndSendSummaryEmail', () => {
-  // SCEN-220
-  test('should throw validation error when teamId is empty string', () => {
-    const mockNotificationAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
+describe('Issue Extraction and Ranking', () => {
+  test('SCEN-220: Should throw NoReportsProvidedError when no reports are provided', () => {
+    const analysisStartDate = new Date('2024-01-08T00:00:00Z');
+    const analysisEndDate = new Date('2024-01-15T23:59:59Z');
+
+    const input: ExtractAndRankIssuesInput = {
+      reports: [],
+      analysisStartDate,
+      analysisEndDate,
+      minimumConfidenceThreshold: 50,
     };
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: '',
-      reportDate: '2024-01-15',
-      managerUserId: 'manager-001',
-      submittedReports: [
-        {
-          reporterId: 'engineer-001',
-          reporterName: 'Engineer A',
-          submittedAt: '2024-01-15T08:30:00Z',
-          challenges: ['Database performance issue'],
-        },
-      ],
-      unsubmittedMemberIds: ['engineer-002'],
-      reportDeadlineTime: '09:00',
-    };
-
-    expect(() =>
-      generateAndSendSummaryEmail(input, mockNotificationAdapter),
-    ).toThrow(/チームID/);
-
-    expect(mockNotificationAdapter.sendReminderNotification).not.toHaveBeenCalled();
+    expect(() => extractAndRankIssuesFromReports(input)).toThrow(/集約対象の日報が存在しません/);
   });
 });

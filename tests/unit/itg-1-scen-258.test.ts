@@ -1,19 +1,22 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
+import type { IssuePriorityScoringInput, IssuePriorityScore } from '../../src/logic/priority-scoring-engine';
 
-describe('部長向けダッシュボード - 本日の報告提出状況のリアルタイム表示', () => {
-  test('SCEN-258: 報告送信時刻の遅延判定機能 - 報告期限が不正な日時形式のとき、エラーが発生して処理が進まない', () => {
-    const invalidDeadlineFormat = '2024-13-45 25:70:90';
-    const submitInput = {
-      userId: 'engineer-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: 'Completed API integration testing',
-      todayPlan: 'Start database optimization',
-      challenges: 'Performance bottleneck in query response time',
-      reportDate: '2024-01-15',
+describe('Priority Scoring Engine', () => {
+  // SCEN-258: [normal] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。
+  test('should calculate priority score with frequency 45 and impact score 75 using default weights', () => {
+    const input: IssuePriorityScoringInput = {
+      issueId: 'ISSUE-001',
+      frequency: 45,
+      impactScore: 75,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
     };
 
-    expect(() =>
-      submitDailyReport(submitInput, invalidDeadlineFormat)
-    ).toThrow(/報告期限/);
+    const result: IssuePriorityScore = calculatePriorityScoreForIssue(input);
+
+    expect(result.issueId).toBe('ISSUE-001');
+    expect(result.priorityScore).toBe(63);
+    expect(result.priorityRank).toBe('MEDIUM');
+    expect(result.colorCode).toBe('YELLOW');
   });
 });

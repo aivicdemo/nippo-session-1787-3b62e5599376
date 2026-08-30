@@ -1,36 +1,30 @@
-import { calculateIssuePriorityScore, type IssuePriorityScoringInput, type IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { validateReportInput } from "../../src/logic/report-submission-management";
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-612
-  test('[normal] TextAnalysisServiceAdapterが正常応答した場合、課題の影響度スコアが正しく計算される', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockResolvedValue({
-        keyword: 'データベース障害',
-        impactScore: 75
-      }),
-      classifyIssueSeverity: jest.fn()
-    };
+describe("Report Submission Management - validateReportInput", () => {
+  // SCEN-612: [error] 朝会開始時刻の形式が HH:mm でないときエラーを投げる
+  test("should throw error when morningMeetingStartTime is not in HH:mm format", () => {
+    const reportSubmissionTime = new Date("2024-01-15T00:00:00Z");
+    const modificationAttemptTime = new Date("2024-01-15T08:00:00Z");
+    const modificationDeadlineMinutes = 30;
 
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース障害が発生している',
-      occurrenceFrequency: 3,
-      impactScore: 75,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001'
-    };
+    const invalidFormats = [
+      "9:30",      // 1桁時間表記
+      "09-30",     // コロンではなくハイフン
+      "0930",      // コロンなし
+      "09:30:00",  // 秒まで含む
+      "25:00",     // 形式は正しいが時間値が不正
+      "",          // 空文字列
+    ];
 
-    const result = calculateIssuePriorityScore(
-      input,
-      mockTextAnalysisServiceAdapter
-    ) as IssuePriorityScoringOutput;
-
-    expect(result.issueId).toBe('issue-001');
-    expect(result.impactScore).toBe(75);
-    expect(result.scoreBreakdown.impactScore).toBe(75);
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).toHaveBeenCalled();
+    invalidFormats.forEach((invalidFormat) => {
+      expect(() =>
+        validateReportInput(
+          reportSubmissionTime,
+          invalidFormat,
+          modificationAttemptTime,
+          modificationDeadlineMinutes
+        )
+      ).toThrow(/朝会開始時刻/);
+    });
   });
 });

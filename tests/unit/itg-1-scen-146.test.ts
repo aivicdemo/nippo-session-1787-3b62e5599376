@@ -1,30 +1,26 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveReport, type SaveReportInput, type SaveReportOutput } from '../../src/logic/report-persistence';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-146: [edge] 課題影響度判定機能 - チーム波及度スコアが0未満の不正値が入力されたとき、0として正規化される
-  test('チーム波及度スコアが負の値のとき、0に正規化されてスコア計算に使用される', () => {
-    const input = {
-      issueId: 'ISSUE-001',
-      issueContent: 'データベース接続エラー',
-      occurrenceFrequency: 5,
-      impactScore: -5,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'TEAM-A'
+describe('朝会報告管理システム - 日報永続化', () => {
+  // SCEN-146: [normal] 日報データを受け取り、暗号化して永続化層に保存し、送信時刻を記録する
+  test('saveReportが代表的な正常入力を設計どおり処理する', async () => {
+    const input: SaveReportInput = {
+      reporterId: 'user001',
+      teamId: 'team-A',
+      reportDate: new Date('2026-08-19T00:00:00Z'),
+      yesterdayAccomplishment: 'バグ修正を2件完了',
+      todayPlan: '新機能のレビュー実施',
+      issuesAndConcerns: 'データベース接続の遅延が発生',
+      attachmentUrls: []
     };
 
-    const result = calculateIssuePriorityScore(input);
+    const result: SaveReportOutput = await saveReport(input);
 
-    expect(result.issueId).toBe('ISSUE-001');
-    expect(typeof result.priorityScore).toBe('number');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
-    expect(result.scoreBreakdown.impactScore).toBe(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThan(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.priorityRank).toMatch(/高|中|低/);
-    expect(result.colorCode).toMatch(/^#[0-9A-F]{6}$/);
-    expect(typeof result.calculatedAt).toBe('string');
+    expect(result.reportId).toBe('rpt-20260819-001');
+    expect(result.encryptionStatus).toBe('encrypted');
+    
+    const now = new Date();
+    const resultTimestamp = new Date(result.submissionTimestamp);
+    const timeDiffMs = Math.abs(resultTimestamp.getTime() - now.getTime());
+    expect(timeDiffMs).toBeLessThanOrEqual(5000);
   });
 });

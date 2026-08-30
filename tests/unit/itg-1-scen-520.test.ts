@@ -1,54 +1,38 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { judgeAccessPermission } from '../../src/logic/access-control-and-permissions';
 
-describe('課題自動抽出・優先度判定機能', () => {
-  // SCEN-520
-  test('[normal] 10名のチームメンバーから集約された日報0件の場合、空の優先度別課題一覧が生成される', () => {
-    // テストデータセット準備: 10名のチームメンバーが存在し、当日の日報が0件の状態
-    const teamId = 'team-001';
-    const startDate = new Date('2024-01-15T00:00:00Z');
-    const endDate = new Date('2024-01-15T23:59:59Z');
-    const requestUserId = 'user-manager-001';
+describe('朝会報告管理システム - アクセス制御と権限管理', () => {
+  test('SCEN-520: 課題データの機密性レベルが不正な値のとき、警告ログを出力してデフォルトレベルで処理を続行', () => {
+    // テストユーザーのセットアップ
+    const userId = 'user-001';
+    const userRole = 'engineer';
+    const teamId = 'team-A';
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId,
-      startDate,
-      endDate,
-      minFrequencyThreshold: 1,
-      requestUserId,
+    // 不正な機密性レベルを含むAccessPermissionRequestを構築
+    const request = {
+      userId: userId,
+      resourceType: 'issue_data' as const,
+      operation: 'view' as const,
+      targetTeamId: teamId,
+      confidentialityLevel: 'invalid_level' as any, // 不正な値
     };
 
-    // TextAnalysisServiceAdapterをモック化
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+    // judgeAccessPermission関数を呼び出す
+    const result = judgeAccessPermission(request);
 
-    // 課題自動抽出・優先度判定機能を実行
-    const result = extractAndRankIssueKeywords(input, mockTextAnalysisServiceAdapter);
+    // isPermittedフィールドの確認: engineer が issue_data を view できるため true
+    expect(result.isPermitted).toBe(true);
 
-    // 戻り値の構造を検証
-    expect(result).toHaveProperty('keywords');
-    expect(result).toHaveProperty('totalKeywordCount');
-    expect(result).toHaveProperty('extractedAt');
-    expect(result).toHaveProperty('analysisperiodDays');
+    // userRoleフィールドの確認: 'engineer' が返される
+    expect(result.userRole).toBe('engineer');
 
-    // 優先度別課題一覧が空であることを確認
-    expect(Array.isArray(result.keywords)).toBe(true);
-    expect(result.keywords.length).toBe(0);
-    expect(result.totalKeywordCount).toBe(0);
+    // denialReasonフィールドの確認: 許可されているため null
+    expect(result.denialReason).toBeNull();
 
-    // 分析対象期間の日数を検証
-    expect(result.analysisperiodDays).toBe(1);
-
-    // TextAnalysisServiceAdapterへのAPI呼び出しが発生していないことを確認
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).not.toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.assessImpactScore).not.toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.classifyIssueSeverity).not.toHaveBeenCalled();
-
-    // extractedAtが現在時刻に近いことを検証（許容範囲: 1秒以内）
-    const now = new Date();
-    expect(Math.abs(result.extractedAt.getTime() - now.getTime())).toBeLessThan(1000);
+    // applicableDataFiltersフィールドの確認: null でないことと team-A に限定されていることを確認
+    expect(result.applicableDataFilters).not.toBeNull();
+    if (result.applicableDataFilters) {
+      expect(result.applicableDataFilters.visibleTeamIds).toContain(teamId);
+      expect(result.applicableDataFilters.viewOnlyMode).toBe(true);
+    }
   });
 });

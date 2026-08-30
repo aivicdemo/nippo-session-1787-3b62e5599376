@@ -1,20 +1,19 @@
-import { describe, test, expect } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput, IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { saveExtractedIssueData } from '../../src/logic/issue-data-persistence';
+import { type SaveExtractedIssueDataInput } from '../../src/logic/issue-data-persistence';
 
-describe('課題の影響度（チーム全体への波及度）を判定し、優先度スコアで順序付けして表示する機能', () => {
-  test('SCEN-574: チーム波及度スコアが-1のとき無効な入力エラーが発生する', () => {
-    const invalidInput: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース障害',
-      occurrenceFrequency: 5,
-      impactScore: -1,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001'
+describe('朝会報告管理システム - 課題データ永続化', () => {
+  // SCEN-574
+  test('実行者IDが空のときに認証エラーをスローする', () => {
+    const input: SaveExtractedIssueDataInput = {
+      reportId: 'report-001',
+      issueContent: '処理システムの応答が遅い',
+      issueType: '技術的課題',
+      priorityScore: 75,
+      impactLevel: '高',
+      extractedKeywords: ['応答遅延', 'パフォーマンス'],
+      executorId: '',
     };
 
-    expect(() => calculateIssuePriorityScore(invalidInput)).toThrow(/チーム波及度スコア/);
+    expect(() => saveExtractedIssueData(input)).toThrow(/実行者/);
   });
 });

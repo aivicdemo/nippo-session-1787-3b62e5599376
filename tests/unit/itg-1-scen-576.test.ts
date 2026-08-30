@@ -1,27 +1,31 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveExtractedIssueData } from '../../src/logic/issue-data-persistence';
+import { type SaveExtractedIssueDataInput } from '../../src/logic/issue-data-persistence';
 
-describe('課題の影響度判定と優先度スコア算出', () => {
-  it('SCEN-576: チーム波及度スコアがnullのとき影響度スコア計算エラーが発生する', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockReturnValue(null),
-      classifyIssueSeverity: jest.fn(),
+describe('Issue Data Persistence', () => {
+  // SCEN-576
+  test('should throw error when priority logic version does not exist during audit log recording', async () => {
+    const input: SaveExtractedIssueDataInput = {
+      reportId: 'report-001',
+      issueContent: 'Database connection timeout during peak hours',
+      issueType: 'technical_issue',
+      priorityScore: 75,
+      impactLevel: 'high',
+      extractedKeywords: ['database', 'timeout', 'performance'],
+      analysisResult: {
+        rootCause: 'Insufficient connection pool size',
+        proposedCountermeasure: 'Increase connection pool from 50 to 100',
+        estimatedResolutionDays: 3,
+      },
+      executorId: 'user-pm-001',
     };
 
-    const issueData = {
-      issueId: 'issue-001',
-      issueContent: 'サーバーダウンの懸念',
-      occurrenceFrequency: 5,
-      impactScore: null,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T09:00:00Z',
-      teamId: 'team-001',
-    };
+    const invalidPriorityLogicVersion = 'v99.99.99';
 
-    expect(() => {
-      calculateIssuePriorityScore(issueData, mockTextAnalysisServiceAdapter);
-    }).toThrow(/チーム波及度スコア/);
+    await expect(
+      saveExtractedIssueData(
+        input,
+        invalidPriorityLogicVersion
+      )
+    ).rejects.toThrow(/指定されたロジックバージョンが見つかりません/);
   });
 });

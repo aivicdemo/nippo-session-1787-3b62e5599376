@@ -1,27 +1,33 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import type { IssuePriorityScoringInput } from '../../src/logic/issue-extraction-prioritization';
+import { sendUnsubmittedMemberReminders } from "../../src/logic/reminder-notification-service";
+import { type UnsubmittedMemberReminderInput } from "../../src/logic/reminder-notification-service";
 
-describe('Issue Priority Score Calculation - Impact Score Validation', () => {
-  test('SCEN-625: should throw exception when impact score exceeds 100', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn().mockReturnValue(101),
-      classifyIssueSeverity: jest.fn(),
+describe("朝会報告管理システム - 未提出メンバー催促通知", () => {
+  // SCEN-625: [error] 報告期限時刻が未設定のときはDeadlineCalculationErrorをスロー
+  test("reportingDeadlineTimeがnullのとき、DeadlineCalculationErrorをスロー", () => {
+    const input: UnsubmittedMemberReminderInput = {
+      teamId: "team-001",
+      unsubmittedMembers: [
+        {
+          memberId: "user-001",
+          memberEmail: "member@example.com",
+          memberName: "田中太郎",
+        },
+      ],
+      reportingDeadlineTime: null as any,
+      morningMeetingStartTime: new Date(
+        new Date().getTime() + 3600000
+      ).toISOString(),
+      reminderRetryRule: {
+        initialNotificationMethod: "email",
+        maxRetryCount: 2,
+        retryStages: [
+          { stageNumber: 1, notificationMethod: "email", waitMinutes: 10 },
+          { stageNumber: 2, notificationMethod: "push", waitMinutes: 10 },
+        ],
+      },
+      previousReminderHistory: [],
     };
 
-    const input: IssuePriorityScoringInput = {
-      issueId: 'ISSUE-001',
-      issueContent: 'Database connection timeout occurring intermittently',
-      occurrenceFrequency: 5,
-      impactScore: 101,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15',
-      teamId: 'TEAM-001',
-    };
-
-    expect(() =>
-      calculateIssuePriorityScore(input, mockTextAnalysisServiceAdapter)
-    ).toThrow(/影響度スコアが有効範囲/);
+    expect(() => sendUnsubmittedMemberReminders(input)).toThrow(/期限/);
   });
 });

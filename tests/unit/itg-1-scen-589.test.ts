@@ -1,20 +1,18 @@
-import { calculateIssuePriorityScore } from "../../src/logic/issue-extraction-prioritization";
+import { evaluateInitialReportSubmission } from '../../src/logic/adoption-training-management';
 
-describe("課題優先度判定機能 - チーム波及度スコア小数点エラー", () => {
-  test("SCEN-589: チーム波及度スコアが小数点型で渡されたとき計算エラーが発生する", () => {
+describe('朝会報告管理システム - 初回テスト報告検証', () => {
+  // SCEN-589
+  test('reportData が null のとき RequiredFieldMissingError 例外をスロー', () => {
     const input = {
-      issueId: "issue-001",
-      issueContent: "データベース接続タイムアウトが発生している",
-      occurrenceFrequency: 3,
-      impactScore: 45.7,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 2,
-      reportingDate: "2024-01-15T08:00:00Z",
-      teamId: "team-alpha",
+      reportId: 'report-001',
+      engineerId: 'eng-001',
+      reportContent: '昨日の実績です',
+      submissionTimestamp: new Date('2024-01-15T08:00:00Z'),
+      trainingCompletionDate: new Date('2024-01-14T17:00:00Z'),
+      managerReviewNotes: undefined,
+      reportData: null,
     };
 
-    expect(() => calculateIssuePriorityScore(input)).toThrow(
-      /Invalid score format/
-    );
+    expect(() => evaluateInitialReportSubmission(input)).toThrow(/報告データが見つかりません/);
   });
 });

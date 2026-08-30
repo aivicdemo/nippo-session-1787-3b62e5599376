@@ -1,77 +1,68 @@
-import { sendDailyReportReminder } from "../../src/logic/submission-status-tracking";
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput } from "../../src/logic/submission-status-tracking";
+import { encryptReportData } from "../../src/logic/data-encryption-and-security";
+import type { ReportDataToEncrypt, EncryptedReportData } from "../../src/logic/data-encryption-and-security";
 
-describe("朝会報告リマインド通知送信機能", () => {
-  // SCEN-278
-  test("NotificationServiceAdapterのsendReminderNotificationが正常応答した場合、通知配信ログが記録される", async () => {
-    const now = new Date("2024-01-15T08:30:00Z");
-    const deadlineTime = new Date("2024-01-15T09:00:00Z");
-    const scheduledTime = new Date("2024-01-15T08:30:00Z");
+jest.mock("../../src/logic/data-encryption-and-security", () => {
+  const actual = jest.requireActual("../../src/logic/data-encryption-and-security");
+  return {
+    ...actual,
+    encryptSensitiveField: jest.fn(),
+    calculateIntegrityHash: jest.fn(),
+  };
+});
 
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds: ["team-001", "team-002"],
-      reportDeadlineTime: deadlineTime,
-      notificationChannels: ["email", "slack"],
+const { encryptSensitiveField, calculateIntegrityHash } = require("../../src/logic/data-encryption-and-security");
+
+describe("朝会報告管理システム - 日報暗号化", () => {
+  test("SCEN-278: 整合性チェック値の計算に失敗したときに警告を出力して日報は暗号化済みで返される", async () => {
+    const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+    const reportInput: ReportDataToEncrypt = {
+      reporterId: "ENG001",
+      teamId: "TEAM-A",
+      reportDate: "2026-08-19",
+      personalInfo: "山田太郎、営業部門",
+      issueContent: "API応答遅延の調査",
+      progressInfo: "テスト環境構築完了",
     };
 
-    const notificationServiceStub = {
-      sendReminderNotification: jest
-        .fn()
-        .mockResolvedValue({
-          userId: "user-001",
-          status: "sent",
-          sentAt: now,
-          errorMessage: null,
-        })
-        .mockResolvedValueOnce({
-          userId: "user-001",
-          status: "sent",
-          sentAt: now,
-          errorMessage: null,
-        })
-        .mockResolvedValueOnce({
-          userId: "user-002",
-          status: "sent",
-          sentAt: now,
-          errorMessage: null,
-        })
-        .mockResolvedValueOnce({
-          userId: "user-003",
-          status: "sent",
-          sentAt: now,
-          errorMessage: null,
-        })
-        .mockResolvedValueOnce({
-          userId: "user-004",
-          status: "sent",
-          sentAt: now,
-          errorMessage: null,
-        }),
-    };
+    const encryptedPersonalInfoValue = "encrypted_personal_xyz123";
+    const encryptedIssueContentValue = "encrypted_issue_abc456";
+    const encryptedProgressInfoValue = "encrypted_progress_def789";
 
-    const output: SendDailyReportReminderOutput = await sendDailyReportReminder(
-      input,
-      notificationServiceStub
-    );
-
-    expect(output.sentCount).toBe(4);
-    expect(output.failedCount).toBe(0);
-    expect(output.remainingTimeMinutes).toBe(30);
-    expect(output.notificationDetails).toHaveLength(4);
-
-    output.notificationDetails.forEach((detail, index) => {
-      expect(detail.userId).toBe(`user-${String(index + 1).padStart(3, "0")}`);
-      expect(detail.status).toBe("sent");
-      expect(detail.sentAt).toBeDefined();
-      if (detail.sentAt) {
-        expect(detail.sentAt.toISOString()).toBe("2024-01-15T08:30:00.000Z");
+    encryptSensitiveField.mockImplementation((input: any) => {
+      if (input.fieldType === "personal_info") {
+        return { encryptedText: encryptedPersonalInfoValue, encryptionTimestamp: new Date("2026-08-19T10:00:00Z") };
+      } else if (input.fieldType === "issue_content") {
+        return { encryptedText: encryptedIssueContentValue, encryptionTimestamp: new Date("2026-08-19T10:00:01Z") };
+      } else if (input.fieldType === "progress_info") {
+        return { encryptedText: encryptedProgressInfoValue, encryptionTimestamp: new Date("2026-08-19T10:00:02Z") };
       }
-      expect(detail.errorMessage).toBeNull();
+      return { encryptedText: "", encryptionTimestamp: new Date() };
     });
 
-    expect(notificationServiceStub.sendReminderNotification).toHaveBeenCalledTimes(
-      4
-    );
+    const integrityHashError = new Error("SHA-256ハッシュ計算の内部エラー");
+    calculateIntegrityHash.mockImplementation(() => {
+      throw integrityHashError;
+    });
+
+    const result: EncryptedReportData = await encryptReportData(reportInput, "encryption_key_secret");
+
+    expect(result).toBeDefined();
+    expect(result.reportId).toBeDefined();
+    expect(result.reportId).not.toBe("");
+    expect(result.encryptedPersonalInfo).toBe(encryptedPersonalInfoValue);
+    expect(result.encryptedIssueContent).toBe(encryptedIssueContentValue);
+    expect(result.encryptedProgressInfo).toBe(encryptedProgressInfoValue);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/日報は保存されましたが、改ざん検知機能に一時的な問題があります/));
+
+    expect(result.integrityHash).toBeFalsy();
+
+    expect(encryptSensitiveField).toHaveBeenCalledTimes(3);
+    expect(encryptSensitiveField).toHaveBeenNthCalledWith(1, expect.objectContaining({ fieldType: "personal_info" }));
+    expect(encryptSensitiveField).toHaveBeenNthCalledWith(2, expect.objectContaining({ fieldType: "issue_content" }));
+    expect(encryptSensitiveField).toHaveBeenNthCalledWith(3, expect.objectContaining({ fieldType: "progress_info" }));
+
+    consoleSpy.mockRestore();
   });
 });

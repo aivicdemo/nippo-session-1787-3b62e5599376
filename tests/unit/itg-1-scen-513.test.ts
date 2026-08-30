@@ -1,54 +1,88 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
-import { type IssuePriorityScoringInput, type IssuePriorityScoringOutput } from '../../src/logic/issue-extraction-prioritization';
+import { analyzeProductivityTrends } from '../../src/logic/productivity-metrics-calculation';
+import { type ProductivityTrendsAnalysisInput, type ProductivityTrendsAnalysisResult } from '../../src/logic/productivity-metrics-calculation';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-513: [edge] 課題優先度スコア計算機能 - 1名のみが課題キーワードを報告した場合、発生頻度が10%で計算される
-  test('1名のみが課題キーワードを報告した場合、発生頻度が10%として計算される', () => {
-    const issueId = 'issue-001';
-    const issueContent = 'データベース接続エラーが発生している';
-    const occurrenceFrequency = 1;
-    const totalTeamMembers = 10;
-    const frequencyPercentage = (occurrenceFrequency / totalTeamMembers) * 100;
-    const impactScore = 45;
-    const affectedTeamCount = 2;
-    const resolutionDaysAverage = 2.5;
-    const reportingDate = '2024-01-15T09:30:00Z';
-    const teamId = 'team-dev-001';
+describe('朝会報告管理システム - 生産性指標傾向分析', () => {
+  // SCEN-513: 対策実行から29日経過した時点での傾向分析 - データ不足警告を含む
+  test('SCEN-513: 対策実行から29日経過時に評価データ不足警告を含むレポートを返す', () => {
+    const countermeasureStartDate = new Date('2024-12-01T00:00:00Z');
+    const analysisStartDate = new Date('2024-11-02T00:00:00Z'); // 対策実行日から29日前
+    const analysisEndDate = new Date('2024-12-30T00:00:00Z'); // 対策実行から29日後
 
-    const input: IssuePriorityScoringInput = {
-      issueId,
-      issueContent,
-      occurrenceFrequency,
-      impactScore,
-      affectedTeamCount,
-      resolutionDaysAverage,
-      reportingDate,
-      teamId,
+    const productivityMetricsDataPoints = [
+      {
+        periodDate: new Date('2024-11-30T00:00:00Z'),
+        issueResolutionSpeed: 5.2,
+        reportSubmissionRate: 85.0,
+        issueRecurrenceRate: 12.0,
+        teamProductivityScore: 72.0,
+      },
+      {
+        periodDate: new Date('2024-12-07T00:00:00Z'),
+        issueResolutionSpeed: 5.0,
+        reportSubmissionRate: 87.0,
+        issueRecurrenceRate: 11.5,
+        teamProductivityScore: 73.5,
+      },
+      {
+        periodDate: new Date('2024-12-14T00:00:00Z'),
+        issueResolutionSpeed: 4.8,
+        reportSubmissionRate: 89.0,
+        issueRecurrenceRate: 11.0,
+        teamProductivityScore: 74.5,
+      },
+      {
+        periodDate: new Date('2024-12-21T00:00:00Z'),
+        issueResolutionSpeed: 4.7,
+        reportSubmissionRate: 90.0,
+        issueRecurrenceRate: 10.5,
+        teamProductivityScore: 75.0,
+      },
+      {
+        periodDate: new Date('2024-12-28T00:00:00Z'),
+        issueResolutionSpeed: 4.6,
+        reportSubmissionRate: 91.0,
+        issueRecurrenceRate: 10.0,
+        teamProductivityScore: 75.5,
+      },
+    ];
+
+    const successCriteria = {
+      productivityImprovementRateTarget: 15,
+      issueRecurrenceRateReductionTarget: 30,
+      deadlineComplianceRateTarget: 95,
     };
 
-    const result: IssuePriorityScoringOutput = calculateIssuePriorityScore(input);
+    const analysisContext = `対策実行開始日：${countermeasureStartDate.toISOString().split('T')[0]}`;
 
+    const input: ProductivityTrendsAnalysisInput = {
+      aggregationPeriodStart: analysisStartDate,
+      aggregationPeriodEnd: analysisEndDate,
+      productivityMetricsDataPoints,
+      successCriteria,
+      teamId: 'team-001',
+      analysisContext,
+    };
+
+    // 関数を呼び出す
+    const result: ProductivityTrendsAnalysisResult = analyzeProductivityTrends(input);
+
+    // 結果の検証
     expect(result).toBeDefined();
-    expect(result.issueId).toBe(issueId);
-    expect(result.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(result.priorityScore).toBeLessThanOrEqual(100);
-    expect(result.priorityRank).toMatch(/^(高|中|低)$/);
-    expect(result.scoreBreakdown).toBeDefined();
-    expect(result.scoreBreakdown.frequencyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.frequencyScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.impactScore).toBeLessThanOrEqual(40);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeGreaterThanOrEqual(0);
-    expect(result.scoreBreakdown.resolutionDifficultyScore).toBeLessThanOrEqual(20);
+    expect(result.trendDirection).toBeDefined();
+    expect(['improving', 'declining', 'stable']).toContain(result.trendDirection);
 
-    const expectedFrequencyScore = Math.min((frequencyPercentage / 100) * 40, 40);
-    expect(result.scoreBreakdown.frequencyScore).toBe(expectedFrequencyScore);
+    expect(result.monthlyTrendData).toBeDefined();
+    expect(Array.isArray(result.monthlyTrendData)).toBe(true);
 
-    expect(result.colorCode).toMatch(/^#[0-9A-F]{6}$/);
-    expect(result.calculatedAt).toBeDefined();
+    expect(result.successJudgmentResult).toBeDefined();
+    expect(result.successJudgmentResult.achievementRate).toBeDefined();
+    expect(typeof result.successJudgmentResult.achievementRate).toBe('number');
 
-    const calculatedAtDate = new Date(result.calculatedAt);
-    expect(calculatedAtDate).toBeInstanceOf(Date);
-    expect(calculatedAtDate.getTime()).toBeGreaterThan(0);
+    expect(result.reportContent).toBeDefined();
+    expect(typeof result.reportContent).toBe('string');
+
+    // 重要: reportContent に評価データ不足警告が含まれていることを検証
+    expect(result.reportContent).toMatch(/評価データが不足しています/);
+    expect(result.reportContent).toMatch(/1ヶ月以上経過後の測定をお勧めします/);
   });
 });

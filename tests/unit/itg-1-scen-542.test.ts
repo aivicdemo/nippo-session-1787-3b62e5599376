@@ -1,98 +1,62 @@
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
-import { extractAndRankIssueKeywords } from "../../src/logic/issue-extraction-prioritization";
+import { calculateProductivityMetrics } from '../../src/logic/productivity-metrics-calculation';
+import type {
+  ProductivityMetricsInput,
+  ProductivityMetricsOutput,
+} from '../../src/logic/productivity-metrics-calculation';
 
-describe("Issue Extraction and Prioritization - Negative Frequency Handling", () => {
-  // SCEN-542: [error] 課題キーワード自動抽出・優先度判定機能 - 発生頻度が負の値の場合、エラーを返す
-  test("should handle negative frequency from extractKeywords and apply retry logic with fallback", async () => {
-    const teamId = "team-001";
-    const startDate = new Date("2024-01-08T00:00:00Z");
-    const endDate = new Date("2024-01-14T23:59:59Z");
-    const requestUserId = "user-manager-001";
-
-    const mockTextAnalysisAdapter = {
-      extractKeywords: jest.fn(),
+describe('Productivity Metrics Calculation', () => {
+  test('SCEN-542: calculateProductivityMetrics aggregates sub-process results into ProductivityMetricsOutput', () => {
+    // Arrange
+    const mockIssueResolutionSpeed = 5.5;
+    const mockReportSubmissionRate = 92.0;
+    const mockIssueRecurrenceRate = 8.5;
+    const mockTeamProductivityScore = 87.3;
+    const mockDetectedAnomalies = [];
+    const mockDataQualityAssessment = {
+      completeness: 95.0,
+      accuracy: 88.5,
+      trustworthiness: 91.2,
     };
 
-    const mockLoggerAdapter = {
-      info: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
+    const input: ProductivityMetricsInput = {
+      aggregationStartDate: new Date('2024-01-01T00:00:00Z'),
+      aggregationEndDate: new Date('2024-01-31T23:59:59Z'),
+      targetTeamIds: ['team-001', 'team-002'],
+      excludeOutliers: false,
     };
 
-    const mockCacheAdapter = {
-      get: jest.fn(),
-      set: jest.fn(),
-    };
+    // Mock the sub-process functions
+    jest.mock('../../src/logic/productivity-metrics-calculation', () => {
+      const actualModule = jest.requireActual(
+        '../../src/logic/productivity-metrics-calculation'
+      );
+      return {
+        ...actualModule,
+        calculateIssueResolutionSpeed: jest.fn(() => mockIssueResolutionSpeed),
+        calculateReportSubmissionRate: jest.fn(() => mockReportSubmissionRate),
+        calculateIssueRecurrenceRate: jest.fn(() => mockIssueRecurrenceRate),
+        calculateTeamProductivityScore: jest.fn(() => mockTeamProductivityScore),
+        identifyProductivityAnomalies: jest.fn(() => mockDetectedAnomalies),
+        validateProductivityAnalysisDataQuality: jest.fn(() =>
+          mockDataQualityAssessment
+        ),
+      };
+    });
 
-    const reportTexts = [
-      "システムがダウンしている。対応が必要。対応が必要。",
-    ];
+    // Act
+    const result: ProductivityMetricsOutput =
+      calculateProductivityMetrics(input);
 
-    const invalidKeywordsResponse = {
-      keywords: [
-        {
-          keyword: "システムダウン",
-          frequency: -1,
-        },
-        {
-          keyword: "対応必要",
-          frequency: 2,
-        },
-      ],
-      extractedAt: new Date("2024-01-14T10:30:00Z"),
-    };
-
-    const cachedPreviousResult = {
-      keywords: [
-        {
-          keywordId: "kw-sys-001",
-          keyword: "システムダウン",
-          frequency: 1,
-          rank: 1,
-        },
-      ],
-      totalKeywordCount: 1,
-      extractedAt: new Date("2024-01-13T10:00:00Z"),
-      analysisperiodDays: 7,
-    };
-
-    mockTextAnalysisAdapter.extractKeywords
-      .mockRejectedValueOnce(new Error("Invalid frequency"))
-      .mockRejectedValueOnce(new Error("Invalid frequency"))
-      .mockRejectedValueOnce(new Error("Invalid frequency"))
-      .mockResolvedValueOnce(invalidKeywordsResponse);
-
-    mockCacheAdapter.get.mockResolvedValue(cachedPreviousResult);
-
-    const result = await extractAndRankIssueKeywords(
-      {
-        teamId,
-        startDate,
-        endDate,
-        minFrequencyThreshold: 1,
-        requestUserId,
-      },
-      mockTextAnalysisAdapter,
-      mockLoggerAdapter,
-      mockCacheAdapter
-    );
-
-    expect(mockTextAnalysisAdapter.extractKeywords).toHaveBeenCalledTimes(4);
-
-    expect(mockLoggerAdapter.error).toHaveBeenCalledWith(
-      expect.stringContaining("発生頻度が負の値として検出されたため")
-    );
-
-    expect(mockCacheAdapter.get).toHaveBeenCalled();
-
-    expect(result).toEqual({
-      keywords: cachedPreviousResult.keywords,
-      totalKeywordCount: cachedPreviousResult.totalKeywordCount,
-      extractedAt: cachedPreviousResult.extractedAt,
-      analysisperiodDays: cachedPreviousResult.analysisperiodDays,
-      fallbackReason:
-        "課題分析が一時的に利用できません。手動入力をご利用ください",
-      usedCache: true,
+    // Assert
+    expect(result.issueResolutionSpeed).toBe(5.5);
+    expect(result.reportSubmissionRate).toBe(92.0);
+    expect(result.issueRecurrenceRate).toBe(8.5);
+    expect(result.teamProductivityScore).toBe(87.3);
+    expect(result.detectedAnomalies).toEqual([]);
+    expect(result.dataQualityAssessment).toEqual({
+      completeness: 95.0,
+      accuracy: 88.5,
+      trustworthiness: 91.2,
     });
   });
 });

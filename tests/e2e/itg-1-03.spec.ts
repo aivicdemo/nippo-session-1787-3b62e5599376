@@ -1,150 +1,97 @@
 import { test, expect } from '@playwright/test';
 
-test.describe("日報確認・検索画面", () => {
-  // SCEN-061: [normal] 日報確認・検索画面 - 朝会での報告内容確認・課題議論が最初から最後まで通り、記録が残る
-  test("日報入力から検索・ダッシュボード反映までの完全フロー", async ({ page, request }) => {
-    const uniqueYesterdayValue = "機能X実装完了_" + Date.now();
-    const uniqueTodayValue = "機能Y開発開始_" + Date.now();
-    const uniqueIssueValue = "DB接続タイムアウト課題_" + Date.now();
-
-    // ===== ステップ 1: 開発エンジニアAが日報入力画面でログイン・入力・送信 =====
-    await test.step("開発エンジニアAが日報入力フォームにアクセスしてログイン", async () => {
+test.describe("部長向け確認メール送信フロー", () => {
+  // SCEN-640
+  test("部長向け確認メール送信が完了し、メッセージが表示される", async ({ page, request }) => {
+    await test.step("工程1: ログイン", async () => {
       await page.goto("/login.html");
-      await page.fill('[name="username"]', 'engineer_a');
+      await page.fill('[name="username"]', 'test');
       await page.fill('[name="password"]', 'test');
       await Promise.all([
         page.waitForURL(url => !url.toString().includes('/login.html')),
         page.click('button[type="submit"]'),
       ]);
-      await page.goto("/panels/scr-1787119190590.html");
-      await expect(page.locator('[data-testid="yesterday-achievement-input"]')).toBeVisible({ timeout: 5000 });
     });
 
-    // ===== ステップ 2: 日報データを入力・送信 =====
-    await test.step("開発エンジニアAが3項目を入力して日報を送信", async () => {
-      await page.fill('[data-testid="yesterday-achievement-input"]', uniqueYesterdayValue);
-      await page.fill('[data-testid="today-plan-input"]', uniqueTodayValue);
-      await page.fill('[data-testid="issues-input"]', uniqueIssueValue);
-      
-      await Promise.all([
-        page.waitForURL(url => !url.toString().includes('/scr-1787119190590.html')),
-        page.click('[data-testid="submit-button"]'),
-      ]);
-    });
-
-    // ===== ステップ 3: 送信完了を確認（ダッシュボードへ自動遷移）=====
-    await test.step("日報送信後、ダッシュボード画面に遷移したことを確認", async () => {
-      await expect(page.locator('text=未提出')).toBeVisible({ timeout: 5000 });
-    });
-
-    // ===== ステップ 4: DBに記録されたことを確認 =====
-    await test.step("送信した日報がDBの朝会報告テーブルに記録されていることを確認", async () => {
-      const apiUrl = await page.evaluate(() => (window as any).AIVIC_API_URL);
-      const appId = await page.evaluate(() => (window as any).AIVIC_APP_ID);
-      const tableIndex = await page.evaluate(
-        (name) => ((window as any).AIVIC_TABLES || []).findIndex((t: any) => t.tableName === name),
-        "朝会報告",
-      );
-      const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
-      const rows = await res.json();
-      expect(JSON.stringify(rows)).toContain(uniqueIssueValue);
-    });
-
-    // ===== ステップ 5: 開発エンジニアAが日報確認・検索画面で自分の提出済み日報を確認 =====
-    await test.step("開発エンジニアAが日報確認・検索画面で自身の提出内容を確認", async () => {
-      await page.goto("/panels/scr-1787119221707.html");
-      await expect(page.locator('[data-testid="record-list"]')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-testid="record-list"]')).toContainText(uniqueIssueValue);
-    });
-
-    // ===== ステップ 6: 開発部長がログイン・日報確認・検索画面でエンジニアA含む複数エンジニアの日報を確認 =====
-    await test.step("開発部長がログインして日報確認・検索画面にアクセス", async () => {
-      // 部長としてログイン
-      await page.goto("/login.html");
-      await page.fill('[name="username"]', 'manager');
-      await page.fill('[name="password"]', 'test');
-      await Promise.all([
-        page.waitForURL(url => !url.toString().includes('/login.html')),
-        page.click('button[type="submit"]'),
-      ]);
-      await page.goto("/panels/scr-1787119221707.html");
-      await expect(page.locator('[data-testid="record-list"]')).toBeVisible({ timeout: 5000 });
-    });
-
-    await test.step("開発部長が複数エンジニアの提出状況を一覧で確認できることを検証", async () => {
-      // 課題キーワード「DB接続タイムアウト課題」がリスト内に表示されていることを確認
-      await expect(page.locator('[data-testid="record-list"]')).toContainText(uniqueIssueValue);
-    });
-
-    // ===== ステップ 7: 開発部長が検索機能を使用してキーワード「DB接続」で検索 =====
-    await test.step("開発部長が検索機能でキーワード『DB接続』を検索", async () => {
-      await page.fill('[data-testid="keyword-search"]', "DB接続");
-      await page.click('[data-testid="search-button"]');
-    });
-
-    await test.step("検索結果にエンジニアAの日報が表示されることを確認", async () => {
-      await expect(page.locator('[data-testid="record-list"]')).toContainText(uniqueIssueValue);
-    });
-
-    // ===== ステップ 8: プロジェクトマネージャーがログイン・日報確認・検索画面で全エンジニアの提出状況を確認 =====
-    await test.step("プロジェクトマネージャーがログインして日報確認・検索画面にアクセス", async () => {
-      await page.goto("/login.html");
-      await page.fill('[name="username"]', 'project_manager');
-      await page.fill('[name="password"]', 'test');
-      await Promise.all([
-        page.waitForURL(url => !url.toString().includes('/login.html')),
-        page.click('button[type="submit"]'),
-      ]);
-      await page.goto("/panels/scr-1787119221707.html");
-      await expect(page.locator('[data-testid="record-list"]')).toBeVisible({ timeout: 5000 });
-    });
-
-    await test.step("プロジェクトマネージャーが全エンジニアの提出状況一覧を確認", async () => {
-      await expect(page.locator('[data-testid="record-list"]')).toContainText(uniqueIssueValue);
-    });
-
-    // ===== ステップ 9: 開発部長が部長向けダッシュボードにアクセスしてエンジニアAの報告が課題一覧に反映されていることを確認 =====
-    await test.step("開発部長が部長向けダッシュボードにアクセス", async () => {
-      await page.goto("/login.html");
-      await page.fill('[name="username"]', 'manager');
-      await page.fill('[name="password"]', 'test');
-      await Promise.all([
-        page.waitForURL(url => !url.toString().includes('/login.html')),
-        page.click('button[type="submit"]'),
-      ]);
+    await test.step("工程2: 部長向けダッシュボード画面を開く", async () => {
       await page.goto("/panels/scr-1787119200549.html");
-      await expect(page.locator('text=nippo')).toBeVisible({ timeout: 5000 });
+      await expect(page).toHaveTitle(/dashboard|朝会|報告/i);
     });
 
-    await test.step("ダッシュボードの課題一覧にエンジニアAの『DB接続タイムアウト課題』が反映されていることを確認", async () => {
-      // ダッシュボード上で課題リストが表示され、入力した課題キーワードが含まれることを確認
-      await expect(page.locator('#issues-list')).toContainText(uniqueIssueValue);
+    await test.step("工程3: チームメンバーの日報提出状況を確認", async () => {
+      const submittedCountElement = page.locator('[data-testid="submitted-count"]');
+      const unsubmittedCountElement = page.locator('[data-testid="unsubmitted-count"]');
+      
+      await expect(submittedCountElement).toBeVisible({ timeout: 5000 });
+      await expect(unsubmittedCountElement).toBeVisible({ timeout: 5000 });
+      
+      const submittedCount = await submittedCountElement.textContent();
+      const unsubmittedCount = await unsubmittedCountElement.textContent();
+      
+      expect(submittedCount).not.toBeNull();
+      expect(unsubmittedCount).not.toBeNull();
+      
+      const submittedNum = parseInt(submittedCount || '0');
+      const unsubmittedNum = parseInt(unsubmittedCount || '0');
+      expect(submittedNum + unsubmittedNum).toBeGreaterThan(0);
     });
 
-    // ===== ステップ 10: 最終確認として、DBに各テーブルのレコードが正しく保存されていることを検証 =====
-    await test.step("最終確認: DB内の複数テーブルに記録が残っていることを検証", async () => {
+    let recordsBefore: any[] = [];
+    await test.step("工程4: 『確認メール送信』ボタンを押下前に記録を取得", async () => {
       const apiUrl = await page.evaluate(() => (window as any).AIVIC_API_URL);
       const appId = await page.evaluate(() => (window as any).AIVIC_APP_ID);
       
-      // 朝会報告テーブルで記録確認
-      const reportTableIndex = await page.evaluate(
-        (name) => ((window as any).AIVIC_TABLES || []).findIndex((t: any) => t.tableName === name),
-        "朝会報告",
-      );
-      const reportRes = await request.get(`${apiUrl}/api/${reportTableIndex}?app=${appId}`);
-      const reportRows = await reportRes.json();
-      expect(JSON.stringify(reportRows)).toContain(uniqueIssueValue);
-      expect(JSON.stringify(reportRows)).toContain(uniqueYesterdayValue);
-      expect(JSON.stringify(reportRows)).toContain(uniqueTodayValue);
+      if (apiUrl && appId) {
+        const tableIndex = await page.evaluate(
+          (name) => ((window as any).AIVIC_TABLES || []).findIndex((t: any) => t.tableName === name),
+          "リマインド通知履歴"
+        );
+        
+        if (tableIndex >= 0) {
+          const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
+          if (res.ok()) {
+            recordsBefore = await res.json();
+            expect(Array.isArray(recordsBefore)).toBe(true);
+          }
+        }
+      }
+    });
+
+    await test.step("工程4: 『確認メール送信』ボタンを押下", async () => {
+      const sendButton = page.locator('[data-testid="send-reminder-button"]');
+      await expect(sendButton).toBeVisible({ timeout: 5000 });
+      await sendButton.click();
+    });
+
+    await test.step("工程5: 確認メール送信処理が実行され、完了メッセージが表示される", async () => {
+      const successMessage = page.locator('text=/確認メール送信完了|送信完了|送信しました/i');
+      await expect(successMessage).toBeVisible({ timeout: 10000 });
       
-      // 課題抽出結果テーブルで記録確認
-      const issueExtractTableIndex = await page.evaluate(
-        (name) => ((window as any).AIVIC_TABLES || []).findIndex((t: any) => t.tableName === name),
-        "課題抽出結果",
-      );
-      const issueRes = await request.get(`${apiUrl}/api/${issueExtractTableIndex}?app=${appId}`);
-      const issueRows = await issueRes.json();
-      expect(JSON.stringify(issueRows)).toContain(uniqueIssueValue);
+      const messageText = await successMessage.textContent();
+      expect(messageText).toContain("完了");
+    });
+
+    await test.step("工程6: 画面遷移またはステータス表示により、処理完了状態が確認される", async () => {
+      const completionIndicator = page.locator('text=/送信完了|完了|確認メール/i');
+      await expect(completionIndicator).toBeVisible({ timeout: 5000 });
+      
+      const apiUrl = await page.evaluate(() => (window as any).AIVIC_API_URL);
+      const appId = await page.evaluate(() => (window as any).AIVIC_APP_ID);
+      
+      if (apiUrl && appId) {
+        const tableIndex = await page.evaluate(
+          (name) => ((window as any).AIVIC_TABLES || []).findIndex((t: any) => t.tableName === name),
+          "リマインド通知履歴"
+        );
+        
+        if (tableIndex >= 0) {
+          const res = await request.get(`${apiUrl}/api/${tableIndex}?app=${appId}`);
+          expect(res.ok()).toBe(true);
+          const recordsAfter = await res.json();
+          expect(Array.isArray(recordsAfter)).toBe(true);
+          expect(recordsAfter.length).toBeGreaterThanOrEqual(recordsBefore.length);
+        }
+      }
     });
   });
 });

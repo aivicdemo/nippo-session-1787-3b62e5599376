@@ -1,20 +1,32 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
-import { type SubmitDailyReportInput } from '../../src/logic/daily-report-management';
+import { getSubmissionStatus } from "../../src/logic/report-submission-management";
 
-describe('朝会報告管理システム - 日報送信処理', () => {
-  // SCEN-315
-  test('朝会報告入力フォーム検証 - 「今日やること」項目が空文字列のとき、エラー表示される', () => {
-    const input: SubmitDailyReportInput = {
-      userId: 'user-001',
-      teamId: 'team-001',
-      yesterdayAccomplishment: 'タスクA完了',
-      todayPlan: '',
-      challenges: '課題X',
-      reportDate: '2024-01-15',
+describe("朝会報告管理システム - 提出状況集計", () => {
+  test("SCEN-315: チームメンバーIDリストが空のとき、例外をスロー", async () => {
+    const teamId = "team-001";
+    const reportDate = "2026-08-20";
+    const requesterId = "user-admin-001";
+
+    const mockJudgeAccessPermission = jest.fn().mockResolvedValue(true);
+    const mockRetrieveReportsByDateRange = jest
+      .fn()
+      .mockResolvedValue([]);
+    const mockDecryptReportDataForManager = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    const mockGetTeamMembers = jest.fn().mockResolvedValue([]);
+
+    const input = {
+      teamId,
+      reportDate,
+      requesterId,
+      _judgeAccessPermission: mockJudgeAccessPermission,
+      _retrieveReportsByDateRange: mockRetrieveReportsByDateRange,
+      _decryptReportDataForManager: mockDecryptReportDataForManager,
+      _getTeamMembers: mockGetTeamMembers,
     };
 
-    expect(() => {
-      submitDailyReport(input);
-    }).toThrow(/今日やること/);
+    await expect(
+      getSubmissionStatus(input as any)
+    ).rejects.toThrow(/チームメンバーが登録されていません/);
   });
 });

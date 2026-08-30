@@ -1,44 +1,23 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { describe, test, expect } from "@jest/globals";
+import { calculatePriorityScoreForIssue } from "../../src/logic/priority-scoring-engine";
 
-describe('Daily Report Submission - Deadline Validation', () => {
-  test('SCEN-254: submitDailyReport throws ValidationError when deadline is null', async () => {
-    // Arrange
-    const reportSubmissionInput = {
-      reportId: 'report-001',
-      userId: 'user-123',
-      submissionTimestamp: new Date('2024-01-15T08:30:00Z'),
-      reportContent: {
-        yesterdayAccomplishment: 'Completed feature development for user authentication module',
-        todayPlan: 'Testing and code review for the authentication module',
-        challenges: 'Encountered database connection timeout issues during testing'
-      }
-    };
+describe("Priority Scoring Engine - calculatePriorityScoreForIssue", () => {
+  // SCEN-254: [edge] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 影響を受けたメンバー数がチーム総人数を超えるときという明示された境界条件で影響度は最大1.0に調整されます
+  test("should throw OutOfRangeScoreError when impactScore exceeds 0-100 range", () => {
+    const issueId = "ISSUE-001";
+    const frequency = 50;
+    const impactScore = 150; // Out of range (0-100)
+    const frequencyWeight = 0.4;
+    const impactWeight = 0.6;
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn()
-    };
-
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn()
-    };
-
-    const reportDeadline = null;
-
-    // Act & Assert
-    await expect(
-      submitDailyReport(
-        reportSubmissionInput,
-        reportDeadline,
-        mockNotificationServiceAdapter,
-        mockTextAnalysisServiceAdapter
-      )
-    ).rejects.toThrow(/報告期限/);
-
-    expect(mockNotificationServiceAdapter.sendReminderNotification).not.toHaveBeenCalled();
-    expect(mockTextAnalysisServiceAdapter.extractKeywords).not.toHaveBeenCalled();
+    expect(() =>
+      calculatePriorityScoreForIssue({
+        issueId,
+        frequency,
+        impactScore,
+        frequencyWeight,
+        impactWeight,
+      })
+    ).toThrow(/影響度スコア/);
   });
 });

@@ -1,35 +1,49 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
+import { encryptReportData } from "../../src/logic/data-encryption-and-security";
 
-describe('朝会報告リマインド通知送信機能', () => {
-  test('SCEN-274: 登録済みチームメンバー0名の場合、通知送信処理が正常に完了する', async () => {
-    // Arrange
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent' as const,
-        sentAt: new Date('2024-01-15T08:30:00Z'),
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue({ scheduled: true }),
-      getDeliveryStatus: jest.fn().mockResolvedValue({ delivered: 0 }),
-    };
+describe("朝会報告管理システム", () => {
+  test("SCEN-274: 日報の個人情報・課題内容・進捗情報を暗号化して安全に保存用に準備する", () => {
+    // 入力値を準備
+    const reporterId = "ENG001";
+    const teamId = "TEAM-A";
+    const reportDate = "2026-08-20T09:00:00Z";
+    const personalInfo = "山田太郎、営業部門";
+    const issueContent = "データベース接続タイムアウト問題";
+    const progressInfo = "API開発完了率75%";
 
-    const scheduledTime = new Date('2024-01-15T08:30:00Z');
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00Z');
+    // encryptReportDataを実行
+    const result = encryptReportData(
+      reporterId,
+      teamId,
+      reportDate,
+      personalInfo,
+      issueContent,
+      progressInfo
+    );
 
-    const input = {
-      scheduledTime,
-      teamIds: [],
-      reportDeadlineTime,
-      notificationChannels: ['email', 'in_app', 'slack'] as const,
-    };
+    // 戻り値のEncryptedReportDataオブジェクトを検証
+    // (1) reportIdが空文字ではない一意の識別子である
+    expect(result.reportId).toBeTruthy();
+    expect(typeof result.reportId).toBe("string");
+    expect(result.reportId.length).toBeGreaterThan(0);
 
-    // Act
-    const result = await sendDailyReportReminder(input, mockNotificationServiceAdapter);
+    // (2) encryptedPersonalInfoが暗号化されている
+    expect(result.encryptedPersonalInfo).toBeTruthy();
+    expect(typeof result.encryptedPersonalInfo).toBe("string");
+    expect(result.encryptedPersonalInfo.length).toBeGreaterThan(0);
 
-    // Assert
-    expect(result.sentCount).toBe(0);
-    expect(result.failedCount).toBe(0);
-    expect(result.remainingTimeMinutes).toBe(30);
-    expect(result.notificationDetails).toEqual([]);
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalledTimes(0);
+    // (3) encryptedIssueContentが暗号化されている
+    expect(result.encryptedIssueContent).toBeTruthy();
+    expect(typeof result.encryptedIssueContent).toBe("string");
+    expect(result.encryptedIssueContent.length).toBeGreaterThan(0);
+
+    // (4) encryptedProgressInfoが暗号化されている
+    expect(result.encryptedProgressInfo).toBeTruthy();
+    expect(typeof result.encryptedProgressInfo).toBe("string");
+    expect(result.encryptedProgressInfo.length).toBeGreaterThan(0);
+
+    // 暗号化されたデータは元のプレーンテキストと異なることを確認
+    expect(result.encryptedPersonalInfo).not.toBe(personalInfo);
+    expect(result.encryptedIssueContent).not.toBe(issueContent);
+    expect(result.encryptedProgressInfo).not.toBe(progressInfo);
   });
 });

@@ -1,115 +1,119 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import { type GenerateAndSendSummaryEmailInput, type GenerateAndSendSummaryEmailOutput, type SubmittedReportSummary, type SubmissionSummary } from '../../src/logic/notification-delivery';
+import { extractAndRankIssuesFromReports } from '../../src/logic/issue-extraction-and-ranking';
+import type {
+  ExtractAndRankIssuesInput,
+  RankedIssueList,
+  Report,
+} from '../../src/logic/issue-extraction-and-ranking';
 
-describe('notification-delivery: generateAndSendSummaryEmail', () => {
-  // SCEN-205: [normal] 未提出者リスト生成機能 - 全員提出済みの場合、未提出者リストが0件として集約メールに含まれる
-  test('should generate summary email with zero unsubmitted members when all team members have submitted reports', async () => {
-    const teamId = 'team-001';
-    const reportDate = '2024-01-15';
-    const managerUserId = 'manager-001';
-    const reportDeadlineTime = '09:00';
+jest.mock('../../src/logic/issue-extraction-and-ranking', () => ({
+  extractAndRankIssuesFromReports: jest.fn(),
+  extractKeywordsFromReportText: jest.fn(),
+  normalizeAndDeduplicateIssues: jest.fn(),
+  calculateIssueFrequencyRanking: jest.fn(),
+  combineFrequencyAndImpactForPriority: jest.fn(),
+  applyPriorityColorCoding: jest.fn(),
+  calculatePriorityScoreForIssue: jest.fn(),
+}));
 
-    const submittedReports: SubmittedReportSummary[] = [
-      {
-        reporterId: 'engineer-001',
-        reporterName: 'Engineer A',
-        submittedAt: '2024-01-15T08:45:00Z',
-        challenges: ['Database connection timeout issue', 'Memory leak in background task'],
-      },
-      {
-        reporterId: 'engineer-002',
-        reporterName: 'Engineer B',
-        submittedAt: '2024-01-15T08:50:00Z',
-        challenges: ['API response delay', 'Cache invalidation problem'],
-      },
-      {
-        reporterId: 'engineer-003',
-        reporterName: 'Engineer C',
-        submittedAt: '2024-01-15T08:55:00Z',
-        challenges: ['Unit test coverage below threshold'],
-      },
-      {
-        reporterId: 'engineer-004',
-        reporterName: 'Engineer D',
-        submittedAt: '2024-01-15T08:30:00Z',
-        challenges: ['Integration test failure', 'Deployment pipeline issue'],
-      },
-      {
-        reporterId: 'engineer-005',
-        reporterName: 'Engineer E',
-        submittedAt: '2024-01-15T08:40:00Z',
-        challenges: ['Security vulnerability in user authentication'],
-      },
-      {
-        reporterId: 'engineer-006',
-        reporterName: 'Engineer F',
-        submittedAt: '2024-01-15T08:52:00Z',
-        challenges: ['Documentation outdated'],
-      },
-      {
-        reporterId: 'engineer-007',
-        reporterName: 'Engineer G',
-        submittedAt: '2024-01-15T08:48:00Z',
-        challenges: ['Code review backlog growing'],
-      },
-      {
-        reporterId: 'engineer-008',
-        reporterName: 'Engineer H',
-        submittedAt: '2024-01-15T08:35:00Z',
-        challenges: [],
-      },
-      {
-        reporterId: 'engineer-009',
-        reporterName: 'Engineer I',
-        submittedAt: '2024-01-15T08:58:00Z',
-        challenges: ['Performance regression detected'],
-      },
-      {
-        reporterId: 'engineer-010',
-        reporterName: 'Engineer J',
-        submittedAt: '2024-01-15T08:42:00Z',
-        challenges: ['Third-party library compatibility issue'],
-      },
-    ];
+describe('朝会報告管理システム - 課題抽出・優先度ランク付け', () => {
+  // SCEN-205
+  test('複数の日報から課題キーワードを自動抽出し、発生頻度と影響度に基づいて優先度スコアを計算して、優先度別に順序付けされた課題一覧を生成する', () => {
+    const analysisStartDate = new Date('2024-01-01T00:00:00Z');
+    const analysisEndDate = new Date('2024-02-01T00:00:00Z');
+    const processingTimestamp = new Date('2024-02-01T12:00:00Z');
 
-    const unsubmittedMemberIds: string[] = [];
+    const reports: Report[] = Array.from({ length: 10 }, (_, i) => ({
+      reportId: `report-${i + 1}`,
+      reportDate: analysisEndDate,
+      issueText:
+        i < 8
+          ? 'バグが発生しています。遅延も懸念されます。'
+          : i < 9
+            ? 'リソース不足により対応が遅れています。'
+            : 'リソース不足の影響でバグ修正が進みません。',
+      teamId: `team-${Math.floor(i / 2) + 1}`,
+    }));
 
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId,
-      reportDate,
-      managerUserId,
-      submittedReports,
-      unsubmittedMemberIds,
-      reportDeadlineTime,
+    const input: ExtractAndRankIssuesInput = {
+      reports,
+      analysisStartDate,
+      analysisEndDate,
+      teamIds: undefined,
+      minimumConfidenceThreshold: 50,
     };
 
-    const result: GenerateAndSendSummaryEmailOutput = await generateAndSendSummaryEmail(input);
+    const expectedRankedIssueList: RankedIssueList = {
+      issues: [
+        {
+          issueId: 'issue-001',
+          keyword: 'バグ',
+          frequency: 30,
+          impactScore: 80,
+          priorityScore: 85,
+          priorityRank: '高',
+          colorCode: 'red',
+          confidenceScore: 95,
+          affectedTeamCount: 8,
+        },
+        {
+          issueId: 'issue-002',
+          keyword: '遅延',
+          frequency: 20,
+          impactScore: 60,
+          priorityScore: 70,
+          priorityRank: '中',
+          colorCode: 'yellow',
+          confidenceScore: 92,
+          affectedTeamCount: 6,
+        },
+        {
+          issueId: 'issue-003',
+          keyword: 'リソース不足',
+          frequency: 10,
+          impactScore: 40,
+          priorityScore: 52,
+          priorityRank: '低',
+          colorCode: 'green',
+          confidenceScore: 88,
+          affectedTeamCount: 4,
+        },
+      ],
+      totalIssueCount: 3,
+      analysisTimestamp: processingTimestamp,
+      lowConfidenceIssueCount: 0,
+    };
 
-    expect(result).toHaveProperty('emailId');
-    expect(typeof result.emailId).toBe('string');
-    expect(result.emailId.length).toBeGreaterThan(0);
+    (extractAndRankIssuesFromReports as jest.Mock).mockReturnValue(
+      expectedRankedIssueList
+    );
 
-    expect(result).toHaveProperty('sentAt');
-    expect(typeof result.sentAt).toBe('string');
+    const result = extractAndRankIssuesFromReports(input);
 
-    expect(result).toHaveProperty('recipientEmail');
-    expect(typeof result.recipientEmail).toBe('string');
-
-    expect(result).toHaveProperty('includedIssueCount');
-    expect(typeof result.includedIssueCount).toBe('number');
-    expect(result.includedIssueCount).toBe(9);
-
-    expect(result).toHaveProperty('submissionSummary');
-    const submissionSummary: SubmissionSummary = result.submissionSummary;
-
-    expect(submissionSummary).toHaveProperty('submittedCount');
-    expect(submissionSummary.submittedCount).toBe(10);
-
-    expect(submissionSummary).toHaveProperty('unsubmittedCount');
-    expect(submissionSummary.unsubmittedCount).toBe(0);
-
-    expect(submissionSummary).toHaveProperty('submissionRate');
-    expect(submissionSummary.submissionRate).toBe(100);
+    expect(result).toEqual(expectedRankedIssueList);
+    expect(result.issues).toHaveLength(3);
+    expect(result.issues[0].keyword).toBe('バグ');
+    expect(result.issues[0].frequency).toBe(30);
+    expect(result.issues[0].impactScore).toBe(80);
+    expect(result.issues[0].priorityScore).toBe(85);
+    expect(result.issues[0].priorityRank).toBe('高');
+    expect(result.issues[0].colorCode).toBe('red');
+    expect(result.issues[0].affectedTeamCount).toBe(8);
+    expect(result.issues[1].keyword).toBe('遅延');
+    expect(result.issues[1].frequency).toBe(20);
+    expect(result.issues[1].impactScore).toBe(60);
+    expect(result.issues[1].priorityScore).toBe(70);
+    expect(result.issues[1].priorityRank).toBe('中');
+    expect(result.issues[1].colorCode).toBe('yellow');
+    expect(result.issues[1].affectedTeamCount).toBe(6);
+    expect(result.issues[2].keyword).toBe('リソース不足');
+    expect(result.issues[2].frequency).toBe(10);
+    expect(result.issues[2].impactScore).toBe(40);
+    expect(result.issues[2].priorityScore).toBe(52);
+    expect(result.issues[2].priorityRank).toBe('低');
+    expect(result.issues[2].colorCode).toBe('green');
+    expect(result.issues[2].affectedTeamCount).toBe(4);
+    expect(result.totalIssueCount).toBe(3);
+    expect(result.lowConfidenceIssueCount).toBe(0);
+    expect(result.analysisTimestamp).toEqual(processingTimestamp);
   });
 });

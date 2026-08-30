@@ -1,38 +1,45 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
+import { filterDisplayContentByRole, type FilteredDisplayContent } from "../../src/logic/access-control-and-permissions";
 
-describe('ユーザー認証・権限管理 - ログイン状態フラグによるアクセス制御', () => {
-  test('SCEN-131: ユーザー役割による機能アクセス制御 - ログイン状態フラグが false のとき、アクセス制御がエラーを返す', () => {
-    const user_auth_context = {
-      userId: 'user-001',
-      role: 'engineer',
-      teamIds: ['team-A'],
-      isActive: true,
+describe("filterDisplayContentByRole", () => {
+  test("SCEN-131: エンジニアロールのダッシュボード表示時に、許可された項目のみをフィルタリングして返す", () => {
+    const userContext = {
+      userId: "eng001",
+      role: "engineer" as const,
+      teamId: "team-A",
+      permissionLevel: 0,
     };
 
-    const authorization_check_input = {
-      userId: user_auth_context.userId,
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-A',
-      targetDataType: '自分の進捗のみ',
+    const contentType = "dashboard" as const;
+    const targetTeamId = "team-A";
+    const dataSet = {
+      reportCount: 5,
+      budgetAmount: 100000,
+      teamMembersDetails: ["member1", "member2"],
+      issueKeywords: ["keyword1"],
+      performanceScore: 85,
+      internalNotes: "confidential",
     };
 
-    const user_context_with_logged_out = {
-      ...user_auth_context,
-      isActive: false,
-    };
-
-    const result = validateUserAuthorizationAndPermission(
-      user_context_with_logged_out,
-      authorization_check_input,
+    const result = filterDisplayContentByRole(
+      userContext,
+      contentType,
+      targetTeamId,
+      dataSet
     );
 
-    expect(result.isAuthorized).toBe(false);
-    expect(result.errorCode).toBe('UNAUTHORIZED');
-    expect(result.errorMessage).toBe(
-      'ログインが必要です。再度ログインしてください。',
-    );
-    expect(result.statusCode).toBe(401);
-    expect(result.allowedDataScope).toBeNull();
-    expect(result.editableFeatures).toEqual([]);
+    const expectedResult: FilteredDisplayContent = {
+      visibleFields: ["reportCount", "issueKeywords"],
+      filteredData: {
+        reportCount: 5,
+        issueKeywords: ["keyword1"],
+      },
+      accessLevel: "read_only",
+      hiddenFieldsCount: 4,
+    };
+
+    expect(result.visibleFields).toEqual(expectedResult.visibleFields);
+    expect(result.filteredData).toEqual(expectedResult.filteredData);
+    expect(result.accessLevel).toBe(expectedResult.accessLevel);
+    expect(result.hiddenFieldsCount).toBe(expectedResult.hiddenFieldsCount);
   });
 });

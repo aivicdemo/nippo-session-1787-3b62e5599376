@@ -1,25 +1,59 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { verifyAdoptionReadiness } from '../../src/logic/adoption-training-management';
+import type { InitialReportData, AdoptionReadinessVerificationResult } from '../../src/logic/adoption-training-management';
 
-describe('課題優先度判定機能', () => {
-  test('SCEN-592: 影響度スコア51（中位の閾値直上）の場合、優先度ランクが中に判定される', () => {
-    const input = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが間欠的に発生',
-      occurrenceFrequency: 5,
-      impactScore: 51,
-      affectedTeamCount: 2,
-      resolutionDaysAverage: 3,
-      reportingDate: '2024-02-15',
-      teamId: 'team-001',
-    };
+describe('AdoptionTrainingManagement', () => {
+  // SCEN-592
+  test('should verify adoption readiness and confirm production start eligibility when all criteria are met', () => {
+    // Arrange
+    const initialReportDataset: InitialReportData[] = Array.from({ length: 10 }, (_, i) => ({
+      reportId: `report-${i + 1}`,
+      engineerId: `engineer-${i + 1}`,
+      submittedAt: new Date('2024-01-15T09:00:00Z'),
+      reportContent: `Test report content ${i + 1}`
+    }));
 
-    const result = calculateIssuePriorityScore(input);
+    const totalEngineerCount = 10;
+    const submissionDeadline = new Date('2024-01-15T10:00:00Z');
 
-    expect(result.priorityRank).toBe('中');
-    expect(result.priorityScore).toBeGreaterThanOrEqual(40);
-    expect(result.priorityScore).toBeLessThan(70);
-    expect(result.scoreBreakdown.impactScore).toBeCloseTo(20, 0);
-    expect(result.colorCode).toBe('#FFFF00');
-    expect(result.issueId).toBe('issue-001');
+    // Mock the helper functions to return values that meet all criteria
+    const mockCalculateSubmissionRate = jest.fn().mockReturnValue(95);
+    const mockCalculateReportQualityScore = jest.fn().mockReturnValue(85);
+    const mockCalculateFormatUnificationDegree = jest.fn().mockReturnValue(90);
+
+    // Temporarily replace module functions with mocks
+    const moduleExports = require('../../src/logic/adoption-training-management');
+    const originalCalculateSubmissionRate = moduleExports.calculateSubmissionRate;
+    const originalCalculateReportQualityScore = moduleExports.calculateReportQualityScore;
+    const originalCalculateFormatUnificationDegree = moduleExports.calculateFormatUnificationDegree;
+
+    moduleExports.calculateSubmissionRate = mockCalculateSubmissionRate;
+    moduleExports.calculateReportQualityScore = mockCalculateReportQualityScore;
+    moduleExports.calculateFormatUnificationDegree = mockCalculateFormatUnificationDegree;
+
+    try {
+      // Act
+      const result: AdoptionReadinessVerificationResult = verifyAdoptionReadiness({
+        initialReportDataset,
+        totalEngineerCount,
+        submissionDeadline
+      });
+
+      // Assert
+      expect(result.readinessStatus).toBe('ready');
+      expect(result.verificationDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(result.productionStartDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(result.blockers).toBeUndefined();
+      expect(mockCalculateSubmissionRate).toHaveBeenCalledWith(
+        initialReportDataset,
+        totalEngineerCount
+      );
+      expect(mockCalculateReportQualityScore).toHaveBeenCalledWith(initialReportDataset);
+      expect(mockCalculateFormatUnificationDegree).toHaveBeenCalledWith(initialReportDataset);
+    } finally {
+      // Restore original functions
+      moduleExports.calculateSubmissionRate = originalCalculateSubmissionRate;
+      moduleExports.calculateReportQualityScore = originalCalculateReportQualityScore;
+      moduleExports.calculateFormatUnificationDegree = originalCalculateFormatUnificationDegree;
+    }
   });
 });

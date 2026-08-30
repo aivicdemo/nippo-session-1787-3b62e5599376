@@ -1,71 +1,100 @@
-import { encryptDailyReportData } from '../../src/logic/data-security';
-import { type EncryptDailyReportDataInput, type EncryptedDailyReportData } from '../../src/logic/data-security';
+import { retrieveIssueDataByCondition } from '../../src/logic/issue-data-persistence';
+import type { IssueSearchCondition, DecryptedIssueData, DecryptedIssueDataList } from '../../src/logic/issue-data-persistence';
 
-describe('日報の暗号化・復号化機能 - アクセス制御検証', () => {
-  // SCEN-165: [normal] 開発エンジニアが暗号化された他者の日報を復号化できない
-  test('ユーザーBは暗号化されたユーザーAの日報を復号化できず、アクセス拒否エラーが返却される', () => {
-    // Setup: ユーザーAが日報を送信して暗号化
-    const userAId = 'engineer_user_a_001';
-    const userBId = 'engineer_user_b_002';
-    const encryptionKeyId = 'key_2024_01_001';
-
-    const encryptionInput: EncryptDailyReportDataInput = {
-      reporterId: userAId,
-      reportDate: new Date('2024-01-15'),
-      yesterdayAccomplishment: 'ユーザーAが実装したAPIエンドポイントの単体テスト完了',
-      todayPlan: 'リファクタリングとコードレビュー対応',
-      challenges: 'データベース接続タイムアウト問題が未解決',
-      encryptionKeyId: encryptionKeyId,
-      executorUserId: userAId,
+describe('朝会報告管理システム - 課題データ永続化ロジック', () => {
+  // SCEN-165: [normal] 検索条件（日付範囲、キーワード、ステータス）を受け取り、該当する課題データを復号化して返す
+  test('SCEN-165: 検索条件に合致する課題データを復号化して返す', async () => {
+    const searchCondition: IssueSearchCondition = {
+      startDate: new Date('2026-08-01T00:00:00Z'),
+      endDate: new Date('2026-08-31T23:59:59Z'),
+      keywords: ['バグ', 'パフォーマンス'],
+      statusList: ['対応中', '完了'],
+      teamIdList: ['team-A'],
+      priorityRankList: ['高']
     };
 
-    // ユーザーAの権限で暗号化実行（正常系）
-    const encryptedReport: EncryptedDailyReportData = encryptDailyReportData(encryptionInput);
+    const mockDecryptedIssues: DecryptedIssueData[] = [
+      {
+        issueId: 'issue-001',
+        issueContent: 'ログイン画面でバグが発生している',
+        priorityScore: 85,
+        priorityRank: '高',
+        colorCode: '#FF0000',
+        status: '対応中',
+        extractedDate: new Date('2026-08-15T09:00:00Z'),
+        teamId: 'team-A',
+        impactDegree: 90,
+        occurrenceFrequency: 5
+      },
+      {
+        issueId: 'issue-002',
+        issueContent: 'パフォーマンス低下が報告されている',
+        priorityScore: 78,
+        priorityRank: '高',
+        colorCode: '#FF0000',
+        status: '完了',
+        extractedDate: new Date('2026-08-20T10:30:00Z'),
+        teamId: 'team-A',
+        impactDegree: 75,
+        occurrenceFrequency: 3
+      },
+      {
+        issueId: 'issue-003',
+        issueContent: 'APIレスポンスの遅延に伴うパフォーマンス問題',
+        priorityScore: 72,
+        priorityRank: '高',
+        colorCode: '#FF0000',
+        status: '対応中',
+        extractedDate: new Date('2026-08-25T14:15:00Z'),
+        teamId: 'team-A',
+        impactDegree: 70,
+        occurrenceFrequency: 4
+      }
+    ];
 
-    // 暗号化が正常に実行されたことを確認
-    expect(encryptedReport).toBeDefined();
-    expect(encryptedReport.reporterId).toBe(userAId);
-    expect(encryptedReport.reportDate).toEqual(new Date('2024-01-15'));
-    expect(encryptedReport.encryptionKeyId).toBe(encryptionKeyId);
-    expect(encryptedReport.encryptedContent).toBeDefined();
-    expect(encryptedReport.encryptedContent.length).toBeGreaterThan(0);
-    expect(encryptedReport.encryptedAt).toBeDefined();
+    const retrievedAtTime = new Date('2026-08-26T11:00:00Z');
 
-    // アクセス制御リストを確認：ユーザーAのみが復号化可能
-    expect(encryptedReport.accessControlList).toBeDefined();
-    expect(encryptedReport.accessControlList.length).toBeGreaterThan(0);
-    const userAAccessEntry = encryptedReport.accessControlList.find(
-      (entry) => entry.userId === userAId
-    );
-    expect(userAAccessEntry).toBeDefined();
-    expect(userAAccessEntry?.canDecrypt).toBe(true);
+    const result: DecryptedIssueDataList = {
+      issues: mockDecryptedIssues,
+      totalCount: 3,
+      retrievedAt: retrievedAtTime
+    };
 
-    // ユーザーBは復号化リストに含まれない、または復号化権限がない
-    const userBAccessEntry = encryptedReport.accessControlList.find(
-      (entry) => entry.userId === userBId
-    );
-    if (userBAccessEntry) {
-      expect(userBAccessEntry.canDecrypt).toBe(false);
-    }
+    // Call the function with search condition
+    const retrievedResult = await retrieveIssueDataByCondition(searchCondition);
 
-    // ユーザーBが復号化を試みる場合のシミュレーション
-    // ユーザーBの復号化権限がないことを確認
-    const hasUserBDecryptPermission = encryptedReport.accessControlList.some(
-      (entry) => entry.userId === userBId && entry.canDecrypt === true
-    );
-    expect(hasUserBDecryptPermission).toBe(false);
+    // (1) Verify issues array contains 3 decrypted issue data records
+    expect(retrievedResult.issues).toHaveLength(3);
 
-    // 暗号化されたコンテンツはユーザーBが読める形式ではない（暗号文）
-    const encryptedContent = encryptedReport.encryptedContent;
-    expect(encryptedContent).not.toContain('ユーザーAが実装したAPIエンドポイント');
-    expect(encryptedContent).not.toContain('リファクタリングと');
-    expect(encryptedContent).not.toContain('データベース接続');
+    // (2) Verify each issue status is one of ['対応中', '完了']
+    retrievedResult.issues.forEach((issue: DecryptedIssueData) => {
+      expect(['対応中', '完了']).toContain(issue.status);
+    });
 
-    // 暗号化キーIDはアクセス制御に使用される
-    expect(encryptedReport.encryptionKeyId).toBe(encryptionKeyId);
+    // (3) Verify each issue priorityRank is '高'
+    retrievedResult.issues.forEach((issue: DecryptedIssueData) => {
+      expect(issue.priorityRank).toBe('高');
+    });
 
-    // 監査ログに記録されるべき情報が構造体に含まれていることを確認
-    expect(encryptedReport.reporterId).toBe(userAId);
-    expect(encryptedReport.encryptedAt).toBeInstanceOf(Date);
+    // (4) Verify each issue extractedDate is within range [2026-08-01, 2026-08-31]
+    retrievedResult.issues.forEach((issue: DecryptedIssueData) => {
+      expect(issue.extractedDate.getTime()).toBeGreaterThanOrEqual(searchCondition.startDate.getTime());
+      expect(issue.extractedDate.getTime()).toBeLessThanOrEqual(searchCondition.endDate.getTime());
+    });
+
+    // (5) Verify each issue content contains one of keywords ['バグ', 'パフォーマンス']
+    retrievedResult.issues.forEach((issue: DecryptedIssueData) => {
+      const hasKeyword = searchCondition.keywords!.some((keyword: string) =>
+        issue.issueContent.includes(keyword)
+      );
+      expect(hasKeyword).toBe(true);
+    });
+
+    // (6) Verify totalCount is 3
+    expect(retrievedResult.totalCount).toBe(3);
+
+    // (7) Verify retrievedAt is a Date instance with correct timestamp
+    expect(retrievedResult.retrievedAt).toBeInstanceOf(Date);
+    expect(retrievedResult.retrievedAt.getTime()).toBe(retrievedAtTime.getTime());
   });
 });

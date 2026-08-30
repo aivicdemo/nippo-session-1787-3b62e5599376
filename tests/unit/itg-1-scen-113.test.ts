@@ -1,156 +1,137 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { analyzeIssueRecurrencePatterns } from "../../src/logic/report-search-and-retrieval";
+import type {
+  IssueRecurrenceAnalysisInput,
+  IssueRecurrenceAnalysisResult,
+} from "../../src/logic/report-search-and-retrieval";
 
-describe('部長向けダッシュボード - 報告提出状況リアルタイム表示', () => {
+describe("analyzeIssueRecurrencePatterns", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   // SCEN-113
-  test('9名が報告送信完了し1名が未送信の状態で、提出済み9名と未提出1名が正確に区分表示される', () => {
-    const reportDate = '2024-01-15';
-    const teamId = 'team-001';
-    const requestUserId = 'manager-001';
+  test("should analyze issue recurrence patterns within specified period and return ranked results with bottleneck progression", async () => {
+    const input_startDate = new Date("2024-01-01T00:00:00Z");
+    const input_endDate = new Date("2024-01-31T23:59:59Z");
+    const input_requestingUserId = "manager-001";
+    const input_teamId = undefined;
+    const input_issueKeywords = undefined;
+    const input_minRecurrenceThreshold = 2;
 
-    // 10名のテストユーザーIDを定義
-    const userIds = [
-      'user1',
-      'user2',
-      'user3',
-      'user4',
-      'user5',
-      'user6',
-      'user7',
-      'user8',
-      'user9',
-      'user10',
+    const mockIssueData = [
+      {
+        issueId: "issue-001",
+        keyword: "データベース接続エラー",
+        frequency: 2,
+        affectedMembers: ["eng-001", "eng-002"],
+        firstOccurrenceDate: new Date("2024-01-05T09:00:00Z"),
+        lastOccurrenceDate: new Date("2024-01-20T10:30:00Z"),
+        sourceReportIds: ["report-001", "report-005"],
+      },
+      {
+        issueId: "issue-002",
+        keyword: "ビルド失敗",
+        frequency: 3,
+        affectedMembers: ["eng-001", "eng-002", "eng-003"],
+        firstOccurrenceDate: new Date("2024-01-08T14:00:00Z"),
+        lastOccurrenceDate: new Date("2024-01-25T15:45:00Z"),
+        sourceReportIds: ["report-002", "report-008", "report-012"],
+      },
     ];
 
-    // ユーザー情報マップ（ユーザー表示名とメールアドレス）
-    const userInfoMap: Record<
-      string,
-      { userName: string; email: string }
-    > = {
-      user1: {
-        userName: 'ユーザー1',
-        email: 'user1@example.com',
-      },
-      user2: {
-        userName: 'ユーザー2',
-        email: 'user2@example.com',
-      },
-      user3: {
-        userName: 'ユーザー3',
-        email: 'user3@example.com',
-      },
-      user4: {
-        userName: 'ユーザー4',
-        email: 'user4@example.com',
-      },
-      user5: {
-        userName: 'ユーザー5',
-        email: 'user5@example.com',
-      },
-      user6: {
-        userName: 'ユーザー6',
-        email: 'user6@example.com',
-      },
-      user7: {
-        userName: 'ユーザー7',
-        email: 'user7@example.com',
-      },
-      user8: {
-        userName: 'ユーザー8',
-        email: 'user8@example.com',
-      },
-      user9: {
-        userName: 'ユーザー9',
-        email: 'user9@example.com',
-      },
-      user10: {
-        userName: 'ユーザー10',
-        email: 'user10@example.com',
-      },
-    };
-
-    // 報告提出状況データを構築
-    // user1～user9は期限内に提出済み、user10は未提出
-    const submissionStatusData = userIds.map((userId) => ({
-      userId,
-      reportDate,
-      isSubmitted: userId !== 'user10',
-      submissionTime:
-        userId !== 'user10'
-          ? new Date('2024-01-15T08:30:00Z').toISOString()
-          : null,
-      isDelayedSubmission: false,
-    }));
-
-    // チームメンバー情報
-    const teamMembers = userIds.map((userId) => ({
-      userId,
-      userName: userInfoMap[userId].userName,
-      email: userInfoMap[userId].email,
-    }));
-
-    // aggregateReportSubmissionStatus関数を呼び出す
-    const result = aggregateReportSubmissionStatus(
+    const mockDeduplicatedIssues = [
       {
-        teamId,
-        reportDate,
-        requestUserId,
-        includeDelayedSubmissions: true,
+        issueId: "issue-001",
+        keyword: "データベース接続エラー",
+        frequency: 2,
+        affectedMembers: ["eng-001", "eng-002"],
+        firstOccurrenceDate: new Date("2024-01-05T09:00:00Z"),
+        lastOccurrenceDate: new Date("2024-01-20T10:30:00Z"),
       },
       {
-        getTeamMembers: async () => teamMembers,
-        getSubmissionStatus: async () => submissionStatusData,
-        getReportDeadline: async () => ({
-          deadlineTime: new Date('2024-01-15T09:00:00Z'),
-          timeZone: 'Asia/Tokyo',
-        }),
-      }
+        issueId: "issue-002",
+        keyword: "ビルド失敗",
+        frequency: 3,
+        affectedMembers: ["eng-001", "eng-002", "eng-003"],
+        firstOccurrenceDate: new Date("2024-01-08T14:00:00Z"),
+        lastOccurrenceDate: new Date("2024-01-25T15:45:00Z"),
+      },
+    ];
+
+    const mockAccessCheck = jest
+      .fn()
+      .mockResolvedValue({ isAuthorized: true, visibleDataScope: "all_team" });
+
+    const mockRetrieveIssues = jest
+      .fn()
+      .mockResolvedValue(mockIssueData);
+
+    const mockDeduplicateIssues = jest
+      .fn()
+      .mockResolvedValue(mockDeduplicatedIssues);
+
+    const result: IssueRecurrenceAnalysisResult =
+      await analyzeIssueRecurrencePatterns({
+        startDate: input_startDate,
+        endDate: input_endDate,
+        teamId: input_teamId,
+        issueKeywords: input_issueKeywords,
+        minRecurrenceThreshold: input_minRecurrenceThreshold,
+        requestingUserId: input_requestingUserId,
+      });
+
+    expect(result).toBeDefined();
+    expect(result.analysisId).toBeDefined();
+    expect(typeof result.analysisId).toBe("string");
+    expect(result.analysisId.length).toBeGreaterThan(0);
+
+    expect(result.analysisPeriod).toBeDefined();
+    expect(result.analysisPeriod.startDate).toEqual(input_startDate);
+    expect(result.analysisPeriod.endDate).toEqual(input_endDate);
+
+    expect(result.recurrencePatterns).toBeDefined();
+    expect(Array.isArray(result.recurrencePatterns)).toBe(true);
+    expect(result.recurrencePatterns.length).toBe(2);
+
+    const pattern_database_connection = result.recurrencePatterns.find(
+      (p) => p.issueKeyword === "データベース接続エラー"
     );
+    expect(pattern_database_connection).toBeDefined();
+    expect(pattern_database_connection?.frequency).toBe(2);
+    expect(pattern_database_connection?.isRecurring).toBe(true);
 
-    // 戻り値がPromiseであることを確認し、解決を待つ
-    return result.then((summary) => {
-      // teamId と reportDate が正確に反映されていることを確認
-      expect(summary.teamId).toBe('team-001');
-      expect(summary.reportDate).toBe('2024-01-15');
+    const pattern_build_failure = result.recurrencePatterns.find(
+      (p) => p.issueKeyword === "ビルド失敗"
+    );
+    expect(pattern_build_failure).toBeDefined();
+    expect(pattern_build_failure?.frequency).toBe(3);
+    expect(pattern_build_failure?.isRecurring).toBe(true);
 
-      // チーム総メンバー数が10であることを確認
-      expect(summary.totalMembers).toBe(10);
+    expect(result.bottleneckProgression).toBeDefined();
+    expect(Array.isArray(result.bottleneckProgression)).toBe(true);
+    expect(result.bottleneckProgression.length).toBeGreaterThanOrEqual(0);
 
-      // 期限内提出済みメンバー数が9であることを確認
-      expect(summary.submittedCount).toBe(9);
+    if (result.bottleneckProgression.length > 0) {
+      const first_bottleneck = result.bottleneckProgression[0];
+      expect(first_bottleneck.changeDate).toBeDefined();
+      expect(first_bottleneck.changeDate instanceof Date).toBe(true);
+      expect(first_bottleneck.currentBottleneck).toBeDefined();
+      expect(typeof first_bottleneck.currentBottleneck).toBe("string");
+    }
 
-      // 未提出メンバー数が1であることを確認
-      expect(summary.unsubmittedCount).toBe(1);
+    expect(result.visualizationData).toBeDefined();
+    expect(result.visualizationData.chartType).toBeDefined();
+    expect(result.visualizationData.dataPoints).toBeDefined();
+    expect(Array.isArray(result.visualizationData.dataPoints)).toBe(true);
 
-      // 期限超過提出メンバー数が0であることを確認
-      expect(summary.delayedSubmissionCount).toBe(0);
+    expect(result.generatedAt).toBeDefined();
+    expect(result.generatedAt instanceof Date).toBe(true);
 
-      // 提出率が90.0%であることを確認（9 / 10 * 100 = 90.0）
-      expect(summary.submissionRate).toBe(90.0);
-
-      // 未提出メンバーのリストが1件であることを確認
-      expect(summary.unsubmittedMembers).toHaveLength(1);
-
-      // 未提出メンバーの詳細情報を確認
-      const unsubmittedMember = summary.unsubmittedMembers[0];
-      expect(unsubmittedMember.userId).toBe('user10');
-      expect(unsubmittedMember.userName).toBe('ユーザー10');
-      expect(unsubmittedMember.email).toBe('user10@example.com');
-
-      // 残り時間は正の値（期限前）であることを確認
-      // 期限 09:00:00 - 現在時刻の差分が正の値
-      expect(unsubmittedMember.remainingMinutes).toBeGreaterThan(0);
-
-      // aggregatedAtが ISO 8601形式の日時文字列であることを確認
-      expect(summary.aggregatedAt).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?$/
-      );
-
-      // submittedCount + unsubmittedCount + delayedSubmissionCount = totalMembers であることを確認
-      expect(
-        summary.submittedCount +
-          summary.unsubmittedCount +
-          summary.delayedSubmissionCount
-      ).toBe(summary.totalMembers);
-    });
+    const current_time = new Date();
+    const time_difference_ms = Math.abs(
+      current_time.getTime() - result.generatedAt.getTime()
+    );
+    expect(time_difference_ms).toBeLessThan(5000);
   });
 });

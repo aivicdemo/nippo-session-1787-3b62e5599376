@@ -1,76 +1,63 @@
-import { calculateIssuePriorityScore } from '../../src/logic/issue-extraction-prioritization';
+import { saveReport, type SaveReportInput, type SaveReportOutput } from '../../src/logic/report-persistence';
 
-describe('課題優先度スコア計算機能', () => {
-  // SCEN-609: [normal] 課題優先度スコア計算機能 - チーム波及度が高い課題は優先度スコアに正反映される
-  test('チーム波及度スコアが高い場合、優先度スコアが低波及度の場合より高い値となること', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn(),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe('朝会報告管理システム - 日報永続化', () => {
+  // SCEN-609: データベースアクセスタイムアウト時の挙動検証
+  test('should handle database access timeout and return user-friendly error message', async () => {
+    const timeoutErrorMessage = '報告データの取得に時間がかかっています。しばらく待ってから再度お試しください';
+
+    const reportInput: SaveReportInput = {
+      reporterId: 'ENG001',
+      teamId: 'TEAM001',
+      reportDate: new Date('2026-08-19T00:00:00Z'),
+      yesterdayAccomplishment: '実装完了',
+      todayPlan: 'テスト実施',
+      issuesAndConcerns: 'ライブラリの互換性問題',
+      attachmentUrls: []
     };
 
-    // 高波及度スコア（75）での計算
-    mockTextAnalysisServiceAdapter.assessImpactScore.mockReturnValue(75);
-
-    const highImpactInput = {
-      issueId: 'ISSUE-001',
-      issueContent: 'サーバー障害により全サービス停止',
-      occurrenceFrequency: 5,
-      impactScore: 75,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T10:00:00Z',
-      teamId: 'TEAM-A',
-    };
-
-    const highImpactResult = calculateIssuePriorityScore(
-      highImpactInput,
-      mockTextAnalysisServiceAdapter
+    // Mock implementation that simulates database timeout
+    const mockPersistReportWithEncryption = jest.fn().mockImplementation(
+      () => new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Database connection timeout'));
+        }, 35000);
+      })
     );
 
-    // 低波及度スコア（30）での計算
-    mockTextAnalysisServiceAdapter.assessImpactScore.mockReturnValue(30);
+    const mockValidateReportSubmission = jest.fn().mockReturnValue({
+      isValid: true,
+      errors: []
+    });
 
-    const lowImpactInput = {
-      issueId: 'ISSUE-002',
-      issueContent: 'サーバー障害により全サービス停止',
-      occurrenceFrequency: 5,
-      impactScore: 30,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2,
-      reportingDate: '2024-01-15T10:00:00Z',
-      teamId: 'TEAM-A',
-    };
+    const mockEncryptReportData = jest.fn().mockReturnValue({
+      encryptedContent: 'encrypted_data_string',
+      encryptionMethod: 'AES-256-GCM',
+      engineerId: reportInput.reporterId,
+      reportDate: reportInput.reportDate,
+      integrityHash: 'hash_value_string',
+      accessLog: []
+    });
 
-    const lowImpactResult = calculateIssuePriorityScore(
-      lowImpactInput,
-      mockTextAnalysisServiceAdapter
+    // Mock console.warn to verify warning is logged
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+    try {
+      const result = await saveReport(reportInput);
+      // Should not reach here - timeout should cause error
+      expect(result).toBeUndefined();
+    } catch (error) {
+      if (error instanceof Error) {
+        expect(error.message).toMatch(/報告データの取得に時間がかかっています/);
+      } else {
+        fail('Expected Error instance');
+      }
+    }
+
+    // Verify warn was called with timeout message
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('報告データの取得に時間がかかっています')
     );
 
-    // 高波及度スコア（75）の場合の優先度スコアが、低波及度スコア（30）の場合より高いことを確認
-    expect(highImpactResult.priorityScore).toBeGreaterThan(
-      lowImpactResult.priorityScore
-    );
-
-    // 計算結果に波及度スコアが反映されていることを確認
-    expect(highImpactResult.scoreBreakdown.impactScore).toBe(40);
-    expect(lowImpactResult.scoreBreakdown.impactScore).toBeGreaterThanOrEqual(
-      0
-    );
-
-    // 外部サービス（assessImpactScore）が呼び出されたことを確認
-    expect(
-      mockTextAnalysisServiceAdapter.assessImpactScore
-    ).toHaveBeenCalled();
-
-    // 高波及度の優先度ランクが「高」であることを確認
-    expect(highImpactResult.priorityRank).toBe('高');
-
-    // 高波及度の色コードが赤であることを確認
-    expect(highImpactResult.colorCode).toBe('#FF0000');
-
-    // 優先度スコアが1～100の範囲内であることを確認
-    expect(highImpactResult.priorityScore).toBeGreaterThanOrEqual(1);
-    expect(highImpactResult.priorityScore).toBeLessThanOrEqual(100);
+    warnSpy.mockRestore();
   });
 });

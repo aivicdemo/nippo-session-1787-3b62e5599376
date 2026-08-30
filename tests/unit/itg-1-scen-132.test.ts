@@ -1,27 +1,23 @@
-import { validateUserAuthorizationAndPermission } from '../../src/logic/auth-authorization';
+import { filterDisplayContentByRole } from '../../src/logic/access-control-and-permissions';
+import { type UserContext, type FilterDisplayContentInput } from '../../src/logic/access-control-and-permissions';
 
-describe('ユーザー役割による機能アクセス制御', () => {
+describe('filterDisplayContentByRole', () => {
   // SCEN-132
-  test('ログイン状態フラグが null のとき、アクセス制御ロジックがエラーを返す', () => {
-    const input = {
+  test('should throw InvalidUserRoleError when userRole is not a defined role', () => {
+    const invalidRoleContext: UserContext = {
       userId: 'user-001',
-      requestedFeature: '日報入力',
-      targetTeamId: 'team-001',
-      targetDataType: '全チーム進捗',
+      role: 'consultant' as any,
+      teamId: 'team-001',
+      permissionLevel: 0,
     };
 
-    const authContext = {
-      userId: 'user-001',
-      role: 'reporter',
-      teamIds: ['team-001'],
-      isActive: null as any,
+    const input: FilterDisplayContentInput = {
+      userContext: invalidRoleContext,
+      contentType: 'dashboard',
+      targetTeamId: null,
+      dataSet: {},
     };
 
-    const result = validateUserAuthorizationAndPermission(input, authContext);
-
-    expect(result.isAuthorized).toBe(false);
-    expect(result.userRole).toBe('reporter');
-    expect(result.allowedDataScope).toBe('none');
-    expect(result.editableFeatures).toEqual([]);
+    expect(() => filterDisplayContentByRole(input)).toThrow(/ユーザー役割が無効です/);
   });
 });

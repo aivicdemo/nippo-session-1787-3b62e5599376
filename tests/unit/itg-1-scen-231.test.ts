@@ -1,40 +1,24 @@
-import { describe, test, expect } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput } from '../../src/logic/notification-delivery';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
+import { type IssuePriorityScoringInput, type IssuePriorityScore } from '../../src/logic/priority-scoring-engine';
 
-describe('部長向けダッシュボード - 本日の報告提出状況リアルタイム表示機能', () => {
-  // SCEN-231: [error] 日報集約メール送信機能 - チーム内に部長が存在しないときエラーになる
-  test('should throw error when no department head exists in team', () => {
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId: 'team-a-001',
-      reportDate: '2024-01-15',
-      managerUserId: '',
-      submittedReports: [
-        {
-          reporterId: 'user-member-001',
-          reporterName: 'メンバーA',
-          submittedAt: '2024-01-15T08:45:00Z',
-          challenges: ['タスク遅延の懸念']
-        },
-        {
-          reporterId: 'user-member-002',
-          reporterName: 'メンバーB',
-          submittedAt: '2024-01-15T08:50:00Z',
-          challenges: ['リソース不足']
-        },
-        {
-          reporterId: 'user-member-003',
-          reporterName: 'メンバーC',
-          submittedAt: '2024-01-15T08:55:00Z',
-          challenges: ['品質リスク']
-        }
-      ],
-      unsubmittedMemberIds: [],
-      reportDeadlineTime: '09:00'
+describe('Priority Scoring Engine', () => {
+  test('SCEN-231: [edge] 抽出された課題キーワードが空のとき、優先度スコアは0で優先度ランクはLOW、色コードはGREENを返す', () => {
+    // Arrange
+    const input: IssuePriorityScoringInput = {
+      issueId: '',
+      frequency: 0,
+      impactScore: 0,
+      frequencyWeight: 0.4,
+      impactWeight: 0.6,
     };
 
-    expect(() => {
-      generateAndSendSummaryEmail(input);
-    }).toThrow(/部長/);
+    // Act
+    const result: IssuePriorityScore = calculatePriorityScoreForIssue(input);
+
+    // Assert
+    expect(result.issueId).toBe('');
+    expect(result.priorityScore).toBe(0);
+    expect(result.priorityRank).toBe('LOW');
+    expect(result.colorCode).toBe('GREEN');
   });
 });

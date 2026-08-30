@@ -1,83 +1,30 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { generateAndSendSummaryEmail } from '../../src/logic/notification-delivery';
-import type { GenerateAndSendSummaryEmailInput, GenerateAndSendSummaryEmailOutput, SubmittedReportSummary } from '../../src/logic/notification-delivery';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-const fetchMock = require('jest-fetch-mock');
+describe('Priority Scoring Engine', () => {
+  // SCEN-247: [edge] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 最大発生回数が0のときという明示された境界条件で正規化基準値が無効です。デフォルト値を使用します
+  test('should calculate priority score with default weights when max frequency is zero', () => {
+    // Given: calculatePriorityScoreForIssue関数に対して
+    // issueId: 'ISSUE-001'
+    // frequency: 25（過去30日間の正規化値）
+    // impactScore: 60
+    // frequencyWeight: 未設定（デフォルト0.4を期待）
+    // impactWeight: 未設定（デフォルト0.6を期待）
+    const issueId = 'ISSUE-001';
+    const frequency = 25;
+    const impactScore = 60;
 
-describe('日報の課題項目から課題キーワードを自動抽出し、発生頻度でランク付けして表示する機能', () => {
-  beforeEach(() => {
-    fetchMock.resetMocks();
-  });
+    // When: 関数を実行する
+    const result = calculatePriorityScoreForIssue({
+      issueId,
+      frequency,
+      impactScore,
+    });
 
-  afterEach(() => {
-    fetchMock.resetMocks();
-  });
-
-  // SCEN-247: [edge] 日報集約メール生成機能 - 複数のチームメンバーから同一の課題キーワードが報告された場合、発生頻度がメンバー数分だけ加算される
-  test('複数メンバーから同一課題キーワード報告時、発生頻度がメンバー数分加算される', async () => {
-    const teamId = 'team-001';
-    const reportDate = '2024-01-15';
-    const managerUserId = 'manager-001';
-    const reportDeadlineTime = '09:00';
-
-    const submittedReports: SubmittedReportSummary[] = [
-      {
-        reporterId: 'user-a-001',
-        reporterName: 'User A',
-        submittedAt: '2024-01-15T08:45:00Z',
-        challenges: ['データベース接続エラー', 'ネットワーク遅延']
-      },
-      {
-        reporterId: 'user-b-002',
-        reporterName: 'User B',
-        submittedAt: '2024-01-15T08:50:00Z',
-        challenges: ['データベース接続エラー', 'メモリ不足']
-      },
-      {
-        reporterId: 'user-c-003',
-        reporterName: 'User C',
-        submittedAt: '2024-01-15T08:55:00Z',
-        challenges: ['データベース接続エラー', 'ディスク容量警告']
-      }
-    ];
-
-    const unsubmittedMemberIds: string[] = [];
-
-    const input: GenerateAndSendSummaryEmailInput = {
-      teamId,
-      reportDate,
-      managerUserId,
-      submittedReports,
-      unsubmittedMemberIds,
-      reportDeadlineTime
-    };
-
-    fetchMock.mockResponseOnce(
-      JSON.stringify({
-        emailId: 'email-001',
-        sentAt: '2024-01-15T09:00:00Z',
-        recipientEmail: 'manager@example.com',
-        includedIssueCount: 3,
-        submissionSummary: {
-          submittedCount: 3,
-          unsubmittedCount: 0,
-          submissionRate: 100
-        }
-      }),
-      { status: 200 }
-    );
-
-    const result: GenerateAndSendSummaryEmailOutput = await generateAndSendSummaryEmail(input);
-
-    expect(result).toBeDefined();
-    expect(result.emailId).toBe('email-001');
-    expect(result.sentAt).toBe('2024-01-15T09:00:00Z');
-    expect(result.recipientEmail).toBe('manager@example.com');
-    expect(result.includedIssueCount).toBe(3);
-    expect(result.submissionSummary.submittedCount).toBe(3);
-    expect(result.submissionSummary.unsubmittedCount).toBe(0);
-    expect(result.submissionSummary.submissionRate).toBe(100);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Then: 戻り値のIssuePriorityScore型が以下の値を持つこと
+    // 計算式: (25 * 0.4) + (60 * 0.6) = 10 + 36 = 46
+    expect(result.issueId).toBe('ISSUE-001');
+    expect(result.priorityScore).toBe(46);
+    expect(result.priorityRank).toBe('MEDIUM');
+    expect(result.colorCode).toBe('YELLOW');
   });
 });

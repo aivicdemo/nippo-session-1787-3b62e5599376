@@ -1,112 +1,50 @@
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import { type SendDailyReportReminderInput, type SendDailyReportReminderOutput } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { saveExtractedIssueData } from '../../src/logic/issue-data-persistence';
+import type {
+  SaveExtractedIssueDataInput,
+  SaveExtractedIssueDataOutput,
+  AnalysisResultData,
+} from '../../src/logic/issue-data-persistence';
 
-describe('毎朝の定時にチームメンバーへ報告入力のリマインド通知を自動送信する機能', () => {
-  // SCEN-162: [edge] 報告期限時間表示機能 - 報告期限が直前（あと1分以内）であるとき、「あと0時間」と表示される
-  test('報告期限の1分以内の状態では、報告期限時間表示が「あと0時間」と表示される', () => {
-    const now = new Date('2024-01-15T08:59:00Z');
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00Z');
-    const scheduledTime = new Date('2024-01-15T08:30:00Z');
-    const teamIds = ['team-001', 'team-002'];
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email', 'in_app'];
-
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
+describe('issue-data-persistence', () => {
+  // SCEN-162: [normal] 抽出済み課題データ、優先度スコア、分析結果を受け取り、暗号化して永続化し、保存完了を返す
+  test('should save extracted issue data with encryption and audit logging', async () => {
+    const analysisResult: AnalysisResultData = {
+      rootCause: 'コネクションプール枯渇',
+      proposedCountermeasure: 'プール上限を100から200に増加',
+      estimatedResolutionDays: 3,
     };
 
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent' as const,
-        sentAt: now,
-        errorMessage: null,
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue(true),
-      getDeliveryStatus: jest.fn().mockResolvedValue({
-        sent: 8,
-        failed: 0,
-        pending: 0,
-      }),
+    const input: SaveExtractedIssueDataInput = {
+      reportId: 'RPT-20240115-001',
+      issueContent: 'データベース接続タイムアウトが頻発している',
+      issueType: '技術的課題',
+      priorityScore: 75,
+      impactLevel: '高',
+      extractedKeywords: [
+        'データベース',
+        '接続タイムアウト',
+        'パフォーマンス',
+      ],
+      analysisResult,
+      executorId: 'USR-00001',
     };
 
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [],
-        frequency: {},
-      }),
-      assessImpactScore: jest.fn().mockResolvedValue(0),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('low'),
-    };
+    const result: SaveExtractedIssueDataOutput = await saveExtractedIssueData(input);
 
-    const result = sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter,
-      mockTextAnalysisServiceAdapter
+    // (1) issueDataId は一意識別子形式の文字列であることを確認
+    expect(result.issueDataId).toBeDefined();
+    expect(typeof result.issueDataId).toBe('string');
+    expect(result.issueDataId.length).toBeGreaterThan(0);
+
+    // (2) savedTimestamp は ISO 8601形式であることを確認
+    expect(result.savedTimestamp).toBeDefined();
+    expect(typeof result.savedTimestamp).toBe('string');
+    expect(result.savedTimestamp).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
     );
 
-    expect(result).toBeDefined();
-    if (result instanceof Promise) {
-      return result.then((output: SendDailyReportReminderOutput) => {
-        expect(output).toBeDefined();
-        expect(output.remainingTimeMinutes).toBe(1);
-
-        const hoursRemaining = Math.floor(output.remainingTimeMinutes / 60);
-        expect(hoursRemaining).toBe(0);
-      });
-    }
-  });
-
-  test('現在時刻が期限の30秒前の場合、remainingTimeMinutesは0を返す（丸め処理）', () => {
-    const now = new Date('2024-01-15T08:59:30Z');
-    const reportDeadlineTime = new Date('2024-01-15T09:00:00Z');
-    const scheduledTime = new Date('2024-01-15T08:30:00Z');
-    const teamIds = ['team-001'];
-    const notificationChannels: ('email' | 'in_app' | 'slack')[] = ['email'];
-
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels,
-    };
-
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        status: 'sent' as const,
-        sentAt: now,
-        errorMessage: null,
-      }),
-      scheduleNotification: jest.fn().mockResolvedValue(true),
-      getDeliveryStatus: jest.fn().mockResolvedValue({
-        sent: 10,
-        failed: 0,
-        pending: 0,
-      }),
-    };
-
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [],
-        frequency: {},
-      }),
-      assessImpactScore: jest.fn().mockResolvedValue(0),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('low'),
-    };
-
-    const result = sendDailyReportReminder(
-      input,
-      mockNotificationServiceAdapter,
-      mockTextAnalysisServiceAdapter
-    );
-
-    expect(result).toBeDefined();
-    if (result instanceof Promise) {
-      return result.then((output: SendDailyReportReminderOutput) => {
-        expect(output.remainingTimeMinutes).toBeLessThanOrEqual(1);
-        expect(output.remainingTimeMinutes).toBeGreaterThanOrEqual(0);
-      });
-    }
+    // (3) encryptionStatus は文字列 'encrypted' であることを確認
+    expect(result.encryptionStatus).toBe('encrypted');
   });
 });

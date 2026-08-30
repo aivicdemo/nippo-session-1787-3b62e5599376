@@ -1,19 +1,49 @@
-import { calculateIssuePriorityScore, type IssuePriorityScoringInput } from '../../src/logic/issue-extraction-prioritization';
+import { sendUnsubmittedMemberReminders } from "../../src/logic/reminder-notification-service";
+import type { UnsubmittedMemberReminderInput, ReminderRetryRule, UnsubmittedMember } from "../../src/logic/reminder-notification-service";
 
-describe('Issue Priority Scoring - Negative Frequency Error Handling', () => {
-  // SCEN-630: [error] 課題優先度スコア計算機能 - 課題の発生頻度が負数のとき例外を発生させる
-  test('should throw error when issue frequency is negative', () => {
-    const input: IssuePriorityScoringInput = {
-      issueId: 'issue-001',
-      issueContent: 'データベース接続エラーが頻発している',
-      occurrenceFrequency: -5,
-      impactScore: 85,
-      affectedTeamCount: 3,
-      resolutionDaysAverage: 2.5,
-      reportingDate: '2024-01-15T09:30:00Z',
-      teamId: 'team-dev-01'
+describe("朝会報告管理システム - 未提出メンバーリマインド通知", () => {
+  // SCEN-630
+  test("報告受付終了後に新規催促通知を送信しようとしたとき、DeadlineCalculationError が発生し適切なエラーメッセージを返す", () => {
+    const now = new Date("2024-01-15T09:30:00Z");
+    const morningMeetingStartTime = new Date("2024-01-15T09:00:00Z");
+    const reportingDeadlineTime = new Date("2024-01-15T08:30:00Z");
+
+    const unsubmittedMembers: UnsubmittedMember[] = [
+      {
+        memberId: "user-001",
+        memberName: "田中太郎",
+        memberEmail: "tanaka@example.com",
+      },
+    ];
+
+    const reminderRetryRule: ReminderRetryRule = {
+      initialNotificationMethod: "email",
+      maxRetryCount: 2,
+      retryStages: [
+        {
+          stageNumber: 1,
+          notificationMethod: "email",
+          waitingTimeMinutes: 30,
+        },
+        {
+          stageNumber: 2,
+          notificationMethod: "both",
+          waitingTimeMinutes: 60,
+        },
+      ],
     };
 
-    expect(() => calculateIssuePriorityScore(input)).toThrow(/発生頻度/);
+    const input: UnsubmittedMemberReminderInput = {
+      teamId: "team-001",
+      unsubmittedMembers: unsubmittedMembers,
+      reportingDeadlineTime: reportingDeadlineTime,
+      morningMeetingStartTime: morningMeetingStartTime,
+      reminderRetryRule: reminderRetryRule,
+      previousReminderHistory: [],
+    };
+
+    expect(() => {
+      sendUnsubmittedMemberReminders(input, { getCurrentTime: () => now });
+    }).toThrow(/報告受付は終了/);
   });
 });

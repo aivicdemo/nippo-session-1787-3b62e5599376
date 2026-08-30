@@ -1,69 +1,20 @@
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { sendDailyReportReminder } from '../../src/logic/submission-status-tracking';
-import type { SendDailyReportReminderInput, SendDailyReportReminderOutput, ReminderNotificationDetail } from '../../src/logic/submission-status-tracking';
+import { submitReport, type SubmitReportInput } from "../../src/logic/report-submission-management";
 
-describe('Daily Report Reminder Notification - Submission Status Tracking', () => {
-  // SCEN-304: [edge] リマインド通知自動送信機能 - 同じユーザーが2つ以上のチームに属する場合、重複なく1回だけ通知が送信される
-  test('should send reminder notification exactly once when user belongs to multiple teams', async () => {
-    const scheduledTime = new Date('2024-01-15T09:00:00Z');
-    const reportDeadlineTime = new Date('2024-01-15T14:00:00Z');
-    
-    const teamIdX = 'team-x-001';
-    const teamIdY = 'team-y-002';
-    const teamIdZ = 'team-z-003';
-    const userIdA = 'user-a-001';
-    
-    const teamIds = [teamIdX, teamIdY, teamIdZ];
-    const notificationChannels = ['email', 'in_app'] as const;
-    
-    let sendReminderNotificationCallCount = 0;
-    const notifiedUserIds = new Set<string>();
-    const callHistory: Array<{ userId: string; timestamp: Date }> = [];
-    
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn(async (userId: string, remainingMinutes: number) => {
-        sendReminderNotificationCallCount++;
-        notifiedUserIds.add(userId);
-        callHistory.push({
-          userId,
-          timestamp: new Date()
-        });
-        return {
-          success: true,
-          deliveryStatus: 'sent' as const,
-          sentAt: new Date()
-        };
-      })
+describe("朝会報告管理システム", () => {
+  test("SCEN-304: submitReport - 送信時刻がシステム時刻より未来の場合、エラーを発生させる", () => {
+    const systemTime = new Date("2026-08-20T09:00:00.000Z");
+    const futureSubmissionTime = new Date("2026-08-20T09:00:01.000Z");
+
+    const input: SubmitReportInput = {
+      reporterId: "ENG001",
+      teamId: "TEAM-A",
+      reportDate: new Date("2026-08-20"),
+      yesterdayAccomplishment: "昨日の成果",
+      todayPlan: "今日の予定",
+      issuesAndConcerns: "課題内容",
+      submissionTimestamp: futureSubmissionTime,
     };
-    
-    const input: SendDailyReportReminderInput = {
-      scheduledTime,
-      teamIds,
-      reportDeadlineTime,
-      notificationChannels
-    };
-    
-    const result = await sendDailyReportReminder(input, mockNotificationServiceAdapter);
-    
-    expect(result).toBeDefined();
-    expect(typeof result.sentCount).toBe('number');
-    expect(result.sentCount).toBeGreaterThanOrEqual(0);
-    
-    const userANotifications = callHistory.filter(call => call.userId === userIdA);
-    expect(userANotifications.length).toBe(0);
-    
-    expect(mockNotificationServiceAdapter.sendReminderNotification).toHaveBeenCalled();
-    
-    const callsToUserA = mockNotificationServiceAdapter.sendReminderNotification.mock.calls.filter(
-      (call: any[]) => call[0] === userIdA
-    );
-    expect(callsToUserA.length).toBeLessThanOrEqual(1);
-    
-    const uniqueNotifiedUsers = new Set(
-      mockNotificationServiceAdapter.sendReminderNotification.mock.calls.map((call: any[]) => call[0])
-    );
-    expect(uniqueNotifiedUsers.size).toBeLessThanOrEqual(
-      mockNotificationServiceAdapter.sendReminderNotification.mock.calls.length
-    );
+
+    expect(() => submitReport(input, systemTime)).toThrow(/システム時刻/);
   });
 });

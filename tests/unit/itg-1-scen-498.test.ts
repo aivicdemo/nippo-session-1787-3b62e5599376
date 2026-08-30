@@ -1,31 +1,28 @@
-import { describe, test, expect, beforeEach } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('Issue Extraction and Prioritization - Impact Score Validation', () => {
-  test('SCEN-498: extractAndRankIssueKeywords should throw error when impact score is negative', () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockReturnValue({
-        keywords: [
-          { keyword: 'database connection timeout', frequency: 2 },
-          { keyword: 'feature A implementation', frequency: 1 }
-        ]
-      }),
-      assessImpactScore: jest.fn().mockReturnValue(-5),
-      classifyIssueSeverity: jest.fn().mockReturnValue('high')
-    };
+describe('朝会報告管理システム - 優先度スコア計算エンジン', () => {
+  test('SCEN-498: 重み付け係数の合計が0のときはエラーをスロー', () => {
+    const countermeasures = [
+      {
+        id: 'C1',
+        title: '対策案A',
+        expectedEffect: 8,
+        implementationDifficulty: 3,
+        requiredResources: 2,
+      },
+    ];
 
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-15T00:00:00Z'),
-      endDate: new Date('2024-01-21T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001'
-    };
+    const effectWeight = 0.0;
+    const difficultyWeight = 0.0;
+    const resourceWeight = 0.0;
 
-    const reportText = 'Yesterday I implemented feature A. Today I will test feature B. We have a database connection timeout issue.';
-
-    expect(() => {
-      extractAndRankIssueKeywords(input, mockTextAnalysisServiceAdapter, reportText);
-    }).toThrow(/Impact score/);
+    expect(() =>
+      calculatePriorityScoreForIssue(
+        countermeasures,
+        effectWeight,
+        difficultyWeight,
+        resourceWeight
+      )
+    ).toThrow(/重み付け係数/);
   });
 });

@@ -1,15 +1,27 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('朝会報告提出状況集計機能 - 日報本体が null のエラーハンドリング', () => {
-  // SCEN-346
-  test('日報本体が null の状態で提出状況集計が実行されたとき、ValidationError を throw し、提出ステータスが更新されないこと', () => {
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-manager-001',
-      includeDelayedSubmissions: true,
+describe('Priority Scoring Engine', () => {
+  test('SCEN-346: Should handle empty issue data and return warning without calculating priority score', () => {
+    // Arrange
+    const emptyIssueInput = {
+      issueId: '',
+      frequency: 0,
+      impactScore: 0,
     };
 
-    expect(() => aggregateReportSubmissionStatus(input)).toThrow(/日報本体/);
+    // Capture console.warn to verify warning is logged
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+    // Act
+    const result = calculatePriorityScoreForIssue(emptyIssueInput);
+
+    // Assert
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/本日の課題データがありません。報告を確認してください/)
+    );
+    expect(result).toBe(null);
+    
+    // Clean up
+    warnSpy.mockRestore();
   });
 });

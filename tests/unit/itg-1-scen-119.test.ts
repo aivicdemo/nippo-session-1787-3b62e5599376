@@ -1,59 +1,39 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect } from '@jest/globals';
+import { conductManagerTraining } from '../../src/logic/adoption-training-management';
+import { type ManagerTrainingInput } from '../../src/logic/adoption-training-management';
 
-describe('Report Submission Status Tracking - Dashboard Real-time Display', () => {
-  // SCEN-119
-  test('should display accurate submission list when multiple members submit reports with identical timestamps in reverse send order', async () => {
-    const now = new Date('2026-08-19T10:00:00.000Z');
-    
-    const teamId = 'team-engineering-001';
-    const reportDate = '2026-08-19';
-    const requestUserId = 'user-manager-001';
-    
-    const memberAId = 'user-member-a';
-    const memberBId = 'user-member-b';
-    const memberCId = 'user-member-c';
-    
-    const memberAName = 'Alice';
-    const memberBName = 'Bob';
-    const memberCName = 'Charlie';
-    
-    const memberAEmail = 'alice@example.com';
-    const memberBEmail = 'bob@example.com';
-    const memberCEmail = 'charlie@example.com';
-    
-    const submissionTimestamp = now;
-    
-    const reportDeadlineTime = new Date('2026-08-19T09:00:00.000Z');
-    
-    const mockUnsubmittedMembers = [];
-    
-    const aggregationResult: ReportSubmissionStatusSummary = {
-      teamId: teamId,
-      reportDate: reportDate,
-      totalMembers: 3,
-      submittedCount: 3,
-      unsubmittedCount: 0,
-      delayedSubmissionCount: 0,
-      submissionRate: 100.0,
-      unsubmittedMembers: mockUnsubmittedMembers,
-      aggregatedAt: now.toISOString()
+describe('朝会報告管理システム - 部長向けガイド資料の理解確認', () => {
+  test('SCEN-119: 理解確認項目が不完全な場合にエラーが発生すること', () => {
+    const input: ManagerTrainingInput = {
+      managerId: 'manager-001',
+      guideMaterialId: 'guide-material-001',
+      understandingConfirmations: [
+        {
+          itemType: '操作方法',
+          isAgreed: true,
+        },
+        {
+          itemType: '確認メール仕様',
+          isAgreed: true,
+        },
+        {
+          itemType: '報告データ活用方法',
+          isAgreed: false,
+        },
+      ],
+      confirmationTimestamp: new Date('2024-01-15T10:00:00Z'),
     };
-    
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId: teamId,
-      reportDate: reportDate,
-      requestUserId: requestUserId,
-      includeDelayedSubmissions: true
-    };
-    
-    const result = await aggregateReportSubmissionStatus(input);
-    
-    expect(result).toEqual(aggregationResult);
-    expect(result.submissionRate).toBe(100.0);
-    expect(result.submittedCount).toBe(3);
-    expect(result.unsubmittedCount).toBe(0);
-    expect(result.delayedSubmissionCount).toBe(0);
-    expect(result.unsubmittedMembers).toHaveLength(0);
+
+    expect(() => conductManagerTraining(input)).toThrow(/理解確認/);
+    try {
+      conductManagerTraining(input);
+    } catch (error: unknown) {
+      const err = error as Error & { trainingStatus?: string; nextPhaseApproved?: boolean };
+      expect(err.message).toBe(
+        '部長の理解確認が完了していません。すべての確認項目に合意してください'
+      );
+      expect(err.trainingStatus).toBe('理解不完全');
+      expect(err.nextPhaseApproved).toBe(false);
+    }
   });
 });

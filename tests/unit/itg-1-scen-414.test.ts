@@ -1,39 +1,98 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { searchAndRetrieveReports } from '../../src/logic/report-search-and-retrieval';
 
-describe('報告提出状況リアルタイム集計機能', () => {
+describe('朝会報告管理システム - 報告検索・抽出処理', () => {
   // SCEN-414
-  test('チームメンバー一覧が null のとき処理が中断されエラーを返す', async () => {
-    const input: AggregateReportSubmissionStatusInput = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'user-manager-001',
-      includeDelayedSubmissions: true,
-    };
-
-    const mockNotificationServiceAdapter = {
-      sendReminderNotification: jest.fn().mockResolvedValue({
-        success: true,
-        sentAt: new Date('2024-01-15T09:30:00Z'),
-      }),
-      scheduleNotification: jest.fn(),
-      getDeliveryStatus: jest.fn(),
-    };
-
-    let result: ReportSubmissionStatusSummary | { code: string; message: string };
-    let thrownError: Error | null = null;
-
-    try {
-      result = await aggregateReportSubmissionStatus(input, null as any);
-    } catch (error) {
-      if (error instanceof Error) {
-        thrownError = error;
+  test('searchAndRetrieveReports should throw error when similarityThreshold is outside 0-100 range', async () => {
+    const testReports = [
+      {
+        reportId: 'report_001',
+        reportDate: '2024-01-15',
+        submitterName: 'Alice',
+        teamName: 'Team A',
+        issueContent: 'ビルド失敗',
+        extractedKeywords: ['ビルド失敗']
+      },
+      {
+        reportId: 'report_002',
+        reportDate: '2024-01-15',
+        submitterName: 'Bob',
+        teamName: 'Team A',
+        issueContent: 'ビルドエラー',
+        extractedKeywords: ['ビルドエラー']
+      },
+      {
+        reportId: 'report_003',
+        reportDate: '2024-01-14',
+        submitterName: 'Charlie',
+        teamName: 'Team B',
+        issueContent: 'テスト失敗',
+        extractedKeywords: ['テスト失敗']
+      },
+      {
+        reportId: 'report_004',
+        reportDate: '2024-01-14',
+        submitterName: 'David',
+        teamName: 'Team B',
+        issueContent: 'デプロイ遅延',
+        extractedKeywords: ['デプロイ遅延']
+      },
+      {
+        reportId: 'report_005',
+        reportDate: '2024-01-13',
+        submitterName: 'Eve',
+        teamName: 'Team C',
+        issueContent: 'ビルド失敗',
+        extractedKeywords: ['ビルド失敗']
       }
-    }
+    ];
 
-    expect(thrownError).toBeDefined();
-    expect(thrownError?.message).toMatch(/チームメンバー/);
+    const searchInput = {
+      dateRange: {
+        startDate: '2024-01-13',
+        endDate: '2024-01-15'
+      },
+      keywords: ['ビルド', 'テスト'],
+      teamIds: undefined,
+      reporterIds: undefined,
+      rawSearchResults: testReports,
+      dateRangeFilter: {
+        startDate: '2024-01-13',
+        endDate: '2024-01-15'
+      },
+      keywordFilter: ['ビルド', 'テスト'],
+      userRole: 'manager'
+    };
 
-    expect(mockNotificationServiceAdapter.sendReminderNotification).not.toHaveBeenCalled();
+    // ケース1: similarityThreshold = -1
+    expect(() => {
+      searchAndRetrieveReports({
+        ...searchInput,
+        similarityThreshold: -1
+      });
+    }).toThrow(/類似度閾値は0～100の範囲で指定してください/);
+
+    // ケース2: similarityThreshold = 101
+    expect(() => {
+      searchAndRetrieveReports({
+        ...searchInput,
+        similarityThreshold: 101
+      });
+    }).toThrow(/類似度閾値は0～100の範囲で指定してください/);
+
+    // ケース3: similarityThreshold = -0.1
+    expect(() => {
+      searchAndRetrieveReports({
+        ...searchInput,
+        similarityThreshold: -0.1
+      });
+    }).toThrow(/類似度閾値は0～100の範囲で指定してください/);
+
+    // ケース4: similarityThreshold = 100.1
+    expect(() => {
+      searchAndRetrieveReports({
+        ...searchInput,
+        similarityThreshold: 100.1
+      });
+    }).toThrow(/類似度閾値は0～100の範囲で指定してください/);
   });
 });

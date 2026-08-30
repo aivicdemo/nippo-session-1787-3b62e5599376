@@ -1,54 +1,45 @@
-import { describe, test, expect } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
+import { prepareDashboardData } from "../../src/logic/dashboard-presentation";
+import { type DashboardDataPrepareInput } from "../../src/logic/dashboard-presentation";
 
-describe('Issue Keyword Extraction and Ranking', () => {
-  // SCEN-616
-  test('should extract and rank issue keywords by frequency in descending order', async () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue([
-        { keyword: 'DB接続エラー', frequency: 5 },
-        { keyword: 'API遅延', frequency: 3 },
-        { keyword: 'メモリリーク', frequency: 7 },
-        { keyword: 'ネットワークタイムアウト', frequency: 2 },
-      ]),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
+describe("朝会報告管理システム - ダッシュボード表示準備", () => {
+  // SCEN-616: [error] 課題キーワードが空文字列または null のとき
+  test("should throw error when issue keyword is empty string", async () => {
+    const teamId = "team-001";
+    const targetDate = new Date("2024-01-15T09:00:00Z");
+    const requestingUserId = "user-001";
+
+    const input: DashboardDataPrepareInput = {
+      teamId,
+      targetDate,
+      requestingUserId,
+      includeHistoricalTrend: false,
     };
 
-    const input = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-08T00:00:00Z'),
-      endDate: new Date('2024-01-14T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001',
-    };
+    // issueFrequencyMap に空文字列をキーとして含める
+    const issueFrequencyMap = new Map<string, number>([
+      ["", 5],
+      ["バグ", 3],
+    ]);
 
-    const result = await extractAndRankIssueKeywords(
-      input,
-      mockTextAnalysisServiceAdapter
-    );
+    // reportList に issues フィールドに空文字列を含む Report オブジェクトを用意
+    const reportList = [
+      {
+        reportId: "report-001",
+        engineerId: "eng-001",
+        submittedAt: new Date("2024-01-15T08:00:00Z"),
+        yesterday: "実装作業を実施",
+        today: "テスト実施予定",
+        issues: "",
+      },
+    ];
 
-    expect(result.keywords).toHaveLength(4);
-    
-    // Verify ranking order by frequency (descending)
-    expect(result.keywords[0].keyword).toBe('メモリリーク');
-    expect(result.keywords[0].frequency).toBe(7);
-    expect(result.keywords[0].rank).toBe(1);
-
-    expect(result.keywords[1].keyword).toBe('DB接続エラー');
-    expect(result.keywords[1].frequency).toBe(5);
-    expect(result.keywords[1].rank).toBe(2);
-
-    expect(result.keywords[2].keyword).toBe('API遅延');
-    expect(result.keywords[2].frequency).toBe(3);
-    expect(result.keywords[2].rank).toBe(3);
-
-    expect(result.keywords[3].keyword).toBe('ネットワークタイムアウト');
-    expect(result.keywords[3].frequency).toBe(2);
-    expect(result.keywords[3].rank).toBe(4);
-
-    expect(result.totalKeywordCount).toBe(4);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toBeInstanceOf(Date);
+    // prepareDashboardData を呼び出して例外がスローされることを確認
+    await expect(() =>
+      prepareDashboardData(
+        input,
+        issueFrequencyMap,
+        reportList
+      )
+    ).toThrow(/課題内容が不正/);
   });
 });

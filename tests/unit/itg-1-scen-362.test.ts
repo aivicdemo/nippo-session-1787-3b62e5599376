@@ -1,85 +1,73 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
-import { type AggregateReportSubmissionStatusInput, type ReportSubmissionStatusSummary } from '../../src/logic/submission-status-tracking';
+import { prepareDashboardData } from '../../src/logic/dashboard-presentation';
+import { type DashboardDataPrepareInput, type DashboardDisplayData } from '../../src/logic/dashboard-presentation';
 
-describe('部長向けダッシュボード提出状況リアルタイム表示', () => {
-  // SCEN-362: [edge] 報告提出状況リアルタイム更新機能 - 年度末の日付境界をまたぐ送信時刻が正しく記録される
-  test('年度末日から年度初日にかけての日付境界をまたぐ送信時刻が正確に記録される', () => {
-    // Arrange: 年度末日のシステム時刻を設定
-    const fiscal_year_end_date_string = '2026-03-31';
-    const fiscal_year_end_report_date = new Date('2026-03-31T23:59:50+09:00');
-
-    // テスト用の入力データ: 年度末日に報告データを送信
-    const test_team_id = 'team-001';
-    const request_user_id = 'user-admin-001';
-
-    // aggregateReportSubmissionStatus の入力パラメータを構築
-    // 年度初日の朝会報告に対する提出状況を集計
-    const aggregate_input: AggregateReportSubmissionStatusInput = {
-      teamId: test_team_id,
-      reportDate: '2026-04-01',
-      requestUserId: request_user_id,
-      includeDelayedSubmissions: true,
+describe('朝会報告管理システム - ダッシュボード表示データ準備', () => {
+  // SCEN-362: [normal] 部長向けダッシュボード表示用に、提出状況サマリー、未提出メンバー一覧、優先度別課題一覧、課題キーワード発生頻度ランキングを集計・整形して返す
+  test('prepareDashboardData: 本日の日報を正常に集計し、ダッシュボード表示データを返す', () => {
+    // Arrange
+    const baseDate = new Date('2024-01-15T09:00:00Z');
+    const targetDate = new Date('2024-01-15T00:00:00Z');
+    
+    const input: DashboardDataPrepareInput = {
+      teamId: 'team-001',
+      targetDate: targetDate,
+      requestingUserId: 'user-manager-001',
+      includeHistoricalTrend: false,
     };
 
-    // モック化されたレポート提出状況データを作成
-    // 年度末日に入力されたが、年度初日にシステム時刻が進み送信されたシナリオ
-    const mock_report_data = {
-      teamId: test_team_id,
-      reportDate: '2026-04-01',
-      totalMembers: 1,
-      submittedCount: 1,
-      unsubmittedCount: 0,
-      delayedSubmissionCount: 0,
-      submissionRate: 100.0,
-      unsubmittedMembers: [],
-      aggregatedAt: '2026-04-01T00:00:10+09:00',
-      submissionTimestamps: [
-        {
-          userId: 'user-member-001',
-          submissionTimestamp: '2026-04-01T00:00:10+09:00',
-          reportDate: '2026-04-01',
-        },
-      ],
-    };
+    // Act
+    const result = prepareDashboardData(input);
 
-    // Act: 年度初日の提出状況を集計する関数を呼び出す
-    // 実装上、この関数は年度末日に入力された報告がシステム時刻の進行により
-    // 年度初日のタイムスタンプで記録されるケースを正しく処理する必要がある
-    const aggregation_result: ReportSubmissionStatusSummary = aggregateReportSubmissionStatus(
-      aggregate_input,
-      // 実装が内部で参照するデータベースやシステム時刻をモック化する場合の注入ポイント
-      // ここではモックの詳細は関数の内部実装に委ねられるが、
-      // 入力と出力の契約を検証する
-    );
+    // Assert
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('submissionStatusSummary');
+    expect(result).toHaveProperty('unsubmittedMembers');
+    expect(result).toHaveProperty('prioritizedIssueList');
+    expect(result).toHaveProperty('issueKeywordRanking');
+    expect(result).toHaveProperty('lastUpdatedAt');
 
-    // Assert: 提出状況が正確に集計されていることを検証
-    expect(aggregation_result).toEqual({
-      teamId: test_team_id,
-      reportDate: '2026-04-01',
-      totalMembers: 1,
-      submittedCount: 1,
-      unsubmittedCount: 0,
-      delayedSubmissionCount: 0,
-      submissionRate: 100.0,
-      unsubmittedMembers: [],
-      aggregatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
-    });
+    // Verify submissionStatusSummary structure
+    expect(result.submissionStatusSummary).toHaveProperty('submittedCount');
+    expect(result.submissionStatusSummary).toHaveProperty('totalTeamMembers');
+    expect(result.submissionStatusSummary).toHaveProperty('submissionDeadline');
+    expect(typeof result.submissionStatusSummary.submittedCount).toBe('number');
+    expect(typeof result.submissionStatusSummary.totalTeamMembers).toBe('number');
 
-    // 年度初日の日付がISO 8601形式で正確に記録されていることを検証
-    expect(aggregation_result.reportDate).toBe('2026-04-01');
+    // Verify unsubmittedMembers is array with expected structure
+    expect(Array.isArray(result.unsubmittedMembers)).toBe(true);
+    if (result.unsubmittedMembers.length > 0) {
+      expect(result.unsubmittedMembers[0]).toHaveProperty('memberId');
+      expect(result.unsubmittedMembers[0]).toHaveProperty('memberName');
+    }
 
-    // 提出率が100%（1/1）であることを検証
-    expect(aggregation_result.submissionRate).toBe(100.0);
+    // Verify prioritizedIssueList is array with expected structure
+    expect(Array.isArray(result.prioritizedIssueList)).toBe(true);
+    if (result.prioritizedIssueList.length > 0) {
+      expect(result.prioritizedIssueList[0]).toHaveProperty('issueId');
+      expect(result.prioritizedIssueList[0]).toHaveProperty('issueContent');
+      expect(result.prioritizedIssueList[0]).toHaveProperty('priorityScore');
+      expect(result.prioritizedIssueList[0]).toHaveProperty('colorCode');
+      expect(result.prioritizedIssueList[0]).toHaveProperty('impactLevel');
+      expect(result.prioritizedIssueList[0]).toHaveProperty('reporterName');
+      expect(typeof result.prioritizedIssueList[0].priorityScore).toBe('number');
+      expect(result.prioritizedIssueList[0].priorityScore).toBeGreaterThanOrEqual(0);
+      expect(result.prioritizedIssueList[0].priorityScore).toBeLessThanOrEqual(100);
+    }
 
-    // 未提出メンバー数が0であることを検証
-    expect(aggregation_result.unsubmittedCount).toBe(0);
+    // Verify issueKeywordRanking is array with expected structure
+    expect(Array.isArray(result.issueKeywordRanking)).toBe(true);
+    if (result.issueKeywordRanking.length > 0) {
+      expect(result.issueKeywordRanking[0]).toHaveProperty('keyword');
+      expect(result.issueKeywordRanking[0]).toHaveProperty('frequency');
+      expect(result.issueKeywordRanking[0]).toHaveProperty('percentageOfTotal');
+      expect(typeof result.issueKeywordRanking[0].frequency).toBe('number');
+      expect(typeof result.issueKeywordRanking[0].percentageOfTotal).toBe('number');
+    }
 
-    // 集計実行時刻がISO 8601形式で記録されていることを検証
-    expect(aggregation_result.aggregatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
-
-    // 年度初日（2026-04-01）のデータが正確に集計されていることを確認
-    // 年度末日に入力されたが、年度初日にタイムスタンプが付与される特殊ケースが
-    // 正しく年度初日の統計に含まれることを検証
-    expect(aggregation_result.submittedCount).toBe(1);
+    // Verify lastUpdatedAt is a valid Date close to current time
+    expect(result.lastUpdatedAt instanceof Date).toBe(true);
+    const timeDifference = Date.now() - result.lastUpdatedAt.getTime();
+    expect(timeDifference).toBeGreaterThanOrEqual(0);
+    expect(timeDifference).toBeLessThan(5000); // Within 5 seconds of call time
   });
 });

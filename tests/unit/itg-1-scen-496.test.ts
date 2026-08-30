@@ -1,40 +1,34 @@
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { calculatePriorityScoreForIssue } from '../../src/logic/priority-scoring-engine';
 
-describe('課題キーワード自動抽出・ランク付け機能', () => {
-  // SCEN-496
-  test('抽出されたキーワード配列が空のときエラーを返す', () => {
-    // TextAnalysisServiceAdapterのスタブを準備
-    const textAnalysisServiceAdapterStub = {
-      extractKeywords: jest.fn().mockResolvedValue([]),
-      assessImpactScore: jest.fn(),
-      classifyIssueSeverity: jest.fn(),
-    };
+describe('Priority Scoring Engine', () => {
+  // SCEN-496: [edge] 課題の発生頻度と影響度から優先度スコア（0～100）を計算し、優先度ランク（高・中・低）を判定して返す。 - 必要リソースが1未満または10を超えるときという明示された境界条件で必要リソースは1から10の範囲で入力してください
+  test('should clamp requiredResources below 1 to 1 and calculate priority score correctly', () => {
+    const countermeasures = [
+      {
+        id: 'cm-001',
+        title: '対策案A',
+        expectedEffect: 5,
+        implementationDifficulty: 3,
+        requiredResources: 0,
+      },
+    ];
+    const effectWeight = 0.5;
+    const difficultyWeight = 0.3;
+    const resourceWeight = 0.2;
 
-    // 入力データの準備
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-15T00:00:00Z'),
-      endDate: new Date('2024-01-15T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001',
-    };
+    const result = calculatePriorityScoreForIssue(
+      countermeasures,
+      effectWeight,
+      difficultyWeight,
+      resourceWeight
+    );
 
-    const reportText = '特に課題はありません';
-
-    // 関数を呼び出してエラーをキャッチ
-    return extractAndRankIssueKeywords(
-      input,
-      reportText,
-      textAnalysisServiceAdapterStub
-    ).catch((error) => {
-      // 期待結果の検証
-      expect(error).toBeDefined();
-      expect(error.message).toMatch(/課題キーワードが抽出されませんでした/);
-
-      // assessImpactScore と classifyIssueSeverity が呼び出されないことを確認
-      expect(textAnalysisServiceAdapterStub.assessImpactScore).not.toHaveBeenCalled();
-      expect(textAnalysisServiceAdapterStub.classifyIssueSeverity).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      id: 'cm-001',
+      title: '対策案A',
+      priorityScore: 64,
+      rank: 1,
     });
   });
 });

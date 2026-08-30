@@ -1,22 +1,30 @@
-import { submitDailyReport } from '../../src/logic/daily-report-management';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { aggregateReportsByPeriod } from '../../src/logic/report-data-aggregation';
 
-describe('Daily Report Management - Submit Daily Report', () => {
-  test('SCEN-073: submitDailyReport returns INVALID_TEAM_ID error when teamId is null', async () => {
-    const input = {
-      userId: 'user-001',
-      teamId: null as unknown as string,
-      yesterdayAccomplishment: 'Completed project documentation',
-      todayPlan: 'Review pull requests and deploy staging',
-      challenges: 'Database migration script needs optimization',
-      reportDate: '2024-01-22',
+describe('Report Data Aggregation - aggregateReportsByPeriod', () => {
+  // SCEN-073: [error] 指定期間内に日報データが存在しない場合、NoReportDataFoundErrorが発生する
+  test('should throw NoReportDataFoundError when no report data exists in the specified period', async () => {
+    const startDate = new Date('2026-08-01T00:00:00Z');
+    const endDate = new Date('2026-08-05T23:59:59Z');
+    const periodType = 'daily';
+    const targetTeamIds = undefined;
+    const includeArchivedReports = false;
+
+    const request = {
+      periodStartDate: startDate,
+      periodEndDate: endDate,
+      targetTeamIds: targetTeamIds,
+      includeArchivedReports: includeArchivedReports,
     };
 
-    const result = await submitDailyReport(input);
-
-    expect(result).toBeDefined();
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(result.error?.code).toBe('INVALID_TEAM_ID');
-    expect(result.error?.message).toMatch(/チームIDが指定されていません/);
+    await expect(
+      aggregateReportsByPeriod(
+        startDate,
+        endDate,
+        periodType,
+        targetTeamIds,
+        includeArchivedReports
+      )
+    ).rejects.toThrow(/日報データが見つかりません/);
   });
 });

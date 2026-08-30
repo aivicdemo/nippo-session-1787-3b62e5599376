@@ -1,82 +1,82 @@
-import { describe, test, expect } from '@jest/globals';
-import { extractAndRankIssueKeywords } from '../../src/logic/issue-extraction-prioritization';
-import type { ExtractIssueKeywordsInput, RankedIssueKeywordList } from '../../src/logic/issue-extraction-prioritization';
+import { generateMonthlyAnalysisReport } from "../../src/logic/monthly-analysis-report";
+import { type MonthlyAnalysisInput, type StructuredMonthlyReportContent } from "../../src/logic/monthly-analysis-report";
 
-describe('Issue Extraction and Prioritization - Priority Score Rounding', () => {
-  // SCEN-463: [edge] 課題自動抽出・優先度判定機能 - 優先度スコア計算時に端数が発生した場合、指定の丸め規則に従って正確に丸められる
-  test('should round priority scores to 2 decimal places using standard rounding rules', async () => {
-    const mockTextAnalysisServiceAdapter = {
-      extractKeywords: jest.fn().mockResolvedValue({
-        keywords: [
-          { keyword: 'デバッグ', frequency: 5 },
-          { keyword: 'パフォーマンス', frequency: 3 },
-          { keyword: 'セキュリティ', frequency: 2 },
-        ],
-      }),
-      assessImpactScore: jest
-        .fn()
-        .mockImplementation((keyword: string) => {
-          if (keyword === 'デバッグ') {
-            // Case 1: 42.567 should round to 42.57 (third decimal place below)
-            return Promise.resolve(42.567);
-          } else if (keyword === 'パフォーマンス') {
-            // Case 2: 75.445 should round to 75.45 (boundary rounding)
-            return Promise.resolve(75.445);
-          } else if (keyword === 'セキュリティ') {
-            // Case 3: 88.999 should round to 89.00 (rounding up required)
-            return Promise.resolve(88.999);
-          }
-          return Promise.resolve(0);
-        }),
-      classifyIssueSeverity: jest.fn().mockResolvedValue('medium'),
+describe("Monthly Analysis Report Generation", () => {
+  // SCEN-463: [edge] プロジェクト納期が本日より前の日付のときの警告処理
+  test("should warn when project deadline is in the past and continue processing", () => {
+    const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+    // 本日を2025-02-19と仮定
+    const today = new Date("2025-02-19T09:00:00Z");
+    const pastDeadline = new Date("2025-01-01T17:00:00Z");
+
+    const input: MonthlyAnalysisInput = {
+      aggregationPeriodStart: "2025-01-01",
+      aggregationPeriodEnd: "2025-01-31",
+      issueRankingData: [
+        {
+          keyword: "DB性能低下",
+          frequency: 5,
+          impactScore: 80,
+        },
+      ],
+      priorityScoreData: [
+        {
+          issueId: "issue-001",
+          priorityScore: 75,
+          priorityRank: "high",
+          colorCode: "red",
+        },
+      ],
+      teamPerformanceMetrics: [
+        {
+          teamId: "team-001",
+          issueResolutionSpeedDays: 3,
+          reportSubmissionRate: 95,
+          issueRecurrenceRate: 15,
+        },
+      ],
+      bottleneckProgressionData: [
+        {
+          issueId: "issue-001",
+          progressionType: "deteriorating",
+          weeklyFrequencyTrend: [1, 2, 3, 4],
+          category: "technical",
+        },
+      ],
     };
 
-    const input: ExtractIssueKeywordsInput = {
-      teamId: 'team-001',
-      startDate: new Date('2024-01-01T00:00:00Z'),
-      endDate: new Date('2024-01-07T23:59:59Z'),
-      minFrequencyThreshold: 1,
-      requestUserId: 'user-001',
-    };
-
-    const result: RankedIssueKeywordList = await extractAndRankIssueKeywords(
+    // 本日より前の納期を指定してレポート生成
+    // generateMonthlyAnalysisReport は内部で detectProjectDelayRisk を呼び出す
+    const result: StructuredMonthlyReportContent = generateMonthlyAnalysisReport(
       input,
-      mockTextAnalysisServiceAdapter as any
+      pastDeadline,
+      today
     );
 
-    expect(result.keywords).toHaveLength(3);
-
-    // Verify Case 1: 42.567 rounded to 42.57
-    const case1Keyword = result.keywords.find((k) => k.keyword === 'デバッグ');
-    expect(case1Keyword).toBeDefined();
-    expect(case1Keyword?.priorityScore).toBe(42.57);
-
-    // Verify Case 2: 75.445 rounded to 75.45
-    const case2Keyword = result.keywords.find((k) => k.keyword === 'パフォーマンス');
-    expect(case2Keyword).toBeDefined();
-    expect(case2Keyword?.priorityScore).toBe(75.45);
-
-    // Verify Case 3: 88.999 rounded to 89.00
-    const case3Keyword = result.keywords.find((k) => k.keyword === 'セキュリティ');
-    expect(case3Keyword).toBeDefined();
-    expect(case3Keyword?.priorityScore).toBe(89.0);
-
-    // Verify keywords are ranked by priority score in descending order
-    expect(result.keywords[0].priorityScore).toBeGreaterThanOrEqual(
-      result.keywords[1].priorityScore
-    );
-    expect(result.keywords[1].priorityScore).toBeGreaterThanOrEqual(
-      result.keywords[2].priorityScore
+    // 処理が続行され、警告が出力されていることを検証
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("プロジェクト納期が過去日付です")
     );
 
-    // Verify rank assignment
-    expect(result.keywords[0].rank).toBe(1);
-    expect(result.keywords[1].rank).toBe(2);
-    expect(result.keywords[2].rank).toBe(3);
+    // レポートが生成されていることを確認（処理が中断されていない）
+    expect(result).toBeDefined();
+    expect(result.reportPeriod).toEqual({
+      startDate: "2025-01-01",
+      endDate: "2025-01-31",
+    });
 
-    // Verify extraction metadata
-    expect(result.totalKeywordCount).toBe(3);
-    expect(result.analysisperiodDays).toBe(7);
-    expect(result.extractedAt).toBeInstanceOf(Date);
+    // daysUntilDeadline が負の値（-49日）であることを検証
+    const daysUntilDeadline = Math.floor(
+      (pastDeadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    expect(daysUntilDeadline).toBe(-49);
+
+    // riskLevelが計算ロジックに従い決定されていることを確認
+    const riskAssessment = result.projectDelayRiskAssessment;
+    expect(riskAssessment).toBeDefined();
+    expect(["HIGH", "MEDIUM", "LOW"]).toContain(riskAssessment.riskLevel);
+
+    consoleSpy.mockRestore();
   });
 });

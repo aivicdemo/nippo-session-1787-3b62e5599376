@@ -1,57 +1,59 @@
-import { aggregateReportSubmissionStatus } from '../../src/logic/submission-status-tracking';
+import { describe, test, expect } from '@jest/globals';
+import { calculateTeamPerformanceMetrics, type TeamPerformanceMetricsOutput } from '../../src/logic/monthly-analysis-report';
+import { type MonthlyReportDataset, type MonthlyReport } from '../../src/logic/monthly-analysis-report';
 
-describe('部長向けダッシュボード提出状況リアルタイム表示機能', () => {
+describe('calculateTeamPerformanceMetrics', () => {
   // SCEN-093
-  test('チームメンバーの報告データ一覧が空配列のとき、未提出メンバーの詳細情報が空となり、提出状況の集計が完了すること', () => {
-    const input = {
-      teamId: 'team-001',
-      reportDate: '2024-01-15',
-      requestUserId: 'manager-001',
-      includeDelayedSubmissions: true,
+  test('should throw InsufficientDataForMetricsCalculation error when team has fewer than 5 reports', () => {
+    const teamIds = ['team-A', 'team-B'];
+    const aggregationStartDate = new Date('2024-01-01T00:00:00Z');
+    const aggregationEndDate = new Date('2024-01-31T23:59:59Z');
+
+    const reportDataset: MonthlyReportDataset = {
+      extractionPeriod: {
+        startDateTime: '2024-01-01T00:00:00Z',
+        endDateTime: '2024-01-31T23:59:59Z',
+      },
+      totalReportCount: 4,
+      reports: [
+        {
+          reportId: 'report-001',
+          reportDate: '2024-01-05',
+          reporterId: 'engineer-001',
+          teamId: 'team-A',
+          issues: [],
+          submissionTimestamp: '2024-01-05T08:00:00Z',
+        },
+        {
+          reportId: 'report-002',
+          reportDate: '2024-01-10',
+          reporterId: 'engineer-002',
+          teamId: 'team-A',
+          issues: [],
+          submissionTimestamp: '2024-01-10T08:00:00Z',
+        },
+        {
+          reportId: 'report-003',
+          reportDate: '2024-01-15',
+          reporterId: 'engineer-003',
+          teamId: 'team-A',
+          issues: [],
+          submissionTimestamp: '2024-01-15T08:00:00Z',
+        },
+        {
+          reportId: 'report-004',
+          reportDate: '2024-01-20',
+          reporterId: 'engineer-004',
+          teamId: 'team-A',
+          issues: [],
+          submissionTimestamp: '2024-01-20T08:00:00Z',
+        },
+      ],
+      dataQualityScore: 75,
     };
 
-    const result = aggregateReportSubmissionStatus(input, {
-      fetchTeamMembers: async () => [
-        { userId: 'user-001', userName: 'Alice', email: 'alice@example.com' },
-        { userId: 'user-002', userName: 'Bob', email: 'bob@example.com' },
-        { userId: 'user-003', userName: 'Charlie', email: 'charlie@example.com' },
-      ],
-      fetchReportSubmissions: async () => [],
-      getReportDeadline: async () => ({
-        deadlineTime: new Date('2024-01-15T09:00:00Z'),
-        timeZone: 'Asia/Tokyo',
-      }),
-      getCurrentTime: () => new Date('2024-01-15T09:05:00Z'),
-    });
-
-    return result.then((summary) => {
-      expect(summary.teamId).toBe('team-001');
-      expect(summary.reportDate).toBe('2024-01-15');
-      expect(summary.totalMembers).toBe(3);
-      expect(summary.submittedCount).toBe(0);
-      expect(summary.unsubmittedCount).toBe(3);
-      expect(summary.delayedSubmissionCount).toBe(0);
-      expect(summary.submissionRate).toBe(0.0);
-      expect(summary.unsubmittedMembers).toHaveLength(3);
-      expect(summary.unsubmittedMembers[0]).toEqual({
-        userId: 'user-001',
-        userName: 'Alice',
-        email: 'alice@example.com',
-        remainingMinutes: -5,
-      });
-      expect(summary.unsubmittedMembers[1]).toEqual({
-        userId: 'user-002',
-        userName: 'Bob',
-        email: 'bob@example.com',
-        remainingMinutes: -5,
-      });
-      expect(summary.unsubmittedMembers[2]).toEqual({
-        userId: 'user-003',
-        userName: 'Charlie',
-        email: 'charlie@example.com',
-        remainingMinutes: -5,
-      });
-      expect(summary.aggregatedAt).toBeDefined();
-    });
+    expect(() =>
+      calculateTeamPerformanceMetrics(teamIds, aggregationStartDate, aggregationEndDate, reportDataset)
+    ).toThrow(/team-A.*月次データが不足/);
   });
 });
