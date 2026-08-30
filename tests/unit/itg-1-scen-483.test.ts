@@ -5,7 +5,7 @@ describe('朝会報告管理システム - 報告検索・抽出機能', () => {
   // SCEN-483
   test('キーワード抽出モデルが利用不可のときにエラーをスロー', async () => {
     const mockTextAnalysisServiceAdapter: jest.Mocked<TextAnalysisServiceAdapter> = {
-      extractKeywords: jest.fn().mockRejectedValue(
+      extractKeywords: jest.fn<Promise<string[]>, [text: string]>().mockRejectedValue(
         new Error('指定されたキーワード抽出モデルが見つかりません')
       ),
     };
