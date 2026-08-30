@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import { getSubmissionStatus } from '../../src/logic/report-submission-management';
 
 describe('Report Submission Management - getSubmissionStatus', () => {
-  let consoleWarnSpy: jest.SpyInstance;
+  let consoleWarnSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();

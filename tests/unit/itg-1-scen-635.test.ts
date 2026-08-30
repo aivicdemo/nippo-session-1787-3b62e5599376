@@ -10,7 +10,7 @@ describe('Report Submission Management - getSubmissionStatus', () => {
   let mockJudgeAccessPermission: jest.Mock;
   let mockRetrieveReportsByDateRange: jest.Mock;
   let mockGetTeamMembers: jest.Mock;
-  let consoleSpy: jest.SpyInstance;
+  let consoleSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     mockJudgeAccessPermission = jest.fn();

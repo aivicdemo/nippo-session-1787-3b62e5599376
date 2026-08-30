@@ -2,7 +2,7 @@ import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globa
 import { saveExtractedIssueData, type SaveExtractedIssueDataInput, type SaveExtractedIssueDataOutput } from '../../src/logic/issue-data-persistence';
 
 describe('Issue Data Persistence - saveExtractedIssueData', () => {
-  let consoleWarnSpy: jest.SpyInstance;
+  let consoleWarnSpy: ReturnType<typeof jest.spyOn>;
   let mockEncryptReportData: jest.Mock;
   let mockRecordIssueAuditLog: jest.Mock;
   let mockValidateIssueDataIntegrity: jest.Mock;

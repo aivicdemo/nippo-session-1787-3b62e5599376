@@ -4,7 +4,7 @@ import { type MonthlyReportGenerationRequest, type MonthlyAnalysisReportResult }
 
 describe('Monthly Analysis Report Generation', () => {
   let mockExtractMonthlyReportDataset: jest.Mock;
-  let consoleWarnSpy: jest.SpyInstance;
+  let consoleWarnSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     jest.clearAllMocks();
