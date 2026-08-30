@@ -4,7 +4,14 @@ import { type ProductivityAnalysisDataset, type ReportRecord, type ExtractedIssu
 describe("validateProductivityAnalysisDataQuality", () => {
   // SCEN-110: [error] 分析対象期間のデータ完全性、課題抽出精度、改善施策実行可能性を総合判定し、報告可否を決定する - 集約期間内の日報提出率が基準値（80%）未満、または課題抽出対象レコード数が0件の場合
   test("should return InsufficientDataCompleteness error when submission rate is below 80% and issue count is 0", () => {
-    const reportRecords: ReportRecord[] = [
+    const reportRecords: Array<{
+      employeeId?: string;
+      emp?: string;
+      submittedAt: Date;
+      yesterdayWork?: string;
+      todayPlan?: string;
+      issues: string;
+    }> = [
       {
         employeeId: "emp001",
         submittedAt: new Date("2024-01-01T09:00:00Z"),
