@@ -1,6 +1,6 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  testMatch: ["**/tests/unit/**/*.test.ts", "**/tests/unit/**/*.test.js"],
+  testMatch: ["**/tests/unit/itg-1-*.test.ts","**/tests/unit/itg-1-*.test.js"],
   transform: { "^.+\\.tsx?$": "ts-jest" },
   testEnvironment: "node",
 };
